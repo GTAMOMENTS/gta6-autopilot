@@ -63,6 +63,7 @@ class Candidate:
     local_path: str | None = None
     score: float = 0.0
     kind: str = "gameplay"          # "gameplay" or "stream" (streamer clips / VODs with reactions)
+    heatmap: list | None = None     # YouTube "most replayed" data [{start_time, end_time, value}]
 
 
 @dataclass
@@ -468,6 +469,16 @@ def _pick_section(c: Candidate, manifest: dict, length: int) -> tuple[int, int]:
     if dur <= 0 or dur <= length + 10:
         return 0, dur or length
     used = [(u[0], u[1]) for u in manifest["sources"].get(c.key, {}).get("uses", [])]
+    if c.heatmap:
+        # YouTube "most replayed": centre the section on the part viewers rewatch the most
+        peaks = sorted((p for p in c.heatmap if p.get("start_time", 0) > dur * 0.04),
+                       key=lambda p: p.get("value", 0), reverse=True)
+        for p in peaks[:12]:
+            mid = (float(p["start_time"]) + float(p.get("end_time", p["start_time"]))) / 2
+            start = int(min(max(0, mid - length / 2), dur - length))
+            if not any(start < b and start + length > a for a, b in used):
+                log.info("[sources] using YouTube 'most replayed' peak around %ds", int(mid))
+                return start, start + length
     lo = int(dur * 0.06) if dur > 300 else 3           # skip intros / "subscribe" talk
     hi = max(lo + 1, int(dur * 0.93) - length)         # skip outros
     for _ in range(25):
@@ -537,7 +548,8 @@ def _fill_metadata(c: Candidate, cfg: dict) -> bool:
         c.duration = probe(Path(c.local_path))["duration"]
         return c.duration > 0
     need_date = c.provider == "youtube" and _min_created_ts(cfg)
-    if c.duration and not need_date:
+    need_meta = need_date or (c.provider == "youtube" and c.duration > 300)  # heatmap for long videos
+    if c.duration and not need_meta:
         return True
     res = run(_ytdlp_base() + ["-J", "--skip-download", c.url], timeout=90)
     if res.returncode != 0:
@@ -549,6 +561,7 @@ def _fill_metadata(c: Candidate, cfg: dict) -> bool:
     except json.JSONDecodeError:
         return False
     c.duration = float(meta.get("duration") or c.duration or 0)
+    c.heatmap = meta.get("heatmap") or None
     c.uploader = c.uploader or meta.get("channel") or meta.get("uploader") or ""
     if meta.get("timestamp"):
         c.created = float(meta["timestamp"])

@@ -309,8 +309,14 @@ def write_clip_copy(clip: Path, title: str, credit: str, provider: str, kind: st
         if data is not None:
             data["verified_by_video"] = False
 
+    # AI judged the clip but its voice lines are unusable -> keep the verdict, use built-in lines
+    if data and not _commentary(data, clip_dur):
+        log.warning("[ai] %s gave no usable voice lines - keeping its verdict, using built-in lines", ai_source)
+        data["commentary"] = fallback_clip_copy(clip_dur)["commentary"]
+        data.setdefault("banner", fallback_clip_copy(clip_dur)["banner"])
+
     # 4) everything failed -> built-in randomised lines
-    if not data or not _commentary(data, clip_dur):
+    if not data:
         log.warning("[ai] using built-in fallback copy")
         data = fallback_clip_copy(clip_dur)
         data["verified_by_video"] = False
@@ -328,9 +334,11 @@ LIMITS = {  # content_type -> (max lines, max words per line)
 
 def _commentary(d: dict, clip_dur: float) -> list[dict]:
     """Normalise the AI's commentary into [{"t": float, "text": str}], in order, sized by content type."""
-    raw = d.get("commentary") or []
+    raw = d.get("commentary") or d.get("lines") or d.get("voiceover") or d.get("voice_lines") or []
+    if not raw and d.get("script"):  # old-style single script -> split into sentences
+        raw = [x.strip() for x in re.findall(r"[^.!?]+[.!?]*", str(d["script"])) if x.strip()]
     if isinstance(raw, str):
-        raw = [raw]
+        raw = [x.strip() for x in re.findall(r"[^.!?]+[.!?]*", raw) if x.strip()]
     ctype = str(d.get("content_type", "action")).lower()
     max_lines, max_words = LIMITS.get(ctype, LIMITS["action"])
     if len(raw) > max_lines:  # keep the hook, the outro and the first middle lines
@@ -355,7 +363,12 @@ def _commentary(d: dict, clip_dur: float) -> list[dict]:
                 count += n
             text = " ".join(kept) if kept else " ".join(words[:max_words]).rstrip(",;:") + "!"
         try:
-            t = float(str(t).rstrip("s"))
+            ts = str(t).strip().rstrip("s")
+            if ":" in ts:  # "0:05" / "00:12"
+                mm, ss = ts.split(":")[-2:]
+                t = int(mm) * 60 + float(ss)
+            else:
+                t = float(ts)
         except (TypeError, ValueError):
             t = None
         lines.append({"t": t, "text": text})
