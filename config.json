@@ -96,9 +96,9 @@
     "providers": [
       "local",
       "extra_urls",
+      "twitch",
       "dailymotion",
-      "youtube",
-      "official_trailers"
+      "youtube"
     ],
     "launch_date": "2026-11-19",
     "only_after_launch": false,
@@ -292,7 +292,13 @@
       "everything we know",
       "tout",
       "test",
-      "review"
+      "review",
+      "memes",
+      "before gta 6",
+      "wait for gta 6",
+      "whilst you wait",
+      "while you wait",
+      "waiting for gta 6"
     ],
     "preferred_title_terms": {
       "no commentary": 3.0,
@@ -355,7 +361,58 @@
       "part 2",
       "part 3"
     ],
-    "min_height": 720
+    "min_height": 720,
+    "max_age_days": 14,
+    "content_mix": {
+      "gameplay": 0.6,
+      "stream": 0.4
+    },
+    "stream_search_queries": [
+      "GTA 6 stream highlights",
+      "GTA 6 funniest stream moments",
+      "GTA 6 streamer reaction",
+      "GTA 6 livestream best moments",
+      "GTA 6 stream rage",
+      "GTA 6 twitch clips",
+      "GTA 6 streamers react",
+      "GTA 6 first time playing reaction",
+      "GTA 6 stream funny moments",
+      "GTA 6 kick stream highlights"
+    ],
+    "stream_allowed_terms": [
+      "live",
+      "livestream",
+      "stream",
+      "reaction",
+      "reacts",
+      "react",
+      "reacting"
+    ],
+    "stream_context_terms": [
+      "stream",
+      "streamer",
+      "streamers",
+      "twitch",
+      "kick",
+      "highlights",
+      "reaction",
+      "reacts",
+      "rage",
+      "live",
+      "vod"
+    ],
+    "twitch": {
+      "game_name": "Grand Theft Auto VI",
+      "clip_days": 3,
+      "min_clip_views": 300,
+      "min_clip_sec": 15,
+      "languages": [
+        "en"
+      ],
+      "include_vods": true,
+      "vod_period": "week",
+      "clip_bonus": 3.0
+    }
   },
   "quality_gate": {
     "min_hype_score": 5,

@@ -269,8 +269,9 @@ def render(clip: Path, clip_id: str, banner: str, commentary: list[dict]) -> dic
     READY_DIR.mkdir(parents=True, exist_ok=True)
 
     info = probe(clip)
+    # never loop footage: short stream clips simply make a shorter video
     total = round(min(float(vcfg.get("duration_sec", 48)), float(vcfg.get("max_duration_sec", 58)),
-                      info["duration"] if info["duration"] >= 20 else 999), 2)
+                      info["duration"] or 48), 2)
     lines = place_lines(synthesize_lines(commentary, clip_id), total)
     words = [{"text": w["text"], "start": w["start"] + ln["start"], "end": w["end"] + ln["start"]}
              for ln in lines for w in ln["words"]]

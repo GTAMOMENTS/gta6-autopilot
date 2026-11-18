@@ -154,6 +154,20 @@ def _x_api():
     return OK, "all 4 keys set (not test-called, each call costs money)", ""
 
 
+def _twitch():
+    if not (env("TWITCH_CLIENT_ID") and env("TWITCH_CLIENT_SECRET")):
+        return OFF, "not set", "Optional, free: viral Twitch clips + streams as sources. See section H of SETUP_GUIDE.md."
+    import source_fetcher
+    from common import load_config
+    try:
+        found = source_fetcher.discover_twitch(load_config(), source_fetcher._stream_filter(load_config()))
+    except Exception as exc:  # noqa: BLE001
+        return BAD, f"error: {str(exc)[:150]}", "Check TWITCH_CLIENT_ID / TWITCH_CLIENT_SECRET."
+    clips = sum(1 for c in found if c.provider == "twitch_clip")
+    vods = len(found) - clips
+    return OK, f"works - {clips} viral GTA 6 clips + {vods} recorded streams found right now", ""
+
+
 def _upload_post():
     if not env("UPLOAD_POST_API_KEY"):
         return OFF, "not set", "Optional last-resort fallback (10 free uploads/month)."
@@ -172,6 +186,7 @@ CHECKS = [
     ("X posting - free browser (X_COOKIES)", _x_cookies),
     ("X posting - paid API (X_API_KEY ...)", _x_api),
     ("YouTube as clip source (YTDLP_COOKIES)", _ytdlp_cookies),
+    ("Twitch clips + streams (TWITCH_CLIENT_ID / SECRET)", _twitch),
     ("Upload-Post fallback (UPLOAD_POST_API_KEY)", _upload_post),
 ]
 

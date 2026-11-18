@@ -25,7 +25,7 @@ from common import (HISTORY_FILE, READY_DIR, env, load_config, load_json, now_lo
 
 log = logging.getLogger("autopilot")
 VIDEO_TYPES = ("vertical_clip", "x_video_clip", "test_all")
-SEARCH_PROVIDERS = {"dailymotion", "youtube"}
+SEARCH_PROVIDERS = {"dailymotion", "youtube", "twitch_clip", "twitch_vod"}
 
 
 # --------------------------------------------------------------------------- slot resolution
@@ -113,7 +113,7 @@ def run_video_slot(slot: dict, dry_run: bool) -> tuple[bool, dict]:
             log.warning("Time budget exhausted")
             break
         c = src.candidate
-        copy = write_clip_copy(src.clip_path, c.title, src.credit, c.provider)
+        copy = write_clip_copy(src.clip_path, c.title, src.credit, c.provider, c.kind)
         if not copy["verified_by_video"] and c.provider in SEARCH_PROVIDERS and gate.get("require_ai_check_for_search", True):
             # Can't confirm a random upload is real GTA VI without the AI watching it -> don't risk it.
             log.warning("[gate] AI video check unavailable - skipping search results, using trusted sources only")
@@ -123,11 +123,11 @@ def run_video_slot(slot: dict, dry_run: bool) -> tuple[bool, dict]:
             reason = None
             if not copy["is_gta6_footage"]:
                 reason = "not GTA VI footage"
-            elif copy["has_facecam"] and gate.get("reject_facecam", True):
+            elif copy["has_facecam"] and gate.get("reject_facecam", True) and c.kind != "stream":
                 reason = "facecam / overlay"
             elif copy["hype_score"] < int(gate.get("min_hype_score", 5)):
                 reason = f"low hype ({copy['hype_score']})"
-            if reason and c.provider != "official_trailers":
+            if reason:
                 log.info("[gate] ✋ rejected '%s': %s | %s", c.title[:60], reason, copy["scene_summary"])
                 mark_rejected(c, reason)
                 continue
@@ -143,7 +143,7 @@ def run_video_slot(slot: dict, dry_run: bool) -> tuple[bool, dict]:
         ok = dry_run or any(r.get("ok") for r in results.values())
         record = {
             "id": clip_id, "slot": slot["type"], "created_at": datetime.now(timezone.utc).isoformat(),
-            "source": {"provider": c.provider, "url": c.url, "title": c.title, "credit": src.credit,
+            "source": {"provider": c.provider, "kind": c.kind, "url": c.url, "title": c.title, "credit": src.credit,
                        "section": list(src.section), "segments": src.segments},
             "copy": copy, "rendered": rendered["path"], "duration": rendered["duration"],
             "voice_lines": rendered.get("lines", []),

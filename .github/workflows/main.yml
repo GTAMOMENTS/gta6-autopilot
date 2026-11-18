@@ -143,6 +143,8 @@ jobs:
           UPLOAD_POST_PROFILE: ${{ secrets.UPLOAD_POST_PROFILE }}
           YTDLP_COOKIES: ${{ secrets.YTDLP_COOKIES }}
           X_COOKIES: ${{ secrets.X_COOKIES }}
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
           TIMEZONE: Europe/Istanbul
           SCHEDULE_CRON: ${{ github.event.schedule }}
           SLOT: ${{ github.event_name == 'workflow_dispatch' && inputs.slot || 'auto' }}

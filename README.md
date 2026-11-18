@@ -7,7 +7,9 @@ running free on GitHub Actions.
 
 ## What each run does
 
-1. **Finds footage from anywhere**: gameplay walkthroughs, missions, story cutscenes, police chases,
+1. **Finds recent footage from anywhere** (last 14 days, min 720p), mixing two types: **gameplay**
+   and **stream moments** (viral Twitch clips, recorded streams, YouTube stream highlights with streamer reactions).
+   Gameplay sources: gameplay walkthroughs, missions, story cutscenes, police chases,
    heists and stunts. It searches Dailymotion and YouTube with about 20 rotating queries, plus anything
    you drop in `/clips` or paste into `config.json → sources.extra_urls`. Official trailers are
    only a last resort.
@@ -50,6 +52,7 @@ Change the order in `config.json → publishing.routes`. A provider without secr
 | `X_COOKIES` | Free X posting via browser (SETUP_GUIDE.md section E) |
 | `X_API_KEY`, `X_API_SECRET`, `X_ACCESS_TOKEN`, `X_ACCESS_TOKEN_SECRET` | X (optional, paid). From console.x.com, app with Read+Write, OAuth 1.0a |
 | `UPLOAD_POST_API_KEY`, `UPLOAD_POST_PROFILE` | Optional fallback (10 free uploads/month) |
+| `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` | Optional, free: viral Twitch clips + recorded streams (SETUP_GUIDE.md section H) |
 | `YTDLP_COOKIES` | Optional. YouTube blocks GitHub's servers ("not a bot" check). Paste a Netscape-format `cookies.txt` exported from a **throwaway** Google account to unlock YouTube as a source. Without it, Dailymotion and the other sources still work |
 
 ### YouTube one-time setup

@@ -195,6 +195,7 @@ Grand Theft Auto VI moments as vertical Shorts/Reels/TikToks.
 CONTEXT: {context}
 Source footage title: "{title}" (credit: {credit}). Source type: {provider}.
 {video_note}
+{kind_note}
 
 TASKS
 1. QUALITY GATE - judge the footage honestly:
@@ -232,7 +233,15 @@ Return ONLY JSON with exactly these keys:
  "x_text": str, "hashtags": [str]}}"""
 
 
-def write_clip_copy(clip: Path, title: str, credit: str, provider: str) -> dict:
+STREAM_NOTE = """THIS IS A STREAM CLIP: a streamer playing GTA 6 live, usually with a facecam and loud reactions.
+- The facecam is expected and fine: set has_facecam=false unless the webcam covers most of the game.
+- is_gta6_footage is about the GAME being shown (must be real GTA 6).
+- hype_score: rate the gameplay AND how funny/wild the streamer's reaction is.
+- The streamer is already talking, so the commentary must be ONLY 2 lines: a hook at t=0 (max 7 words,
+  e.g. "This streamer was NOT ready!") and a short question near the end. Never talk over the middle."""
+
+
+def write_clip_copy(clip: Path, title: str, credit: str, provider: str, kind: str = "gameplay") -> dict:
     """Return copy dict. Always returns something usable (fallback if AI fails)."""
     cfg = load_config()
     gcfg = cfg.get("gemini", {})
@@ -241,7 +250,8 @@ def write_clip_copy(clip: Path, title: str, credit: str, provider: str) -> dict:
     prompt_kwargs = dict(
         brand=cfg.get("brand", {}).get("display_name", "GTA VI Top Moments"),
         context=_game_context(), title=title, credit=credit, provider=provider,
-        duration=int(clip_dur), end_t=max(10, int(clip_dur) - 5),
+        duration=int(clip_dur), end_t=max(5, int(clip_dur) - 5),
+        kind_note=STREAM_NOTE if kind == "stream" else "",
     )
 
     data = None

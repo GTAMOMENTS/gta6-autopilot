@@ -116,6 +116,26 @@ YouTube blocks GitHub's servers unless the bot looks like a logged-in viewer.
 
 ---
 
+## H. Twitch clips + recorded streams (free, optional, ~3 minutes)
+
+Lets the bot grab the **most-viewed GTA 6 Twitch clips** of the last 3 days and wild moments from
+recorded streams (streamer reactions). Without it, the bot still finds stream highlights on YouTube.
+
+1. Go to https://dev.twitch.tv/console and log in with any Twitch account (create one if needed; you may
+   have to turn on two-factor authentication in Twitch settings first).
+2. Click **Register Your Application**:
+   - Name: anything unique, e.g. `gta6-autopilot-yourname`
+   - OAuth Redirect URLs: `http://localhost`
+   - Category: **Other** · Client Type: **Confidential** → **Create**
+3. Click **Manage** next to your app → copy the **Client ID** → click **New Secret** → copy the **Client Secret**.
+4. Save 2 secrets (section A): `TWITCH_CLIENT_ID` and `TWITCH_CLIENT_SECRET`.
+5. Run `check_setup` — the Twitch row shows how many viral clips it found.
+
+To change the gameplay/stream balance, edit `config.json` → `sources` → `content_mix`
+(default 60% gameplay, 40% stream moments).
+
+---
+
 ## G. AI keys
 
 | Secret | Where | Needed? |
