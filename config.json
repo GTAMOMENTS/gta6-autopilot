@@ -71,9 +71,7 @@
   "publishing": {
     "routes": {
       "youtube": [
-        "youtube_api",
-        "zernio",
-        "upload_post"
+        "youtube_api"
       ],
       "instagram": [
         "zernio",
