@@ -114,6 +114,7 @@
     "providers": [
       "local",
       "extra_urls",
+      "x_accounts",
       "twitch",
       "dailymotion",
       "youtube"
@@ -495,7 +496,15 @@
       "enabled": true,
       "slices": 3,
       "slice_sec": 110
-    }
+    },
+    "x_accounts": [
+      "GtaGameClips"
+    ],
+    "x_accounts_bonus": 3.0,
+    "x_min_sec": 15,
+    "x_max_sec": 600,
+    "x_cache_hours": 4,
+    "_x_note": "x_accounts: video posts from these X accounts join the footage pool (credited as '<account> on X'). Read with the X_COOKIES login, at most every x_cache_hours. Every clip passes the same AI checks."
   },
   "quality_gate": {
     "min_hype_score": 7,
