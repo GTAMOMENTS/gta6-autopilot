@@ -87,7 +87,7 @@ def slot_id(slot: dict) -> str:
 
 def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[bool, dict]:
     from common import RAW_DIR, probe
-    from gemini_writer import finalize_commentary, write_clip_copy
+    from gemini_writer import finalize_commentary, script_ok, write_clip_copy
     from highlight import best_window, cut_segments, energy_curve, energy_hints
     from publisher import _available, publish_video, routes_for
     from source_fetcher import iter_clips, load_manifest, mark_rejected, mark_used, save_manifest
@@ -134,6 +134,11 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         """Feature tour: every shot lasts exactly as long as its narration line (the edit follows the voice)."""
         c, reel = src.candidate, src.clip_path
         shots = copy["shots"]
+        if copy.get("ai_source") in ("built-in", "text-only", ""):
+            log.warning("[script] ✋ not posting: no AI could watch the footage and write the script")
+            reel.unlink(missing_ok=True)
+            script_problems.append("no AI could write the script")
+            return None
         clip_id = "gta6_" + now_local().strftime("%Y%m%d_%H%M") + "_" + hashlib.md5(c.key.encode()).hexdigest()[:6]
         voiced = synthesize_lines([{"t": 0.0, "text": sh["text"]} for sh in shots], clip_id)
         max_total = float(vcfg.get("tour_max_sec", 80))
@@ -178,6 +183,12 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         commentary = finalize_commentary(copy, start, end)
         copy["commentary"] = commentary
         log.info("[editor] voice lines: %s", [f"{ln['t']:.0f}s {ln['text']}" for ln in commentary])
+        good, why = script_ok(commentary, c.kind, copy.get("ai_source", ""))
+        if not good:
+            log.warning("[script] ✋ not posting this clip: %s", why)
+            clip.unlink(missing_ok=True)
+            script_problems.append(why)
+            return None
 
         clip_id = "gta6_" + now_local().strftime("%Y%m%d_%H%M") + "_" + hashlib.md5(c.key.encode()).hexdigest()[:6]
         rendered = render(clip, clip_id, copy["banner"], commentary)
@@ -185,6 +196,7 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
             return None
         return publish_and_record(src, copy, clip_id, rendered, [[start, end]])
 
+    script_problems: list[str] = []  # clips skipped because no proper AI script could be written
     backup = None  # best "almost good enough" clip, used only if nothing reaches min_hype
     skip: set[str] = set()
     if fmt:
@@ -268,6 +280,9 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
             return False, {"error": f"human voice unavailable, nothing posted: {exc}"}
         if result:
             return result
+    if script_problems:
+        return False, {"error": "nothing posted - no proper AI script could be written (AI busy / out of quota?): "
+                                + "; ".join(dict.fromkeys(script_problems))}
     return False, {"error": "no usable clip could be produced"}
 
 
@@ -279,7 +294,7 @@ def run_remake(dry_run: bool) -> tuple[bool, dict]:
     empty = the last published video."""
     from common import RAW_DIR, probe
     from formats import _rotation
-    from gemini_writer import finalize_commentary, write_clip_copy
+    from gemini_writer import finalize_commentary, script_ok, write_clip_copy
     from highlight import cut_segments, energy_curve, energy_hints
     from publisher import _available, publish_video, routes_for
     from source_fetcher import Candidate, _download, _fill_metadata, load_manifest, save_manifest
@@ -319,6 +334,10 @@ def run_remake(dry_run: bool) -> tuple[bool, dict]:
     copy["commentary"] = finalize_commentary(copy, 0.0, dur)
     log.info("[remake] script by %s: %s", copy.get("ai_source"), [f"{ln['t']:.0f}s {ln['text']}" for ln in
                                                                   copy["commentary"]])
+    good, why = script_ok(copy["commentary"], c.kind, copy.get("ai_source", ""))
+    if not good:
+        clip.unlink(missing_ok=True)
+        return False, {"error": f"nothing posted - {why}. Try the remake again later."}
     clip_id = item["id"] + "_v2"
     try:
         rendered = render(clip, clip_id, copy["banner"], copy["commentary"])

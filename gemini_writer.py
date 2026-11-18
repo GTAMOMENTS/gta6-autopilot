@@ -514,6 +514,21 @@ def rescue_commentary(copy: dict, length: float) -> list[dict]:
     return [{"t": 0.0, "text": hook}, {"t": max(3.0, length - 4), "text": random.choice(_OUTROS)}]
 
 
+def script_ok(lines: list[dict], kind: str, ai_source: str) -> tuple[bool, str]:
+    """Only post videos with a real script written by an AI that actually saw the clip."""
+    g = load_config().get("quality_gate", {})
+    if ai_source in ("built-in", "text-only", ""):
+        return False, f"no AI could watch the clip and write the script ({ai_source or 'none'})"
+    n_words = sum(len(ln.get("text", "").split()) for ln in lines)
+    if kind == "stream":
+        need_lines, need_words = int(g.get("min_script_lines_stream", 2)), int(g.get("min_script_words_stream", 12))
+    else:
+        need_lines, need_words = int(g.get("min_script_lines", 4)), int(g.get("min_script_words", 35))
+    if len(lines) < need_lines or n_words < need_words:
+        return False, f"script too thin ({len(lines)} lines, {n_words} words; need {need_lines}+ / {need_words}+)"
+    return True, ""
+
+
 LIMITS = {  # content_type -> (max lines, max words per line) - a full narration script, not just reactions
     "explainer": (10, 26), "action": (10, 26), "scenic": (8, 26), "stream": (5, 22),
 }
