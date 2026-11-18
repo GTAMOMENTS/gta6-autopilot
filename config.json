@@ -1,0 +1,127 @@
+{
+  "brand": {
+    "display_name": "GTA VI Top Moments",
+    "search_keyword": "GTA 6",
+    "niche": "top moments",
+    "handles": {
+      "youtube": "@GTAVI6TopMoments",
+      "instagram": "@gtavi_topmoments",
+      "x": "@GTAVIMomentz",
+      "tiktok": "@gta.vi.top.moment"
+    }
+  },
+  "schedule_trt": [
+    {
+      "time": "09:30",
+      "type": "x_text_recap",
+      "platforms": [
+        "x"
+      ]
+    },
+    {
+      "time": "12:00",
+      "type": "vertical_clip",
+      "platforms": [
+        "instagram",
+        "tiktok",
+        "youtube"
+      ]
+    },
+    {
+      "time": "14:30",
+      "type": "x_video_clip",
+      "platforms": [
+        "x"
+      ]
+    },
+    {
+      "time": "17:00",
+      "type": "x_question_nostalgia",
+      "platforms": [
+        "x"
+      ]
+    },
+    {
+      "time": "19:30",
+      "type": "vertical_clip",
+      "platforms": [
+        "instagram",
+        "tiktok",
+        "youtube"
+      ]
+    },
+    {
+      "time": "21:00",
+      "type": "x_video_clip",
+      "platforms": [
+        "x"
+      ]
+    },
+    {
+      "time": "22:30",
+      "type": "x_daily_recap",
+      "platforms": [
+        "x"
+      ]
+    }
+  ],
+  "video_specs": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "min_duration_sec": 7,
+    "max_duration_sec": 28,
+    "video_codec": "libx264",
+    "audio_codec": "aac",
+    "crf": 20
+  },
+  "rss_sources": [
+    {
+      "name": "RockstarGames",
+      "creator_tag": "@RockstarGames",
+      "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC6VcWc1rAoWdBCM0JxrRQ3A",
+      "official": true
+    }
+  ],
+  "blocked_keywords": [
+    "leak",
+    "leaked",
+    "datamined",
+    "datamine",
+    "hack",
+    "hacked",
+    "pirated",
+    "crack",
+    "exploit",
+    "beta build",
+    "source code",
+    "nsfw",
+    "nude"
+  ],
+  "hashtags_pool": [
+    [
+      "#GTA6",
+      "#GTAVI",
+      "#GrandTheftAutoVI",
+      "#GamingClips"
+    ],
+    [
+      "#GTA6",
+      "#RockstarGames",
+      "#ViceCity",
+      "#TopMoments"
+    ],
+    [
+      "#GTAVI",
+      "#GTA6Clips",
+      "#GamingCommunity",
+      "#Leonida"
+    ],
+    [
+      "#GTA6",
+      "#GTAVITopMoments",
+      "#ViralGaming",
+      "#OpenWorld"
+    ]
+  ]
+}
