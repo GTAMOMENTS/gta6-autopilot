@@ -41,7 +41,6 @@ def sanitize_filename(name: str) -> str:
 
 
 def fetch_archive_gta6_clip(known_ids: set[str], blocked: list[str]) -> dict | None:
-    """Fetches public GTA VI / Vice City MP4 clips from Internet Archive (never IP-blocked)."""
     try:
         search_url = (
             "https://archive.org/advancedsearch.php"
@@ -107,7 +106,6 @@ def fetch_archive_gta6_clip(known_ids: set[str], blocked: list[str]) -> dict | N
 
 
 def generate_guaranteed_motion_clip() -> dict | None:
-    """100% reliable local FFmpeg motion canvas so every scheduled run succeeds even if external feeds fail."""
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     clip_id = f"gtavi_spotlight_{stamp}"
@@ -151,7 +149,6 @@ def fetch_new_sources(limit_per_run: int = 1) -> int:
     blocked = cfg["blocked_keywords"]
     added = 0
 
-    # 1. Check if you uploaded any custom MP4s into a /clips folder in the repo
     if LOCAL_CLIPS_DIR.exists():
         for mp4 in sorted(LOCAL_CLIPS_DIR.glob("*.mp4")):
             if added >= limit_per_run:
@@ -172,7 +169,6 @@ def fetch_new_sources(limit_per_run: int = 1) -> int:
                 known_ids.add(clip_id)
                 added += 1
 
-    # 2. Fetch from Internet Archive (unblocked public GTA VI videos)
     if added < limit_per_run:
         ia_item = fetch_archive_gta6_clip(known_ids, blocked)
         if ia_item:
@@ -180,7 +176,6 @@ def fetch_new_sources(limit_per_run: int = 1) -> int:
             known_ids.add(ia_item["id"])
             added += 1
 
-    # 3. Guaranteed local motion clip fallback so pipeline never stalls
     if added < limit_per_run:
         fallback_item = generate_guaranteed_motion_clip()
         if fallback_item:
