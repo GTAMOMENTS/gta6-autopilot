@@ -22,6 +22,7 @@ on:
         options:
           - check_setup
           - voice_samples
+          - remake
           - vertical_clip
           - x_video_clip
           - test_all
@@ -32,6 +33,10 @@ on:
         description: 'Dry run: find + render the video but do NOT post (download it from the run Artifacts)'
         type: boolean
         default: true
+      remake_clip:
+        description: 'For slot = remake: clip id to re-make with a new script + voice (empty = last published video)'
+        type: string
+        default: ''
       format:
         description: 'Only for manual test runs - scheduled runs always rotate formats automatically'
         type: choice
@@ -166,6 +171,7 @@ jobs:
           SLOT: ${{ github.event_name == 'workflow_dispatch' && inputs.slot || 'auto' }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
           FORMAT: ${{ github.event_name == 'workflow_dispatch' && inputs.format || 'auto' }}
+          REMAKE_CLIP: ${{ github.event_name == 'workflow_dispatch' && inputs.remake_clip || '' }}
         run: python autopilot.py
 
       - name: Upload rendered video
