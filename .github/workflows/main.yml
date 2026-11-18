@@ -2,24 +2,46 @@ name: GTA6 Top Moments 24/7 Autopilot
 
 on:
   schedule:
-    - cron: '30 6 * * *'
-    - cron: '0 9 * * *'
-    - cron: '30 11 * * *'
-    - cron: '0 14 * * *'
-    - cron: '30 16 * * *'
-    - cron: '0 18 * * *'
-    - cron: '30 19 * * *'
+    # UTC times = TRT (Europe/Istanbul, UTC+3) minus 3h. Must match config.json "schedule".
+    - cron: '30 6 * * *'    # 09:30 TRT  x_text_morning
+    - cron: '0 9 * * *'     # 12:00 TRT  vertical_clip
+    - cron: '30 11 * * *'   # 14:30 TRT  x_video_clip
+    - cron: '0 14 * * *'    # 17:00 TRT  x_question_nostalgia
+    - cron: '30 16 * * *'   # 19:30 TRT  vertical_clip
+    - cron: '0 18 * * *'    # 21:00 TRT  x_video_clip
+    - cron: '30 19 * * *'   # 22:30 TRT  x_daily_recap
   workflow_dispatch:
+    inputs:
+      slot:
+        description: 'What to run'
+        type: choice
+        default: vertical_clip
+        options:
+          - vertical_clip
+          - x_video_clip
+          - test_all
+          - x_text_morning
+          - x_question_nostalgia
+          - x_daily_recap
+      dry_run:
+        description: 'Dry run: find + render the video but do NOT post (download it from the run Artifacts)'
+        type: boolean
+        default: true
+
+concurrency:
+  group: gta6-autopilot
+  cancel-in-progress: false
 
 jobs:
   run-autopilot:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Restore clip queue state
-        uses: actions/cache@v4
+      - name: Restore state (posted history + used sources)
+        uses: actions/cache/restore@v4
         with:
           path: queue
           key: gta6-queue-${{ github.run_id }}
@@ -30,21 +52,48 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: pip
 
-      - name: Install FFmpeg
+      - name: Install FFmpeg + fonts
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          sudo apt-get update -q
+          sudo apt-get install -y -q ffmpeg fonts-montserrat || sudo apt-get install -y -q ffmpeg
 
       - name: Install Python dependencies
-        run: |
-          pip install -r requirements.txt
+        run: pip install -U -r requirements.txt
 
-      - name: Run Gemini + Autopilot Pipeline
+      - name: Run autopilot
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ZERNIO_API_KEY: ${{ secrets.ZERNIO_API_KEY }}
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
           UPLOAD_POST_API_KEY: ${{ secrets.UPLOAD_POST_API_KEY }}
           UPLOAD_POST_PROFILE: ${{ secrets.UPLOAD_POST_PROFILE }}
-          ZERNIO_API_KEY: ${{ secrets.ZERNIO_API_KEY }}
+          YTDLP_COOKIES: ${{ secrets.YTDLP_COOKIES }}
           TIMEZONE: Europe/Istanbul
+          SCHEDULE_CRON: ${{ github.event.schedule }}
+          SLOT: ${{ github.event_name == 'workflow_dispatch' && inputs.slot || 'auto' }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
         run: python autopilot.py
+
+      - name: Upload rendered video
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-${{ github.run_id }}
+          path: work/ready/*.mp4
+          retention-days: 5
+          if-no-files-found: ignore
+
+      - name: Save state
+        if: always() && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
+        uses: actions/cache/save@v4
+        with:
+          path: queue
+          key: gta6-queue-${{ github.run_id }}-${{ github.run_attempt }}

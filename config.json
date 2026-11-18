@@ -1,8 +1,6 @@
 {
   "brand": {
     "display_name": "GTA VI Top Moments",
-    "search_keyword": "GTA 6",
-    "niche": "top moments",
     "handles": {
       "youtube": "@GTAVI6TopMoments",
       "instagram": "@gtavi_topmoments",
@@ -10,10 +8,15 @@
       "tiktok": "@gta.vi.top.moment"
     }
   },
-  "schedule_trt": [
+  "timezone": "Europe/Istanbul",
+  "game": {
+    "launch_date": "2026-11-19",
+    "facts": "GTA VI is set in the state of Leonida (including Vice City) and stars Jason and Lucia. Platforms at launch: PS5 and Xbox Series X|S."
+  },
+  "schedule": [
     {
       "time": "09:30",
-      "type": "x_text_recap",
+      "type": "x_text_morning",
       "platforms": [
         "x"
       ]
@@ -65,38 +68,322 @@
       ]
     }
   ],
-  "video_specs": {
-    "width": 1080,
-    "height": 1920,
-    "fps": 30,
-    "min_duration_sec": 7,
-    "max_duration_sec": 28,
-    "video_codec": "libx264",
-    "audio_codec": "aac",
+  "publishing": {
+    "routes": {
+      "youtube": [
+        "youtube_api",
+        "zernio",
+        "upload_post"
+      ],
+      "instagram": [
+        "zernio",
+        "upload_post"
+      ],
+      "tiktok": [
+        "zernio",
+        "upload_post"
+      ],
+      "x": [
+        "x_api",
+        "zernio",
+        "upload_post"
+      ]
+    },
+    "youtube_privacy": "public",
+    "youtube_category_id": "20",
+    "tiktok_privacy": "PUBLIC_TO_EVERYONE"
+  },
+  "sources": {
+    "providers": [
+      "local",
+      "extra_urls",
+      "dailymotion",
+      "youtube",
+      "official_trailers"
+    ],
+    "launch_date": "2026-11-19",
+    "only_after_launch": false,
+    "extra_urls": [],
+    "search_queries": [
+      "GTA 6 gameplay",
+      "GTA 6 gameplay no commentary",
+      "GTA 6 walkthrough",
+      "GTA 6 mission",
+      "GTA 6 cutscene",
+      "GTA 6 story",
+      "GTA 6 heist",
+      "GTA 6 police chase",
+      "GTA 6 wanted level",
+      "GTA 6 shootout",
+      "GTA 6 car chase",
+      "GTA 6 stunts",
+      "GTA 6 funny moments",
+      "GTA 6 free roam",
+      "GTA 6 Vice City",
+      "GTA 6 Jason Lucia",
+      "GTA 6 4K",
+      "GTA VI gameplay walkthrough part",
+      "GTA 6 boss fight",
+      "GTA 6 ending"
+    ],
+    "queries_per_run": 5,
+    "min_duration_sec": 50,
+    "max_duration_sec": 21600,
+    "section_length_sec": 180,
+    "clip_style": "auto",
+    "max_attempts": 6,
+    "time_budget_min": 22,
+    "required_title_terms": [
+      "gta 6",
+      "gta vi",
+      "gta6",
+      "gtavi",
+      "gta-6",
+      "grand theft auto vi",
+      "grand theft auto 6"
+    ],
+    "context_title_terms": [
+      "gameplay",
+      "game play",
+      "mission",
+      "missions",
+      "cutscene",
+      "cutscenes",
+      "cinematic",
+      "walkthrough",
+      "playthrough",
+      "let's play",
+      "lets play",
+      "part",
+      "chapter",
+      "story",
+      "ending",
+      "chase",
+      "chases",
+      "heist",
+      "shootout",
+      "police",
+      "cops",
+      "wanted",
+      "stunt",
+      "stunts",
+      "funny",
+      "moments",
+      "free roam",
+      "open world",
+      "4k",
+      "8k",
+      "60fps",
+      "no commentary",
+      "first hour",
+      "trailer",
+      "boss",
+      "combat",
+      "rtx",
+      "highlights",
+      "drive",
+      "car"
+    ],
+    "blocked_title_terms": [
+      "gta 5",
+      "gta v",
+      "gtav",
+      "gta5",
+      "gta online",
+      "gta iv",
+      "gta 4",
+      "san andreas",
+      "gta sa",
+      "gta 3",
+      "gta iii",
+      "mod",
+      "mods",
+      "modded",
+      "modding",
+      "concept",
+      "fan made",
+      "fanmade",
+      "fan-made",
+      "fan trailer",
+      "fake",
+      "hoax",
+      "leak",
+      "leaks",
+      "leaked",
+      "datamine",
+      "datamined",
+      "rumor",
+      "rumors",
+      "rumour",
+      "prediction",
+      "predictions",
+      "reaction",
+      "reacts",
+      "react",
+      "reacting",
+      "explained",
+      "breakdown",
+      "analysis",
+      "news",
+      "podcast",
+      "interview",
+      "release date",
+      "price",
+      "preorder",
+      "pre-order",
+      "minecraft",
+      "roblox",
+      "fortnite",
+      "gmod",
+      "garry's mod",
+      "unreal engine",
+      "ue5",
+      "ai generated",
+      "in real life",
+      "irl",
+      "emulator",
+      "download",
+      "apk",
+      "mobile",
+      "android",
+      "ios",
+      "free fire",
+      "hack",
+      "cheats",
+      "unboxing",
+      "countdown",
+      "midnight launch",
+      "queue",
+      "line",
+      "store",
+      "shorts",
+      "#shorts",
+      "tiktok",
+      "live",
+      "livestream",
+      "stream",
+      "sim",
+      "simulator",
+      "roleplay",
+      "rp",
+      "fivem",
+      "lego",
+      "cartoon",
+      "animation",
+      "drawing",
+      "meme",
+      "asmr",
+      "remake",
+      "remastered",
+      "pc port",
+      "vs real life",
+      "comparison",
+      "ai",
+      "a.i",
+      "actress",
+      "actor",
+      "voice actor",
+      "billboard",
+      "miami",
+      "real life",
+      "trailer 3",
+      "teaser",
+      "theory",
+      "theories",
+      "everything we know",
+      "tout",
+      "test",
+      "review"
+    ],
+    "preferred_title_terms": {
+      "no commentary": 3.0,
+      "cutscene": 2.0,
+      "cinematic": 2.0,
+      "4k": 1.5,
+      "mission": 1.5,
+      "walkthrough": 1.0,
+      "chase": 1.5,
+      "heist": 1.5,
+      "shootout": 1.5,
+      "ending": 1.0,
+      "stunt": 1.0,
+      "60fps": 0.5
+    },
+    "official_trailers": [
+      {
+        "title": "Grand Theft Auto VI Official Trailer 2",
+        "url": "https://www.dailymotion.com/video/x9j2dp6",
+        "duration": 166
+      },
+      {
+        "title": "Grand Theft Auto VI Official Trailer 1",
+        "url": "https://www.dailymotion.com/video/x8q8okj",
+        "duration": 91
+      }
+    ],
+    "strong_gameplay_terms": [
+      "gameplay",
+      "no commentary",
+      "walkthrough",
+      "playthrough",
+      "mission",
+      "cutscene",
+      "cutscenes",
+      "4k",
+      "let's play",
+      "lets play",
+      "part 1",
+      "part 2",
+      "part 3"
+    ]
+  },
+  "quality_gate": {
+    "min_hype_score": 5,
+    "reject_facecam": true,
+    "require_ai_check_for_search": true
+  },
+  "gemini": {
+    "models": [
+      "gemini-3.8-flash",
+      "gemini-flash-latest",
+      "gemini-flash-lite-latest"
+    ],
+    "timeout_sec": 90,
+    "watch_video": true,
+    "script_words": [
+      145,
+      165
+    ]
+  },
+  "voice": {
+    "voices": [
+      "en-US-AndrewNeural",
+      "en-US-GuyNeural",
+      "en-US-ChristopherNeural",
+      "en-US-BrianNeural"
+    ],
+    "rate": "+8%"
+  },
+  "video": {
+    "source_clip_sec": 60,
+    "max_duration_sec": 58,
+    "font": "Montserrat",
+    "caption_y": 1450,
+    "highlight_color_ass": "&H0000F0FF",
+    "foreground_zoom": 1.3,
+    "game_audio_volume": 0.5,
+    "cta_text": "FOLLOW FOR DAILY GTA 6 MOMENTS",
+    "preset": "veryfast",
     "crf": 20
   },
-  "rss_sources": [
-    {
-      "name": "RockstarGames",
-      "creator_tag": "@RockstarGames",
-      "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC6VcWc1rAoWdBCM0JxrRQ3A",
-      "official": true
-    }
-  ],
   "blocked_keywords": [
-    "leak",
-    "leaked",
-    "datamined",
-    "datamine",
-    "hack",
-    "hacked",
+    "nsfw",
+    "nude",
     "pirated",
     "crack",
     "exploit",
     "beta build",
-    "source code",
-    "nsfw",
-    "nude"
+    "source code"
   ],
   "hashtags_pool": [
     [
@@ -112,10 +399,10 @@
       "#TopMoments"
     ],
     [
+      "#GTA6",
       "#GTAVI",
-      "#GTA6Clips",
-      "#GamingCommunity",
-      "#Leonida"
+      "#Leonida",
+      "#GamingCommunity"
     ],
     [
       "#GTA6",
