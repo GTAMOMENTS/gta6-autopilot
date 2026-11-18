@@ -21,6 +21,7 @@ import logging
 import math
 import random
 import re
+import shutil
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -209,6 +210,10 @@ def discover_dailymotion(cfg: dict, queries: list[str], tf: TitleFilter) -> list
 def _ytdlp_base() -> list[str]:
     cmd = ["yt-dlp", "--no-warnings", "--no-playlist", "--socket-timeout", "45", "--retries", "3",
            "--extractor-retries", "3"]
+    # YouTube (especially when logged in with cookies) needs a JavaScript engine to unlock the
+    # video streams; Node.js is preinstalled on GitHub runners but yt-dlp only uses Deno by default.
+    if shutil.which("node"):
+        cmd += ["--js-runtimes", "node"]
     cookies = WORK_DIR / "yt_cookies.txt"
     if env("YTDLP_COOKIES") and not cookies.exists():
         parsed = parse_cookies(env("YTDLP_COOKIES"), ".youtube.com")
