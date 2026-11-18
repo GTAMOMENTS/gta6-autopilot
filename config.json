@@ -495,7 +495,10 @@
     "tour": {
       "enabled": true,
       "slices": 3,
-      "slice_sec": 110
+      "slice_sec": 110,
+      "whole_video_min_sec": 150,
+      "whole_video_max_sec": 330,
+      "_note": "Long videos (>= slices*slice_sec*2) -> 3 slices joined. For countdown formats (top 5s), a 150-660 s video is used as one reel of up to whole_video_max_sec."
     },
     "x_accounts": [
       "GtaGameClips"

@@ -409,7 +409,8 @@ def discover_trailers(cfg: dict) -> list[Candidate]:
     return out
 
 
-def rank(cands: list[Candidate], manifest: dict, tf: TitleFilter, boost: list[str] | None = None) -> list[Candidate]:
+def rank(cands: list[Candidate], manifest: dict, tf: TitleFilter, boost: list[str] | None = None,
+         prefer_min_sec: int = 0) -> list[Candidate]:
     srcs = manifest["sources"]
     now = time.time()
     ranked = []
@@ -428,6 +429,8 @@ def rank(cands: list[Candidate], manifest: dict, tf: TitleFilter, boost: list[st
         score = c.score + tf.bonus(c.title)
         if boost and any(b in _norm(c.title) for b in boost):
             score += 4.0                       # title matches this run's video format
+        if prefer_min_sec and c.duration and c.duration < prefer_min_sec:
+            score -= 3.0                       # too short to fill a countdown
         score += math.log10(c.views + 10) * 0.6
         if c.language in ("en", ""):
             score += 1.0
@@ -479,6 +482,8 @@ def discover(cfg: dict, manifest: dict, kind: str | None = None, fmt: dict | Non
         else:
             g_all = fmt["queries"]
     boost = [t.lower() for t in (fmt or {}).get("title_terms", [])]
+    # countdown formats (top 5s) need enough footage for 5 different moments
+    prefer_min = int(s.get("tour", {}).get("whole_video_min_sec", 150)) if (fmt or {}).get("countdown") else 0
     g_queries = random.sample(g_all, k=min(len(g_all), n))
     s_queries = random.sample(s_all, k=min(len(s_all), max(2, n // 2)))
 
@@ -503,7 +508,8 @@ def discover(cfg: dict, manifest: dict, kind: str | None = None, fmt: dict | Non
             stream += discover_youtube(cfg, s_queries, stf, "stream")
 
     first, second = (stream, gameplay) if kind == "stream" else (gameplay, stream)
-    ranked = rank(first, manifest, tf, boost) + rank(second, manifest, tf, boost)  # preferred type first
+    ranked = (rank(first, manifest, tf, boost, prefer_min)            # preferred type first
+              + rank(second, manifest, tf, boost, prefer_min))
     if "official_trailers" in providers:
         ranked += rank(discover_trailers(cfg), manifest, tf)
     return ranked
@@ -680,7 +686,23 @@ def iter_clips(target_sec: int, max_attempts: int = 6, skip_providers: set | Non
             tour = s.get("tour", {})
             n_slices = int(tour.get("slices", 3))
             slice_len = int(tour.get("slice_sec", 100))
-            if (tour.get("enabled", True) and c.kind == "gameplay" and c.duration
+            whole_min = int(tour.get("whole_video_min_sec", 150))
+            whole_max = int(tour.get("whole_video_max_sec", 330))
+            countdown = bool((fmt or {}).get("countdown"))
+            if (tour.get("enabled", True) and countdown and c.kind == "gameplay" and c.duration
+                    and whole_min <= c.duration < n_slices * slice_len * 2):
+                # countdown from a 2.5-11 min video (most "funny moments" compilations): one long section,
+                # up to ~5.5 min, becomes the reel the AI picks the 5 moments from
+                length = min(whole_max, int(c.duration))
+                a, b = _pick_section(c, manifest, length)
+                b = min(b if b > a else a + length, int(c.duration))
+                log.info("[sources] downloading countdown reel [%ds-%ds] %s", a, b, c.title[:70])
+                if not _download(c, a, b, sec_file):
+                    _note_failure(c)
+                    continue
+                ranges = [(a, b)]
+                start, end = a, b
+            elif (tour.get("enabled", True) and c.kind == "gameplay" and c.duration
                     and c.duration >= n_slices * slice_len * 2):
                 # feature-tour format: several slices from different parts -> one reel
                 ranges, files = [], []
