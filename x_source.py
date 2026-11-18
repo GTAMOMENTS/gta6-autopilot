@@ -146,7 +146,7 @@ def account_clips(cfg: dict) -> list[tuple[str, dict]]:
             try:
                 clips = fetch_account(acc)
                 log.info("[x-source] @%s: %d video posts found", acc, len(clips))
-                if clips or not entry:
+                if clips:  # an empty answer is retried next run instead of being cached
                     entry = {"at": time.time(), "clips": clips}
                     cache[acc.lower()] = entry
             except Exception as exc:  # noqa: BLE001
