@@ -519,7 +519,8 @@
     "min_script_lines": 4,
     "min_script_words": 35,
     "min_script_lines_stream": 2,
-    "min_script_words_stream": 12
+    "min_script_words_stream": 12,
+    "block_brand_names": false
   },
   "gemini": {
     "models": [
