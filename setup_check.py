@@ -115,12 +115,18 @@ def _ytdlp_cookies():
     path = WORK_DIR / "check_cookies.txt"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(cookies_to_netscape(cookies), encoding="utf-8")
-    res = run(["yt-dlp", "--cookies", str(path), "--skip-download", "--no-warnings", "-J",
-               "https://www.youtube.com/watch?v=QdBZY2fkU-0"], timeout=120)
+    import shutil
+    cmd = ["yt-dlp", "--cookies", str(path), "--skip-download", "--no-warnings", "-J"]
+    if shutil.which("node"):
+        cmd += ["--js-runtimes", "node"]
+    res = run(cmd + ["https://www.youtube.com/watch?v=QdBZY2fkU-0"], timeout=150)
     path.unlink(missing_ok=True)
     if res.returncode == 0:
         return OK, f"works - {len(cookies)} cookies, YouTube accepted them", ""
     err = res.stderr.strip().splitlines()[-1][:180] if res.stderr.strip() else "unknown error"
+    if "format is not available" in err:
+        return BAD, "login accepted, but YouTube's video streams could not be unlocked", \
+            "Not your fault - this needs a code fix (JavaScript engine for yt-dlp). Tell Claude."
     return BAD, f"YouTube rejected them: {err}", ("Cookies expire when you keep using that browser session. Use a private/incognito "
                                                   "window, log in, export, then CLOSE the window without logging out.")
 
