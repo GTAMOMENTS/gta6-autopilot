@@ -1,4 +1,7 @@
-"""Voiceover + captions + 1080x1920 render.
+"""Hype commentary voice + captions + 1080x1920 render.
+
+The voice is NOT a narration: a few short, fun reaction lines placed at the exact
+moments they react to. Between lines the real game audio plays at full volume.
 
 Fixes vs. the old version:
   * captions were plain SRT sentences rendered in a 384x288 coordinate space
@@ -57,49 +60,129 @@ def _even_word_timings(text: str, duration: float, lead: float = 0.15) -> list[d
     return out
 
 
-def synthesize(text: str, out: Path) -> tuple[float, list[dict]]:
-    """Return (duration, word timings). Tries several edge-tts voices, then gTTS."""
-    vcfg = load_config().get("voice", {})
-    voices = [env("TTS_VOICE")] + vcfg.get("voices", ["en-US-AndrewNeural", "en-US-GuyNeural"])
-    rate = vcfg.get("rate", "+10%")
-    words: list[dict] = []
-    names = [v for v in dict.fromkeys(voices) if v]
-    # main voice: word timings first, then sentence timings (some voices reject word-boundary mode)
-    attempts = [(names[0], "WordBoundary"), (names[0], "SentenceBoundary")] + [(v, "WordBoundary") for v in names[1:]]
-    for voice, boundary in attempts:
+def _edge_line(text: str, voice: str, rate: str, out: Path) -> list[dict]:
+    """One short line with edge-tts. Word timings relative to the line start."""
+    for boundary in ("WordBoundary", "SentenceBoundary"):
         try:
             words = asyncio.run(_edge_tts(text, voice, rate, out, boundary))
-            if out.exists() and out.stat().st_size > 5000:
-                log.info("[voice] edge-tts voice %s/%s (%d word timings)", voice, boundary, len(words))
-                break
+            if out.exists() and out.stat().st_size > 2000:
+                return words
         except Exception as exc:  # noqa: BLE001
-            log.warning("[voice] %s/%s failed: %s", voice, boundary, exc)
-            time.sleep(2)
-        words = []
-    else:
-        log.info("[voice] falling back to gTTS")
-        from gtts import gTTS
-        raw = out.with_suffix(".gtts.mp3")
-        gTTS(text=text, lang="en", tld="com").save(str(raw))
-        run(["ffmpeg", "-y", "-i", str(raw), "-filter:a", "atempo=1.1", str(out)], check=True)
+            log.debug("[voice] edge %s/%s: %s", voice, boundary, exc)
+            time.sleep(1.5)
+    raise RuntimeError(f"edge-tts {voice} gave no audio")
+
+
+_gemini_tts_cache: list[str] | None = None
+
+
+def _gemini_tts_models() -> list[str]:
+    """Gemini text-to-speech models this key can use (names change, so ask the API)."""
+    global _gemini_tts_cache
+    if _gemini_tts_cache is None:
+        _gemini_tts_cache = list(load_config().get("voice", {}).get("gemini_tts_models", []))
+        try:
+            import gemini_writer
+            for m in gemini_writer._client_beta().models.list():
+                name = (m.name or "").removeprefix("models/")
+                if "tts" in name and name not in _gemini_tts_cache:
+                    _gemini_tts_cache.append(name)
+            _gemini_tts_cache.sort(key=lambda n: ("flash" not in n, "lite" in n))  # flash first: bigger free quota
+            log.info("[voice] Gemini TTS models: %s", _gemini_tts_cache)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[voice] could not list Gemini TTS models: %.150s", exc)
+    return _gemini_tts_cache
+
+
+def _gemini_line(text: str, out: Path, model: str) -> None:
+    """One line with Gemini TTS - natural, steerable 'hyped YouTuber' delivery."""
+    import base64
+    import gemini_writer
+    from google.genai import types
+    vcfg = load_config().get("voice", {})
+    style = vcfg.get("gemini_tts_style", "Say this like a hyped, fun gaming YouTuber reacting live to an insane clip")
+    resp = gemini_writer._client_beta().models.generate_content(
+        model=model,
+        contents=f"{style}: {text}",
+        config=types.GenerateContentConfig(
+            response_modalities=["AUDIO"],
+            speech_config=types.SpeechConfig(voice_config=types.VoiceConfig(
+                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=vcfg.get("gemini_tts_voice", "Puck")))),
+        ),
+    )
+    part = resp.candidates[0].content.parts[0]
+    data = part.inline_data.data
+    if isinstance(data, str):
+        data = base64.b64decode(data)
+    m = re.search(r"rate=(\d+)", part.inline_data.mime_type or "")
+    raw = out.with_suffix(".pcm")
+    raw.write_bytes(data)
+    # PCM -> mp3, trimming silence at both ends so the line lands exactly on its moment
+    trim = "silenceremove=start_periods=1:start_threshold=-45dB"
+    res = run(["ffmpeg", "-y", "-f", "s16le", "-ar", m.group(1) if m else "24000", "-ac", "1", "-i", str(raw),
+               "-af", f"{trim},areverse,{trim},areverse", "-ar", "48000", str(out)], timeout=60)
+    raw.unlink(missing_ok=True)
+    if res.returncode != 0 or probe(out)["duration"] < 0.3:
+        raise RuntimeError("Gemini TTS returned no usable audio")
+
+
+def synthesize_lines(lines: list[dict], clip_id: str) -> list[dict]:
+    """Voice every commentary line with ONE consistent voice.
+    Order: Gemini TTS (most human) -> edge-tts voices -> gTTS. Returns lines + path/dur/words."""
+    vcfg = load_config().get("voice", {})
+    engine = vcfg.get("engine", "auto")
+    paths = [VO_DIR / f"{clip_id}_l{i}.mp3" for i in range(len(lines))]
+
+    def finish(words_per_line, label):
+        out = []
+        for ln, path, words in zip(lines, paths, words_per_line):
+            dur = probe(path)["duration"]
+            if not words or len(words) < len(ln["text"].split()) * 0.6:
+                words = _even_word_timings(ln["text"], dur, lead=0.05)
+            out.append({**ln, "path": path, "dur": dur, "words": words})
+        log.info("[voice] %d lines voiced with %s", len(out), label)
+        return out
+
+    if engine in ("auto", "gemini") and env("GEMINI_API_KEY"):
+        for model in _gemini_tts_models()[:2]:
+            try:
+                for ln, path in zip(lines, paths):
+                    _gemini_line(ln["text"], path, model)
+                return finish([[] for _ in lines], f"Gemini TTS {model}/{vcfg.get('gemini_tts_voice', 'Puck')}")
+            except Exception as exc:  # noqa: BLE001
+                log.warning("[voice] Gemini TTS %s failed (%.120s) - trying next option", model, exc)
+
+    voices = [env("TTS_VOICE")] + vcfg.get("voices", ["en-US-AndrewMultilingualNeural", "en-US-AndrewNeural"])
+    rate = vcfg.get("rate", "+12%")
+    for voice in [v for v in dict.fromkeys(voices) if v]:
+        try:
+            words = [_edge_line(ln["text"], voice, rate, path) for ln, path in zip(lines, paths)]
+            return finish(words, f"edge-tts {voice}")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[voice] %s failed: %s", voice, exc)
+
+    from gtts import gTTS
+    for ln, path in zip(lines, paths):
+        raw = path.with_suffix(".gtts.mp3")
+        gTTS(text=ln["text"], lang="en", tld="com").save(str(raw))
+        run(["ffmpeg", "-y", "-i", str(raw), "-filter:a", "atempo=1.15", str(path)], check=True)
         raw.unlink(missing_ok=True)
-
-    duration = probe(out)["duration"] or 45.0
-    if len(words) < len(text.split()) * 0.6:
-        words = _even_word_timings(text, duration)
-    return duration, words
+    return finish([[] for _ in lines], "gTTS")
 
 
-def fit_voice(audio: Path, words: list[dict], duration: float, max_len: float) -> tuple[Path, list[dict], float]:
-    """Speed the voiceover up (max 1.25x) if it is longer than the allowed video length."""
-    if duration <= max_len:
-        return audio, words, duration
-    factor = min(1.25, duration / max_len)
-    fitted = audio.with_name(audio.stem + "_fit.mp3")
-    run(["ffmpeg", "-y", "-i", str(audio), "-filter:a", f"atempo={factor:.4f}", str(fitted)], check=True)
-    log.info("[voice] voiceover %.1fs > %.1fs, sped up x%.2f", duration, max_len, factor)
-    words = [{"text": w["text"], "start": w["start"] / factor, "end": w["end"] / factor} for w in words]
-    return fitted, words, probe(fitted)["duration"]
+def place_lines(voiced: list[dict], total: float) -> list[dict]:
+    """Put each line at its moment without overlaps; drop lines that don't fit."""
+    placed, cursor = [], 0.0
+    for ln in sorted(voiced, key=lambda x: x["t"]):
+        start = max(ln["t"], cursor + 0.35, 0.25)
+        if start + ln["dur"] > total - 0.3:
+            start = max(cursor + 0.35, total - 0.3 - ln["dur"])
+        if start + ln["dur"] > total or start < cursor:
+            log.info("[voice] dropping line that doesn't fit: %s", ln["text"])
+            continue
+        placed.append({**ln, "start": start})
+        cursor = start + ln["dur"]
+    return placed
 
 
 # --------------------------------------------------------------------------- captions (ASS)
@@ -178,28 +261,29 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 # --------------------------------------------------------------------------- render
 
-def render(clip: Path, clip_id: str, banner: str, script: str) -> dict | None:
+def render(clip: Path, clip_id: str, banner: str, commentary: list[dict]) -> dict | None:
+    """commentary = [{"t": seconds, "text": "short hype line"}, ...]"""
     cfg = load_config()
     vcfg = cfg.get("video", {})
     VO_DIR.mkdir(parents=True, exist_ok=True)
     READY_DIR.mkdir(parents=True, exist_ok=True)
 
-    max_len = float(vcfg.get("max_duration_sec", 58))
-    vo_path = VO_DIR / f"{clip_id}.mp3"
-    vo_dur, words = synthesize(script, vo_path)
-    vo_path, words, vo_dur = fit_voice(vo_path, words, vo_dur, max_len - 1.5)
-    total = round(min(max_len, vo_dur + 1.5), 2)
+    info = probe(clip)
+    total = round(min(float(vcfg.get("duration_sec", 48)), float(vcfg.get("max_duration_sec", 58)),
+                      info["duration"] if info["duration"] >= 20 else 999), 2)
+    lines = place_lines(synthesize_lines(commentary, clip_id), total)
+    words = [{"text": w["text"], "start": w["start"] + ln["start"], "end": w["end"] + ln["start"]}
+             for ln in lines for w in ln["words"]]
 
     ass = VO_DIR / f"{clip_id}.ass"
     build_ass(ass, banner, words, total, vcfg.get("cta_text", "FOLLOW FOR DAILY GTA 6 MOMENTS"))
     out = READY_DIR / f"{clip_id}.mp4"
 
-    info = probe(clip)
     vertical_src = info["height"] > info["width"]
     if vertical_src:
         video_chain = "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1[base]"
     else:
-        zoom = float(vcfg.get("foreground_zoom", 1.18))
+        zoom = float(vcfg.get("foreground_zoom", 1.3))
         fg_w = int(1080 * zoom) // 2 * 2
         video_chain = (
             "[0:v]split=2[a][b];"
@@ -209,25 +293,62 @@ def render(clip: Path, clip_id: str, banner: str, script: str) -> dict | None:
             "[bg][fg]overlay=(W-w)/2:(H-h)/2-40[base]"
         )
     ass_escaped = str(ass).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
-    game_vol = float(vcfg.get("game_audio_volume", 0.5))
-    fc = (
-        f"{video_chain};[base]ass='{ass_escaped}',fps=30,format=yuv420p[vout];"
-        f"[0:a]volume={game_vol},aresample=48000[game];"
-        "[1:a]aresample=48000,volume=1.0,asplit=2[vo1][vo2];"
-        "[game][vo1]sidechaincompress=threshold=0.03:ratio=8:attack=20:release=350[ducked];"
-        "[ducked][vo2]amix=inputs=2:duration=longest:normalize=0,"
-        "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[aout]"
+    game_vol = float(vcfg.get("game_audio_volume", 0.9))
+    vo_gain = float(vcfg.get("voice_volume", 1.25))
+
+    # each voice line delayed to its moment, mixed into one sparse voice track
+    delayed = []
+    for i, ln in enumerate(lines, start=1):
+        ms = int(ln["start"] * 1000)
+        delayed.append(f"[{i}:a]aresample=48000,aformat=channel_layouts=stereo,volume={vo_gain},adelay={ms}|{ms}[v{i}]")
+    if lines:
+        vo_mix = "".join(f"[v{i}]" for i in range(1, len(lines) + 1))
+        voice = ";".join(delayed) + f";{vo_mix}amix=inputs={len(lines)}:normalize=0:duration=longest,apad[vo];"
+    else:
+        voice = "anullsrc=r=48000:cl=stereo[vo];"
+    # --- pass 1: build the audio mix (fast, audio only)
+    mix_wav = VO_DIR / f"{clip_id}_mix.wav"
+    afc = (
+        f"{voice}[vo]asplit=2[vo1][vo2];"
+        f"[0:a]aresample=48000,aformat=channel_layouts=stereo,volume={game_vol}[game];"
+        # game audio stays loud between lines and dips only while the voice talks
+        "[game][vo1]sidechaincompress=threshold=0.02:ratio=6:attack=15:release=450[ducked];"
+        "[ducked][vo2]amix=inputs=2:duration=first:normalize=0[aout]"
     )
     inputs = ["-stream_loop", "-1", "-i", str(clip)] if info["duration"] < total else ["-i", str(clip)]
-    cmd = ["ffmpeg", "-y", "-hide_banner", *inputs, "-i", str(vo_path),
+    for ln in lines:
+        inputs += ["-i", str(ln["path"])]
+    res = run(["ffmpeg", "-y", "-hide_banner", *inputs, "-filter_complex", afc, "-map", "[aout]",
+               "-t", str(total), "-ar", "48000", str(mix_wav)], timeout=300)
+    if res.returncode != 0:
+        log.error("[render] audio mix failed: %s", res.stderr[-800:])
+        return None
+
+    # --- pass 2: measure loudness once, then level the WHOLE track evenly (no quiet start)
+    norm = "loudnorm=I=-14:TP=-1.5:LRA=11"
+    meas = run(["ffmpeg", "-hide_banner", "-i", str(mix_wav), "-af", norm + ":print_format=json",
+                "-f", "null", "-"], timeout=120)
+    m = re.search(r"\{[^{}]*\"input_i\"[^{}]*\}", meas.stderr)
+    if m:
+        import json as _json
+        j = _json.loads(m.group(0))
+        norm += (f":measured_I={j['input_i']}:measured_TP={j['input_tp']}:measured_LRA={j['input_lra']}"
+                 f":measured_thresh={j['input_thresh']}:offset={j['target_offset']}:linear=true")
+
+    # --- pass 3: video + levelled audio
+    vin = ["-stream_loop", "-1", "-i", str(clip)] if info["duration"] < total else ["-i", str(clip)]
+    fc = (f"{video_chain};[base]ass='{ass_escaped}',fps=30,format=yuv420p[vout];"
+          f"[1:a]{norm},aresample=48000[aout]")
+    cmd = ["ffmpeg", "-y", "-hide_banner", *vin, "-i", str(mix_wav),
            "-filter_complex", fc, "-map", "[vout]", "-map", "[aout]",
            "-c:v", "libx264", "-preset", vcfg.get("preset", "veryfast"), "-crf", str(vcfg.get("crf", 20)),
            "-profile:v", "high", "-maxrate", "12M", "-bufsize", "24M",
            "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
            "-t", str(total), "-movflags", "+faststart", str(out)]
     res = run(cmd, timeout=900)
+    mix_wav.unlink(missing_ok=True)
     if res.returncode != 0 or not out.exists():
         log.error("[render] FFmpeg failed: %s", res.stderr[-1200:])
         return None
-    log.info("[render] %s (%.1fs, %.1f MB)", out.name, total, out.stat().st_size / 1e6)
-    return {"path": str(out), "duration": total}
+    log.info("[render] %s (%.1fs, %.1f MB, %d voice lines)", out.name, total, out.stat().st_size / 1e6, len(lines))
+    return {"path": str(out), "duration": total, "lines": [{"t": round(ln["start"], 1), "text": ln["text"]} for ln in lines]}

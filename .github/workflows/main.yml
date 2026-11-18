@@ -60,7 +60,10 @@ jobs:
         timeout-minutes: 5
         continue-on-error: true
         run: |
-          APT="-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          # Ubuntu's background auto-updater grabs the package lock on fresh runners -> stop it first
+          sudo systemctl stop unattended-upgrades apt-daily.service apt-daily-upgrade.service 2>/dev/null || true
+          sudo killall -q unattended-upgr 2>/dev/null || true
+          APT="-o DPkg::Lock::Timeout=120 -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
           sudo apt-get $APT update -q
           sudo apt-get $APT install -y -q --no-install-recommends ffmpeg fonts-montserrat fontconfig
 
@@ -69,8 +72,12 @@ jobs:
         run: |
           if command -v ffmpeg >/dev/null && command -v ffprobe >/dev/null; then ffmpeg -version | head -1; exit 0; fi
           echo "First apt attempt failed/stalled - repairing and retrying"
+          sudo systemctl stop unattended-upgrades apt-daily.service apt-daily-upgrade.service 2>/dev/null || true
+          sudo killall -q -9 apt-get apt dpkg unattended-upgr 2>/dev/null || true
+          sleep 3
+          sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock /var/lib/apt/lists/lock
           sudo dpkg --configure -a || true
-          APT="-o Acquire::Retries=5 -o Acquire::http::Timeout=30"
+          APT="-o DPkg::Lock::Timeout=120 -o Acquire::Retries=5 -o Acquire::http::Timeout=30"
           sudo apt-get $APT update -q
           sudo apt-get $APT install -y -q --no-install-recommends ffmpeg fontconfig
           ffmpeg -version | head -1

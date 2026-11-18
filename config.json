@@ -345,34 +345,37 @@
     "models": [
       "gemini-3.8-flash"
     ],
-    "timeout_sec": 75,
+    "timeout_sec": 50,
     "watch_video": true,
-    "script_words": [
-      145,
-      165
-    ],
     "max_total_sec": 240
   },
   "voice": {
+    "engine": "auto",
+    "gemini_tts_voice": "Puck",
+    "gemini_tts_style": "Say this like a fun, hyped-up gaming YouTuber reacting live to an insane clip - energetic, casual, natural, never robotic",
+    "gemini_tts_models": [],
     "voices": [
+      "en-US-BrianMultilingualNeural",
+      "en-US-AndrewMultilingualNeural",
       "en-US-AndrewNeural",
-      "en-US-GuyNeural",
-      "en-US-ChristopherNeural",
-      "en-US-BrianNeural"
+      "en-US-BrianNeural",
+      "en-US-GuyNeural"
     ],
-    "rate": "+8%"
+    "rate": "+12%"
   },
   "video": {
-    "source_clip_sec": 60,
+    "source_clip_sec": 52,
     "max_duration_sec": 58,
     "font": "Montserrat",
     "caption_y": 1450,
     "highlight_color_ass": "&H0000F0FF",
     "foreground_zoom": 1.3,
-    "game_audio_volume": 0.5,
+    "game_audio_volume": 0.9,
     "cta_text": "FOLLOW FOR DAILY GTA 6 MOMENTS",
     "preset": "veryfast",
-    "crf": 20
+    "crf": 20,
+    "duration_sec": 48,
+    "voice_volume": 1.25
   },
   "blocked_keywords": [
     "nsfw",

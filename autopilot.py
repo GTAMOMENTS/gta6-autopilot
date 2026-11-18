@@ -134,7 +134,7 @@ def run_video_slot(slot: dict, dry_run: bool) -> tuple[bool, dict]:
             log.info("[gate] ✅ accepted (hype %s): %s", copy["hype_score"], copy["scene_summary"])
 
         clip_id = "gta6_" + now_local().strftime("%Y%m%d_%H%M") + "_" + hashlib.md5(c.key.encode()).hexdigest()[:6]
-        rendered = render(src.clip_path, clip_id, copy["banner"], copy["script"])
+        rendered = render(src.clip_path, clip_id, copy["banner"], copy["commentary"])
         if not rendered:
             continue
         mark_used(src)
@@ -146,6 +146,7 @@ def run_video_slot(slot: dict, dry_run: bool) -> tuple[bool, dict]:
             "source": {"provider": c.provider, "url": c.url, "title": c.title, "credit": src.credit,
                        "section": list(src.section), "segments": src.segments},
             "copy": copy, "rendered": rendered["path"], "duration": rendered["duration"],
+            "voice_lines": rendered.get("lines", []),
             "dry_run": dry_run, "results": results, "status": "published" if ok and not dry_run else
             ("dry_run" if dry_run else "failed"),
         }
@@ -201,7 +202,8 @@ def summarize(slot: dict, sid: str, ok: bool, detail: dict, dry_run: bool) -> No
         lines += [f"**Banner:** {cp['banner']}  ", f"**Source:** [{s['title']}]({s['url']}) by {s['credit']} "
                   f"({s['provider']}, section {s['section']})  ",
                   f"**AI check:** hype {cp['hype_score']}, verified={cp['verified_by_video']} by {cp.get('ai_source', '?')} — {cp['scene_summary']}  ",
-                  f"**Script:** {cp['script']}"]
+                  "**Voice lines:** " + " · ".join(f"[{ln['t']}s] {ln['text']}" for ln in
+                                                   (detail.get('voice_lines') or cp.get('commentary', [])))]
     for plat, r in (detail.get("results") or {}).items():
         lines.append(f"- {plat}: {'✅' if r.get('ok') else '❌'} {r.get('provider', '')} {r.get('url') or r.get('error') or ''}")
     for key in ("error", "skipped"):
