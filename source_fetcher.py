@@ -630,17 +630,12 @@ def iter_clips(target_sec: int, max_attempts: int = 6, skip_providers: set | Non
             sec_file.unlink(missing_ok=True)
             mark_rejected(c, f"low resolution {sec_info['width']}x{sec_info['height']}")
             continue
-        clip_file = RAW_DIR / f"clip_{int(time.time())}.mp4"
-        try:
-            clip, segments = cut_highlight(sec_file, clip_file, target_sec, style)
-        except Exception as exc:  # noqa: BLE001
-            log.warning("[sources] highlight cut failed: %s", exc)
-            clip, segments = None, []
-        sec_file.unlink(missing_ok=True)
-        if not clip:
+        if sec_info["duration"] < 15:
+            sec_file.unlink(missing_ok=True)
             _note_failure(c)
             continue
-        yield ClipSource(candidate=c, clip_path=clip, section=(start, end), segments=segments)
+        # the AI editor (autopilot.py) watches this whole section and picks the best part
+        yield ClipSource(candidate=c, clip_path=sec_file, section=(start, end), segments=[])
 
 
 def _note_failure(c: Candidate) -> None:

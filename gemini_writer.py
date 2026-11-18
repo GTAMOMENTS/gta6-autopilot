@@ -189,8 +189,8 @@ def _game_context() -> str:
 
 # --------------------------------------------------------------------------- clip copy
 
-CLIP_PROMPT = """You are the head writer for "{brand}", a viral faceless channel posting the most hype
-Grand Theft Auto VI moments as vertical Shorts/Reels/TikToks.
+CLIP_PROMPT = """You are the editor AND writer of "{brand}", a viral faceless channel posting the most gripping
+Grand Theft Auto 6 moments as vertical Shorts/Reels/TikToks. Viewers decide in 2 seconds whether to keep watching.
 
 CONTEXT: {context}
 Source footage title: "{title}" (credit: {credit}). Source type: {provider}.
@@ -198,38 +198,44 @@ Source footage title: "{title}" (credit: {credit}). Source type: {provider}.
 {kind_note}
 
 TASKS
-1. QUALITY GATE - judge the footage honestly:
-   - is_gta6_footage: true ONLY if this is real Grand Theft Auto VI footage (Leonida / Vice City,
-     Jason & Lucia, GTA VI HUD, official trailers). false for GTA V / GTA Online, mods, other games,
-     fan-made "concept" trailers, AI fakes, real-life videos, news anchors, slideshows or menus.
+1. QUALITY GATE - judge honestly:
+   - is_gta6_footage: true ONLY for real Grand Theft Auto VI footage (Leonida / Vice City, Jason & Lucia,
+     GTA VI HUD). false for GTA V / GTA Online, mods, other games, fan "concept" trailers, AI fakes,
+     real-life videos, news anchors, slideshows or menus.
    - has_facecam: true if a streamer webcam / face overlay or a big channel watermark covers the video.
    - has_narrator: true if a YouTuber / commentator talks over the footage in their own voice
-     (NOT game characters, NOT the game's music). Only judge this if you can hear the audio; else false.
-   - hype_score: 1-10, how exciting the visuals are for a GTA fan (chases, shootouts, stunts,
-     cinematic story moments, stunning views = high; menus, walking, loading screens = low).
-   - scene_summary: one sentence describing exactly what happens on screen.
-2. WRITE THE VOICEOVER - an excited, fun GTA fan talking to his friends. NOT a documentary narrator.
-   First decide content_type (one of):
+     (NOT game characters, NOT music). Only judge this if you can hear the audio; else false.
+   - hype_score: 1-10 for the BEST part you pick in step 2, judged like a strict viral-shorts editor:
+     9-10 = jaw-dropping (insane crash, wild chase, shootout, huge stunt, shocking story twist, hilarious chaos)
+     7-8 = clearly exciting or intriguing; 5-6 = okay but would be scrolled past;
+     1-4 = dialogue, walking, menus, loading, calm driving. Be strict - most footage is 4-6.
+   - scene_summary: one sentence on exactly what happens in the part you pick.
+2. EDIT - pick the single best continuous part, {min_len} to {max_len} seconds long:
+   - clip_start / clip_end in seconds of THIS footage ({duration} s long).
+   - Start 1-2 seconds BEFORE the action kicks in, so the first seconds already hook. End right after the
+     payoff (crash, escape, punchline, reveal). Skip dialogue-only, walking and loading parts.
+   - Motion/loudness analysis says the most intense parts are around: {hints}. Use it as a hint only.
+3. WRITE for the part you picked - an excited, fun GTA fan talking to his friends, NOT a documentary narrator.
+   content_type (one of):
      "explainer" = a secret, easter egg, hidden detail, new mechanic or story moment that needs context
      "action"    = chase, shootout, crash, stunt, heist, chaos
-     "scenic"    = views, cruising, sunsets, city life, mostly calm
-   Then how much the voice talks DEPENDS on content_type:
-     * explainer: 4 to 7 lines. Explain what the viewer is looking at and why it's cool, said right when it
-       appears on screen (max 20 words per line, under 80 words total). Still excited and casual, e.g.
-       "See that tattoo? It's the same symbol from the first trailer!"
-     * action: 3 or 4 short hype reactions at the craziest moments (max 8 words each, under 35 words total),
-       e.g. "NO WAY he made that jump!", "Look at those physics!"
-     * scenic: ONLY 2 lines - a hook at t=0 and a question near the end. Let the view breathe.
-   Rules for every type:
-     - banner: max 6 words, ALL CAPS, curiosity hook for the top of the video, no emojis.
-     - commentary: list of {{"t": second in the clip when it is said, "line": "words"}}. The clip is
-       {duration} seconds long. Line 1 at t=0 is a scroll-stopping hook (max 8 words). The last line,
-       around t={end_t}, is a quick fun question or call to action (max 8 words). Leave at least 3 seconds
-       between lines.
-     - NEVER describe the obvious ("He walks into the store", "We see a red car", "The camera pans").
-       Only say what adds hype or explains something. Everyday words, contractions, exclamation marks.
-       No emojis, hashtags or stage directions. Say "GTA 6", never "GTA VI". Never invent facts - if you
-       are not sure what a detail means, react to it instead of explaining it.
+     "scenic"    = views, cruising, city life, mostly calm
+   How much the voice talks depends on content_type:
+     * explainer: 4 to 7 lines that explain what the viewer is looking at and why it's cool, right when it
+       appears (max 20 words per line, under 80 words total).
+     * action: 3 or 4 short reactions at the craziest moments (max 8 words each).
+     * scenic: ONLY 2 lines - the hook and a question at the end.
+   - banner: max 6 words, ALL CAPS, makes people NEED to see what happens. No emojis.
+   - commentary: list of {{"t": second of THIS footage, "line": "words"}}, every t between clip_start and
+     clip_end. Line 1 at t=clip_start is the HOOK: max 8 words, creates curiosity or tension about what is
+     about to happen, e.g. "He had no idea what was coming...", "This chase went SO wrong", "Watch Lucia's
+     face right here". The last line, about 4 seconds before clip_end, is a short question or call to action.
+     At least 3 seconds between lines.
+   - Every line must be about something SPECIFIC in this clip. BANNED filler: "Rockstar cooked", "this game
+     is insane", "the detail is unreal", "look at that", "wait for it", "next level" - unless tied to a
+     concrete thing on screen. Never describe the obvious ("He walks into the store"). Everyday words,
+     contractions, exclamation marks. No emojis, hashtags or stage directions. Say "GTA 6", never "GTA VI".
+     Never invent facts - if unsure what something means, react to it instead of explaining it.
    - youtube_title: max 70 characters, curiosity-driven, no hashtags.
    - caption: 1-2 short sentences for Instagram/TikTok ending with a question, no hashtags.
    - x_text: max 200 characters punchy post for X to go with the clip, no hashtags, no links.
@@ -237,7 +243,7 @@ TASKS
 
 Return ONLY JSON with exactly these keys:
 {{"is_gta6_footage": bool, "has_facecam": bool, "has_narrator": bool, "hype_score": int, "scene_summary": str,
- "content_type": "explainer" | "action" | "scenic",
+ "clip_start": number, "clip_end": number, "content_type": "explainer" | "action" | "scenic",
  "banner": str, "commentary": [{{"t": number, "line": str}}], "youtube_title": str, "caption": str,
  "x_text": str, "hashtags": [str]}}"""
 
@@ -246,20 +252,28 @@ STREAM_NOTE = """THIS IS A STREAM CLIP: a streamer playing GTA 6 live, usually w
 - The facecam is expected and fine: set has_facecam=false unless the webcam covers most of the game.
 - is_gta6_footage is about the GAME being shown (must be real GTA 6).
 - hype_score: rate the gameplay AND how funny/wild the streamer's reaction is.
-- Set content_type to "stream". The streamer is already talking, so the commentary must be ONLY 2 lines: a hook at t=0 (max 7 words,
-  e.g. "This streamer was NOT ready!") and a short question near the end. Never talk over the middle."""
+- Pick the part with the best gameplay moment AND the streamer's biggest reaction (include the build-up).
+- Set content_type to "stream". The streamer is already talking, so the commentary must be ONLY 2 lines:
+  a hook at clip_start (max 7 words, e.g. "This streamer was NOT ready!") and a short question near the end.
+  Never talk over the middle."""
 
 
-def write_clip_copy(clip: Path, title: str, credit: str, provider: str, kind: str = "gameplay") -> dict:
-    """Return copy dict. Always returns something usable (fallback if AI fails)."""
+def write_clip_copy(clip: Path, title: str, credit: str, provider: str, kind: str = "gameplay",
+                    hints: list | None = None) -> dict:
+    """The AI watches the whole downloaded section, judges it, picks the best part (clip_start/clip_end)
+    and writes for it. Commentary times are in SECTION time; finalize_commentary() converts them."""
     cfg = load_config()
     gcfg = cfg.get("gemini", {})
+    vcfg = cfg.get("video", {})
     from common import probe
-    clip_dur = min(probe(clip)["duration"] or 50, float(cfg.get("video", {}).get("duration_sec", 48)))
+    clip_dur = probe(clip)["duration"] or 60
+    min_len = int(min(vcfg.get("min_clip_sec", 25), clip_dur))
+    max_len = int(min(vcfg.get("duration_sec", 50), clip_dur))
     prompt_kwargs = dict(
         brand=cfg.get("brand", {}).get("display_name", "GTA VI Top Moments"),
         context=_game_context(), title=title, credit=credit, provider=provider,
-        duration=int(clip_dur), end_t=max(5, int(clip_dur) - 5),
+        duration=int(clip_dur), min_len=min_len, max_len=max_len,
+        hints=", ".join(f"{a}-{b}s" for a, b in (hints or [])) or "unknown",
         kind_note=STREAM_NOTE if kind == "stream" else "",
     )
 
@@ -273,8 +287,8 @@ def write_clip_copy(clip: Path, title: str, credit: str, provider: str, kind: st
         except Exception as exc:  # noqa: BLE001
             log.warning("[gemini] video upload failed: %s", exc)
     if uploaded is not None:
-        prompt = CLIP_PROMPT.format(video_note="The attached video IS the clip that will be posted. Watch it carefully.",
-                                    **prompt_kwargs)
+        prompt = CLIP_PROMPT.format(video_note="The attached video is the raw footage. Watch ALL of it carefully "
+                                               "before choosing the best part.", **prompt_kwargs)
         data = _generate_json([uploaded, prompt])
         ai_source = "gemini-video"
         try:
@@ -284,14 +298,14 @@ def write_clip_copy(clip: Path, title: str, credit: str, provider: str, kind: st
 
     # 2) Gemini busy -> free vision model looks at frames sampled from the clip
     if data is None and ai_fallback.available():
-        frames = ai_fallback.extract_frames(clip, 6)
+        frames = ai_fallback.extract_frames(clip, int(gcfg.get("fallback_frames", 8)))
         if frames:
             full = probe(clip)["duration"] or clip_dur
             times = ", ".join(f"{full * (i + 0.5) / len(frames):.0f}s" for i in range(len(frames)))
             prompt = CLIP_PROMPT.format(
-                video_note=f"The attached {len(frames)} images are frames from the clip that will be posted, "
-                           f"taken in order at these seconds: {times}. Study every frame carefully and use "
-                           "those times for the commentary timestamps.",
+                video_note=f"The attached {len(frames)} images are frames from the raw footage, taken in order "
+                           f"at these seconds: {times}. Study every frame carefully; use those times to choose "
+                           "clip_start/clip_end and the commentary timestamps.",
                 **prompt_kwargs)
             data = ai_fallback.chat_json(prompt, frames=frames)
             ai_source = (data or {}).get("_ai_model", "")
@@ -309,12 +323,9 @@ def write_clip_copy(clip: Path, title: str, credit: str, provider: str, kind: st
         if data is not None:
             data["verified_by_video"] = False
 
-    # AI judged the clip but its voice lines are unusable -> keep the verdict, use built-in lines
-    if data and not _commentary(data, clip_dur):
-        log.warning("[ai] %s gave no usable voice lines - keeping its verdict, using built-in lines "
+    if data and not _raw_lines(data):
+        log.warning("[ai] %s gave no usable voice lines - keeping its verdict, lines will be rescued "
                     "(keys=%s, commentary=%.200r)", ai_source, sorted(data.keys()), data.get("commentary"))
-        data["commentary"] = fallback_clip_copy(clip_dur)["commentary"]
-        data.setdefault("banner", fallback_clip_copy(clip_dur)["banner"])
 
     # 4) everything failed -> built-in randomised lines
     if not data:
@@ -324,8 +335,64 @@ def write_clip_copy(clip: Path, title: str, credit: str, provider: str, kind: st
         ai_source = "built-in"
     out = _clean_copy(data, clip_dur)
     out["ai_source"] = ai_source
+    if ai_source == "built-in":
+        out["commentary_raw"] = []
     log.info("[ai] copy written by: %s", ai_source)
     return out
+
+
+def _raw_lines(d: dict) -> list[dict]:
+    """AI lines with their (section-time) timestamps, before any trimming."""
+    return _commentary({**d, "content_type": "explainer"}, 10**6, keep_times=True)
+
+
+def finalize_commentary(copy: dict, start: float, end: float) -> list[dict]:
+    """Convert the AI's section-time lines to times inside the chosen clip [start, end].
+    If nothing usable is left, a second AI writes lines from the scene description."""
+    length = end - start
+    shifted = []
+    for ln in copy.get("commentary_raw", []):
+        if ln.get("t") is None:  # no timestamp -> spread evenly later
+            shifted.append({"t": None, "line": ln["text"]})
+            continue
+        rel = ln["t"] - start
+        if -2.0 <= rel <= length - 1.0:
+            shifted.append({"t": max(0.0, rel), "line": ln["text"]})
+    lines = _commentary({"commentary": shifted, "content_type": copy.get("content_type", "action")}, length)
+    if len(lines) >= 2 or (lines and copy.get("content_type") in ("scenic", "stream")):
+        return lines
+    return rescue_commentary(copy, length)
+
+
+RESCUE_PROMPT = """Write the voiceover for a {length:.0f}-second GTA 6 short.
+What happens: {summary}
+Banner on screen: {banner}. Type: {ctype}.
+You are an excited, fun GTA fan talking to friends. {amount}
+Line 1 at t=0 is a hook (max 8 words) that creates curiosity about what's about to happen.
+The last line, about 4 seconds before the end, is a short question or call to action.
+Every line must be about something specific in this clip - no generic filler like "Rockstar cooked".
+Say "GTA 6". No emojis or hashtags.
+Return ONLY JSON: {{"commentary": [{{"t": seconds, "line": "words"}}]}}"""
+
+
+def rescue_commentary(copy: dict, length: float) -> list[dict]:
+    ctype = copy.get("content_type", "action")
+    amount = {"explainer": "Write 4-6 lines that explain what's interesting.",
+              "scenic": "Write ONLY 2 lines.", "stream": "Write ONLY 2 lines."}.get(
+        ctype, "Write 3-4 short hype reactions (max 8 words each).")
+    prompt = RESCUE_PROMPT.format(length=length, summary=copy.get("scene_summary") or "an intense GTA 6 moment",
+                                  banner=copy.get("banner", ""), ctype=ctype, amount=amount)
+    data = _generate_json(prompt)
+    if data is None and ai_fallback.available():
+        data = ai_fallback.chat_json(prompt)
+    lines = _commentary({**(data or {}), "content_type": ctype}, length) if data else []
+    if lines:
+        log.info("[ai] voice lines rescued from the scene description")
+        return lines
+    # last resort: hook built from the AI's own (specific) banner + a question
+    hook = (copy.get("banner") or "Watch this").capitalize().rstrip(".!?") + "!"
+    log.warning("[ai] using minimal hook + question lines")
+    return [{"t": 0.0, "text": hook}, {"t": max(3.0, length - 4), "text": random.choice(_OUTROS)}]
 
 
 LIMITS = {  # content_type -> (max lines, max words per line)
@@ -333,7 +400,7 @@ LIMITS = {  # content_type -> (max lines, max words per line)
 }
 
 
-def _commentary(d: dict, clip_dur: float) -> list[dict]:
+def _commentary(d: dict, clip_dur: float, keep_times: bool = False) -> list[dict]:
     """Normalise the AI's commentary into [{"t": float, "text": str}], in order, sized by content type."""
     raw = d.get("commentary") or d.get("lines") or d.get("voiceover") or d.get("voice_lines") or []
     if not raw and d.get("script"):  # old-style single script -> split into sentences
@@ -375,6 +442,8 @@ def _commentary(d: dict, clip_dur: float) -> list[dict]:
         lines.append({"t": t, "text": text})
     if not lines:
         return []
+    if keep_times:
+        return lines
     n = len(lines)
     for i, ln in enumerate(lines):  # fill missing / silly timestamps evenly
         if ln["t"] is None or not 0 <= ln["t"] < clip_dur:
@@ -391,7 +460,12 @@ def _clean_copy(d: dict, clip_dur: float = 48) -> dict:
     tags = ["#" + re.sub(r"[^A-Za-z0-9_]", "", t.lstrip("#")) for t in tags if str(t).strip("# ")]
     if "#GTA6" not in tags:
         tags.insert(0, "#GTA6")
-    commentary = _commentary(d, clip_dur) or fallback_clip_copy(clip_dur)["commentary"]
+    raw = _raw_lines(d)
+    try:
+        clip_start = float(d.get("clip_start")) if d.get("clip_start") is not None else None
+        clip_end = float(d.get("clip_end")) if d.get("clip_end") is not None else None
+    except (TypeError, ValueError):
+        clip_start = clip_end = None
     return {
         "is_gta6_footage": bool(d.get("is_gta6_footage", True)),
         "has_facecam": bool(d.get("has_facecam", False)),
@@ -401,8 +475,9 @@ def _clean_copy(d: dict, clip_dur: float = 48) -> dict:
         "scene_summary": s("scene_summary"),
         "verified_by_video": bool(d.get("verified_by_video", False)),
         "banner": re.sub(r"[^A-Z0-9 !?'.,-]", "", s("banner", "INSANE GTA 6 MOMENT").upper())[:48].strip() or "INSANE GTA 6 MOMENT",
-        "commentary": commentary,
-        "script": " ".join(ln["text"] for ln in commentary),
+        "commentary_raw": raw,
+        "clip_start": clip_start, "clip_end": clip_end,
+        "script": " ".join(ln["text"] for ln in raw),
         "youtube_title": s("youtube_title", "This GTA 6 moment is unreal")[:80],
         "caption": s("caption", "This GTA 6 moment goes crazy. Would you try this?"),
         "x_text": s("x_text", "This GTA 6 moment goes crazy")[:240],

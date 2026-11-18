@@ -133,8 +133,8 @@
     "max_duration_sec": 21600,
     "section_length_sec": 120,
     "clip_style": "auto",
-    "max_attempts": 6,
-    "time_budget_min": 22,
+    "max_attempts": 8,
+    "time_budget_min": 25,
     "required_title_terms": [
       "gta 6",
       "gta vi",
@@ -304,18 +304,30 @@
       "waiting for gta 6"
     ],
     "preferred_title_terms": {
-      "no commentary": 3.0,
-      "cutscene": 2.0,
-      "cinematic": 2.0,
+      "no commentary": 2.0,
+      "cutscene": 0.5,
+      "cinematic": 1.0,
       "4k": 1.5,
       "mission": 1.5,
-      "walkthrough": 1.0,
-      "chase": 1.5,
-      "heist": 1.5,
-      "shootout": 1.5,
+      "walkthrough": -1.5,
+      "chase": 2.5,
+      "heist": 2.0,
+      "shootout": 2.5,
       "ending": 1.0,
-      "stunt": 1.0,
-      "60fps": 0.5
+      "stunt": 2.0,
+      "60fps": 0.5,
+      "police": 1.5,
+      "funny": 2.0,
+      "crazy": 1.5,
+      "insane": 1.0,
+      "best moments": 2.0,
+      "rampage": 2.0,
+      "explosion": 2.0,
+      "crash": 1.5,
+      "wanted": 1.5,
+      "full game": -2.0,
+      "part 1": -1.0,
+      "intro": -1.0
     },
     "official_trailers": [
       {
@@ -418,10 +430,11 @@
     }
   },
   "quality_gate": {
-    "min_hype_score": 5,
+    "min_hype_score": 7,
     "reject_facecam": true,
     "require_ai_check_for_search": true,
-    "reject_narrator": true
+    "reject_narrator": true,
+    "backup_hype_score": 6
   },
   "gemini": {
     "models": [
@@ -429,7 +442,8 @@
     ],
     "timeout_sec": 50,
     "watch_video": true,
-    "max_total_sec": 240
+    "max_total_sec": 240,
+    "fallback_frames": 8
   },
   "voice": {
     "engine": "edge",
@@ -456,8 +470,9 @@
     "cta_text": "FOLLOW FOR DAILY GTA 6 MOMENTS",
     "preset": "veryfast",
     "crf": 20,
-    "duration_sec": 48,
-    "voice_volume": 1.25
+    "duration_sec": 50,
+    "voice_volume": 1.25,
+    "min_clip_sec": 25
   },
   "blocked_keywords": [
     "nsfw",

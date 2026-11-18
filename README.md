@@ -15,9 +15,10 @@ running free on GitHub Actions.
    only a last resort.
 2. **Filters out junk**: GTA 5 mods posing as GTA 6, fan "concept" trailers, AI fakes, leaks,
    reaction/news/talk videos, livestreams.
-3. **Downloads only a ~3 min section** of long videos, then **auto-picks the most intense seconds**
-   using motion, loudness and black-frame detection (a single shot or a 2–3 cut montage).
-4. **Gemini watches the clip** (if Gemini is busy, a free OpenRouter/Groq/Mistral model checks frames of the clip instead) and rejects it if it isn't real GTA VI, has a facecam, or is boring.
+3. **Downloads only a ~2 min section** of long videos (YouTube's "most replayed" peak when available).
+   **The AI acts as the editor**: it watches the whole section and picks the most gripping 25–50 seconds
+   (starting right before the action), with motion/loudness analysis as hints and as fallback.
+4. **The AI judges the clip** (min 7/10 hype; a 6/10 clip is only used if nothing better is found) and (if Gemini is busy, a free OpenRouter/Groq/Mistral model checks frames of the clip instead) and rejects it if it isn't real GTA VI, has a facecam, or is boring.
    It then writes a banner, 3-5 short hype reaction lines timed to the big moments (not a narration), a YouTube title,
    captions and an X post.
 5. **Renders a ~48 s 1080×1920 video**: blurred background, zoomed gameplay, wrapped hook banner, big
