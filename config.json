@@ -518,7 +518,6 @@
   "voice": {
     "engine": "gemini",
     "gemini_tts_voice": "Fenrir",
-    "gemini_tts_style": "Read this like a real 25-year-old gamer showing his friends a GTA 6 clip: natural, casual, warm and genuinely excited, with real human emphasis and pacing like a popular YouTuber. Never sound like an announcer, a robot or a kid.",
     "gemini_tts_models": [],
     "voices": [
       "en-US-AndrewNeural",
@@ -529,7 +528,7 @@
     "pitch": "+2Hz",
     "volume": "+10%",
     "robot_fallback": false,
-    "_note": "Human voice only: Gemini TTS voice 'Fenrir' (picked from the voice samples). If Gemini fails the video is NOT posted; set robot_fallback to true to allow the Microsoft voices below instead."
+    "_note": "Human voice only: Gemini TTS voice 'Fenrir'. Gemini receives ONLY the script (style instructions would be read out loud) - the YouTuber style comes from the AI-written script. If Gemini fails the video is NOT posted; set robot_fallback to true to allow the Microsoft voices below instead."
   },
   "video": {
     "source_clip_sec": 52,
