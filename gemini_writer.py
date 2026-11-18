@@ -77,7 +77,11 @@ def _discover_models() -> list[str]:
                                               ("image", "tts", "audio", "live", "embedding", "native", "robotics")):
                     continue
                 names.append(name)
-            _discovered = sorted(set(names), key=_version_key, reverse=True)[:3]
+            # newest 3 Flash + newest 2 Flash-Lite: every model has its own free daily quota, and
+            # Flash-Lite can watch video too
+            full = sorted({n for n in names if "lite" not in n}, key=_version_key, reverse=True)[:3]
+            lite = sorted({n for n in names if "lite" in n}, key=_version_key, reverse=True)[:2]
+            _discovered = full + lite
             log.info("[gemini] models available to this key: %s", _discovered)
         except Exception as exc:  # noqa: BLE001
             log.warning("[gemini] could not list models: %.200s", exc)
@@ -121,30 +125,49 @@ def _generate_json(contents, temperature: float = 0.9) -> dict | None:
     if time.time() < _unavailable_until:
         return None
     from google.genai import types
-    for model in _models():
-        try:
-            resp = _client().models.generate_content(
-                model=model,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    temperature=temperature,
-                    response_mime_type="application/json",
-                ),
-            )
-            data = _parse_json(resp.text or "")
+    for attempt in (1, 2):
+        overloaded = False
+        for model in _models():
+            data, busy = _try_model(types, model, contents, temperature)
             if data:
-                log.info("[gemini] response from %s", model)
                 return data
-            log.warning("[gemini] %s returned unparseable output - next model", model)
-        except Exception as exc:  # noqa: BLE001
-            msg = str(exc)
-            log.warning("[gemini] %s failed (%.120s) - next model", model, msg)
-            if any(x in msg for x in ("404", "NOT_FOUND", "not supported", "exceeded your current quota",
-                                      "RESOURCE_EXHAUSTED")):
-                _dead_models.add(model)  # gone or out of quota for today - don't try it again this run
+            overloaded = overloaded or busy
+        if attempt == 1 and overloaded:
+            # 503 "high demand" / 504 timeouts are temporary - one more round after a short wait
+            log.info("[gemini] models overloaded - waiting 40s and trying once more")
+            time.sleep(40)
+            continue
+        break
     log.warning("[gemini] all models busy/out of quota - skipping Gemini for the rest of this run")
     _unavailable_until = time.time() + 3600
     return None
+
+
+def _try_model(types, model: str, contents, temperature: float) -> tuple[dict | None, bool]:
+    """One request. Returns (data, overloaded)."""
+    try:
+        resp = _client().models.generate_content(
+            model=model,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                temperature=temperature,
+                response_mime_type="application/json",
+            ),
+        )
+        data = _parse_json(resp.text or "")
+        if data:
+            log.info("[gemini] response from %s", model)
+            return data, False
+        log.warning("[gemini] %s returned unparseable output - next model", model)
+    except Exception as exc:  # noqa: BLE001
+        msg = str(exc)
+        log.warning("[gemini] %s failed (%.120s) - next model", model, msg)
+        if any(x in msg for x in ("404", "NOT_FOUND", "not supported", "exceeded your current quota",
+                                  "RESOURCE_EXHAUSTED")):
+            _dead_models.add(model)  # gone or out of quota for today - don't try it again this run
+            return None, False
+        return None, any(x in msg for x in ("503", "504", "UNAVAILABLE", "DEADLINE_EXCEEDED", "high demand"))
+    return None, False
 
 
 def _upload_video(clip: Path):
