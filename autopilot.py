@@ -25,7 +25,7 @@ from common import (HISTORY_FILE, READY_DIR, env, load_config, load_json, now_lo
 
 log = logging.getLogger("autopilot")
 VIDEO_TYPES = ("vertical_clip", "x_video_clip", "test_all")
-SEARCH_PROVIDERS = {"dailymotion", "youtube", "twitch_clip", "twitch_vod"}
+SEARCH_PROVIDERS = {"dailymotion", "youtube", "twitch_clip", "twitch_vod", "x_account"}  # need the AI check
 
 
 # --------------------------------------------------------------------------- slot resolution
@@ -87,7 +87,7 @@ def slot_id(slot: dict) -> str:
 
 def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[bool, dict]:
     from common import RAW_DIR, probe
-    from gemini_writer import finalize_commentary, write_clip_copy
+    from gemini_writer import finalize_commentary, script_ok, write_clip_copy
     from highlight import best_window, cut_segments, energy_curve, energy_hints
     from publisher import _available, publish_video, routes_for
     from source_fetcher import iter_clips, load_manifest, mark_rejected, mark_used, save_manifest
@@ -134,6 +134,11 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         """Feature tour: every shot lasts exactly as long as its narration line (the edit follows the voice)."""
         c, reel = src.candidate, src.clip_path
         shots = copy["shots"]
+        if copy.get("ai_source") in ("built-in", "text-only", ""):
+            log.warning("[script] ✋ not posting: no AI could watch the footage and write the script")
+            reel.unlink(missing_ok=True)
+            script_problems.append("no AI could write the script")
+            return None
         clip_id = "gta6_" + now_local().strftime("%Y%m%d_%H%M") + "_" + hashlib.md5(c.key.encode()).hexdigest()[:6]
         voiced = synthesize_lines([{"t": 0.0, "text": sh["text"]} for sh in shots], clip_id)
         max_total = float(vcfg.get("tour_max_sec", 80))
@@ -178,6 +183,12 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         commentary = finalize_commentary(copy, start, end)
         copy["commentary"] = commentary
         log.info("[editor] voice lines: %s", [f"{ln['t']:.0f}s {ln['text']}" for ln in commentary])
+        good, why = script_ok(commentary, c.kind, copy.get("ai_source", ""))
+        if not good:
+            log.warning("[script] ✋ not posting this clip: %s", why)
+            clip.unlink(missing_ok=True)
+            script_problems.append(why)
+            return None
 
         clip_id = "gta6_" + now_local().strftime("%Y%m%d_%H%M") + "_" + hashlib.md5(c.key.encode()).hexdigest()[:6]
         rendered = render(clip, clip_id, copy["banner"], commentary)
@@ -185,6 +196,7 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
             return None
         return publish_and_record(src, copy, clip_id, rendered, [[start, end]])
 
+    script_problems: list[str] = []  # clips skipped because no proper AI script could be written
     backup = None  # best "almost good enough" clip, used only if nothing reaches min_hype
     skip: set[str] = set()
     if fmt:
@@ -268,7 +280,83 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
             return False, {"error": f"human voice unavailable, nothing posted: {exc}"}
         if result:
             return result
+    if script_problems:
+        return False, {"error": "nothing posted - no proper AI script could be written (AI busy / out of quota?): "
+                                + "; ".join(dict.fromkeys(script_problems))}
     return False, {"error": "no usable clip could be produced"}
+
+
+# --------------------------------------------------------------------------- remake
+
+def run_remake(dry_run: bool) -> tuple[bool, dict]:
+    """Re-make an already published clip - same footage, same cut - with a freshly written AI script and a
+    new Gemini voice-over, then post it again. REMAKE_CLIP = clip id (see the run summary / manifest);
+    empty = the last published video."""
+    from common import RAW_DIR, probe
+    from formats import _rotation
+    from gemini_writer import finalize_commentary, script_ok, write_clip_copy
+    from highlight import cut_segments, energy_curve, energy_hints
+    from publisher import _available, publish_video, routes_for
+    from source_fetcher import Candidate, _download, _fill_metadata, load_manifest, save_manifest
+    from video_processor import HumanVoiceUnavailable, render
+
+    cfg = load_config()
+    want = env("REMAKE_CLIP").strip()
+    items = [i for i in load_manifest()["items"]
+             if i.get("status") == "published" and (not want or i.get("id") == want)]
+    if not items:
+        return False, {"error": f"no published clip {want or ''} found to remake"}
+    item = items[-1]
+    s = item["source"]
+    segs = s.get("segments") or []
+    if len(segs) != 1:
+        return False, {"error": "only single-moment clips can be remade (this one is a multi-shot tour)"}
+    log.info("[remake] %s: %s %s cut %s", item["id"], s["title"][:70], s["section"], segs[0])
+    key = next((k for k, st in load_manifest()["sources"].items() if st.get("url") == s["url"]), s["url"])
+    c = Candidate(key=key, url=s["url"], title=s["title"], uploader=s.get("credit", ""), provider=s["provider"],
+                  kind=s.get("kind", "gameplay"))
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
+    section = RAW_DIR / "remake_section.mp4"
+    try:
+        if not _fill_metadata(c, cfg) or not _download(c, int(s["section"][0]), int(s["section"][1]), section):
+            return False, {"error": "could not download the original footage again"}
+    except PermissionError:
+        return False, {"error": "YouTube blocked the download (check YTDLP_COOKIES)"}
+    clip = cut_segments(section, RAW_DIR / "remake_clip.mp4", [tuple(segs[0])])
+    section.unlink(missing_ok=True)
+    if not clip:
+        return False, {"error": "could not cut the clip"}
+    dur = probe(clip)["duration"]
+    fmt = next((f for f in _rotation(cfg) if f["id"] == item.get("format_id")), None)
+    copy = write_clip_copy(clip, c.title, s.get("credit", ""), c.provider, c.kind,
+                           energy_hints(energy_curve(clip), 30, 3), tour=False, fmt=fmt)
+    copy["clip_start"], copy["clip_end"] = 0.0, dur          # keep the exact same cut
+    copy["commentary"] = finalize_commentary(copy, 0.0, dur)
+    log.info("[remake] script by %s: %s", copy.get("ai_source"), [f"{ln['t']:.0f}s {ln['text']}" for ln in
+                                                                  copy["commentary"]])
+    good, why = script_ok(copy["commentary"], c.kind, copy.get("ai_source", ""))
+    if not good:
+        clip.unlink(missing_ok=True)
+        return False, {"error": f"nothing posted - {why}. Try the remake again later."}
+    clip_id = item["id"] + "_v2"
+    try:
+        rendered = render(clip, clip_id, copy["banner"], copy["commentary"])
+    except HumanVoiceUnavailable as exc:
+        return False, {"error": f"human voice unavailable, nothing posted: {exc}"}
+    if not rendered:
+        return False, {"error": "render failed"}
+    platforms = [p for p in ("instagram", "tiktok", "youtube", "x") if any(_available(pr, p) for pr in routes_for(p))]
+    results = {} if dry_run else publish_video(Path(rendered["path"]), platforms, copy, s.get("credit", ""))
+    ok = dry_run or any(r.get("ok") for r in results.values())
+    record = {"id": clip_id, "slot": "remake", "remake_of": item["id"], "format_id": item.get("format_id", ""),
+              "created_at": datetime.now(timezone.utc).isoformat(), "source": s, "copy": copy,
+              "rendered": rendered["path"], "duration": rendered["duration"],
+              "voice_lines": rendered.get("lines", []), "dry_run": dry_run, "results": results,
+              "status": "published" if ok and not dry_run else ("dry_run" if dry_run else "failed")}
+    m = load_manifest()
+    m["items"].append(record)
+    save_manifest(m)
+    return ok, record
 
 
 # --------------------------------------------------------------------------- text slot
@@ -351,6 +439,13 @@ def main() -> int:
     if args.slot == "voice_samples":
         from video_processor import voice_samples
         return voice_samples()
+    if args.slot == "remake":
+        READY_DIR.mkdir(parents=True, exist_ok=True)
+        ok, detail = run_remake(args.dry_run)
+        summarize({"type": "remake"}, detail.get("id", "remake"), ok, detail, args.dry_run)
+        if not ok:
+            log.error("Remake FAILED: %s", detail.get("error") or detail.get("results"))
+        return 0 if ok else 1
 
     cfg = load_config()
     slot = resolve_slot(cfg, args.slot)

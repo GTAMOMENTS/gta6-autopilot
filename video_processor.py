@@ -105,10 +105,24 @@ class HumanVoiceUnavailable(RuntimeError):
     """Gemini's human voice failed and config says never to fall back to a robotic voice."""
 
 
+class _SplitError(RuntimeError):
+    """The one-request audio can't be cut into the script's lines (or contains extra speech)."""
+
+
+def _tts_prompt(lines: list[str]) -> str:
+    """What Gemini TTS receives: ONLY the script, nothing else. (Style instructions in the request get read
+    out loud by the TTS models - that put "read this like a 25-year-old..." into a published video.)
+    The casual YouTuber style comes from how the script itself is written; Fenrir performs it."""
+    return "\n\n".join(t.strip() for t in lines if t.strip())
+
+
+def _expected_sec(text: str) -> float:
+    return len(text.split()) / 2.6
+
+
 def _gemini_line(text: str, out: Path, model: str, voice: str) -> None:
     """One line, one Gemini TTS request (used when the all-in-one audio can't be split)."""
-    style = load_config().get("voice", {}).get("gemini_tts_style", "")
-    wav = _gemini_tts_wav(f"{style}\nSay only this line:\n\n{text}", model, voice, out.with_suffix(".wav"))
+    wav = _gemini_tts_wav(_tts_prompt([text]), model, voice, out.with_suffix(".wav"))
     # trim silence at both ends so the line lands exactly on its moment
     trim = "silenceremove=start_periods=1:start_threshold=-45dB"
     res = run(["ffmpeg", "-y", "-i", str(wav), "-af", f"{trim},areverse,{trim},areverse", "-ar", "48000",
@@ -116,6 +130,8 @@ def _gemini_line(text: str, out: Path, model: str, voice: str) -> None:
     wav.unlink(missing_ok=True)
     if res.returncode != 0 or probe(out)["duration"] < 0.3:
         raise RuntimeError("Gemini TTS returned no usable audio")
+    if probe(out)["duration"] > _expected_sec(text) * 1.8 + 2.5:
+        raise RuntimeError(f"line audio far too long for '{text[:40]}' - extra speech")
 
 
 def _rate_limited(exc: Exception) -> bool:
@@ -136,9 +152,7 @@ def _gemini_voice(lines: list[dict], paths: list[Path], voice: str) -> str:
             try:
                 try:
                     _gemini_all_lines(lines, paths, model, voice)
-                except RuntimeError as exc:
-                    if "could not split" not in str(exc):
-                        raise
+                except _SplitError as exc:
                     log.info("[voice] %s - recording the %d lines one by one", exc, len(lines))
                     for ln, path in zip(lines, paths):
                         _gemini_line(ln["text"], path, model, voice)
@@ -168,16 +182,6 @@ def _speech_segments(path: Path, min_silence: float) -> list[tuple[float, float]
         cursor = b
     if dur - cursor > 0.15:
         segs.append((cursor, dur))
-    return segs
-
-
-def _merge_to(segs: list[tuple[float, float]], n: int) -> list[tuple[float, float]]:
-    """Merge the closest neighbours until there are n parts (a line can contain short pauses)."""
-    segs = list(segs)
-    while len(segs) > n:
-        gaps = [segs[i + 1][0] - segs[i][1] for i in range(len(segs) - 1)]
-        i = gaps.index(min(gaps))
-        segs[i:i + 2] = [(segs[i][0], segs[i + 1][1])]
     return segs
 
 
@@ -220,9 +224,7 @@ def voice_samples() -> int:
     from common import write_summary
     READY_DIR.mkdir(parents=True, exist_ok=True)
     vcfg = load_config().get("voice", {})
-    style = vcfg.get("gemini_tts_style", "")
-    prompt = (f"{style}\nSay these lines one after another with a short natural pause between them:\n\n"
-              + "\n\n".join(SAMPLE_LINES))
+    prompt = _tts_prompt(SAMPLE_LINES)
     rows = ["## 🎙️ Voice samples", "", "Download **voice-samples** from Artifacts below, listen, then tell Claude "
             "which one to use.", "", "| File | Voice | Result |", "|---|---|---|"]
     models = _gemini_tts_models()
@@ -260,26 +262,79 @@ def voice_samples() -> int:
     return 0
 
 
+def _align_cuts(segs: list[tuple[float, float]], words: list[int]) -> list[tuple[float, float]] | None:
+    """Split speech into len(words) pieces: choose the pauses whose positions best match where each line
+    should end (by word count), preferring longer pauses. Returns [(start, end)] per line or None."""
+    n = len(words)
+    if n == 1:
+        return [(segs[0][0], segs[-1][1])]
+    gaps = [((segs[i][1] + segs[i + 1][0]) / 2, segs[i + 1][0] - segs[i][1], i) for i in range(len(segs) - 1)]
+    if len(gaps) < n - 1:
+        return None
+    t0, t1, total = segs[0][0], segs[-1][1], sum(words)
+    cum, run_w = [], 0
+    for w in words[:-1]:
+        run_w += w
+        cum.append(t0 + (t1 - t0) * run_w / total)
+    inf = float("inf")
+    m = len(gaps)
+    # best[k][j] = cost when boundary k uses gap j (gaps strictly increasing)
+    best = [[inf] * m for _ in range(n - 1)]
+    prev = [[-1] * m for _ in range(n - 1)]
+    for k in range(n - 1):
+        for j in range(m):
+            pos, length, _ = gaps[j]
+            c = abs(pos - cum[k]) - 1.2 * min(length, 1.5)
+            if k == 0:
+                best[k][j] = c
+                continue
+            for i in range(j):
+                if best[k - 1][i] + c < best[k][j]:
+                    best[k][j], prev[k][j] = best[k - 1][i] + c, i
+    j = min(range(m), key=lambda x: best[n - 2][x])
+    if best[n - 2][j] == inf:
+        return None
+    chosen = []
+    for k in range(n - 2, -1, -1):
+        chosen.append(gaps[j][2])
+        j = prev[k][j]
+    chosen.reverse()
+    pieces, start = [], segs[0][0]
+    for gi in chosen:
+        pieces.append((start, segs[gi][1]))
+        start = segs[gi + 1][0]
+    pieces.append((start, segs[-1][1]))
+    return pieces
+
+
 def _gemini_all_lines(lines: list[dict], paths: list[Path], model: str, voice: str | None = None) -> None:
-    """ONE Gemini TTS request for every line (saves free quota), then split at the long pauses."""
-    vcfg = load_config().get("voice", {})
-    voice = voice or vcfg.get("gemini_tts_voice", "Fenrir")
-    style = vcfg.get("gemini_tts_style", "Talk like a real guy reacting to a crazy clip with friends.")
-    script = "\n\n".join(ln["text"] for ln in lines)
-    prompt = (f"{style}\nSay the {len(lines)} lines below one after another, as separate parts. "
-              "After each line, stay completely silent for about two seconds. Say only the lines.\n\n" + script)
-    full = _gemini_tts_wav(prompt, model, voice, paths[0].with_name(paths[0].stem + "_all.wav"))
-    segs = []
-    for min_sil in (0.8, 0.5, 0.3):
-        segs = _speech_segments(full, min_sil)
-        if len(segs) >= len(lines):
-            break
-    if len(segs) < len(lines):
-        raise RuntimeError(f"could not split Gemini audio into {len(lines)} lines (found {len(segs)})")
-    for (a, b), path in zip(_merge_to(segs, len(lines)), paths):
-        run(["ffmpeg", "-y", "-ss", f"{max(0, a - 0.05):.2f}", "-to", f"{b + 0.12:.2f}", "-i", str(full),
-             "-ar", "48000", str(path)], timeout=60, check=True)
-    full.unlink(missing_ok=True)
+    """ONE Gemini TTS request with the whole script (natural flow, saves quota), then cut into lines at the
+    pauses that match the script. Every piece is checked against its line; any doubt -> _SplitError and the
+    caller records line by line, so captions always match what the voice says."""
+    voice = voice or load_config().get("voice", {}).get("gemini_tts_voice", "Fenrir")
+    texts = [ln["text"] for ln in lines]
+    words = [max(1, len(t.split())) for t in texts]
+    full = _gemini_tts_wav(_tts_prompt(texts), model, voice, paths[0].with_name(paths[0].stem + "_all.wav"))
+    try:
+        segs = _speech_segments(full, 0.2)
+        if not segs:
+            raise _SplitError("no speech in Gemini audio")
+        speech = segs[-1][1] - segs[0][0]
+        expected = sum(words) / 2.6
+        if not 0.55 * expected <= speech <= 1.6 * expected + 2:
+            raise _SplitError(f"{speech:.0f}s of speech for {sum(words)} words - doesn't match the script")
+        pieces = _align_cuts(segs, words)
+        if not pieces:
+            raise _SplitError(f"could not split Gemini audio into {len(lines)} lines (found {len(segs)} parts)")
+        rate = speech / sum(words)  # this take's real seconds per word
+        for (a, b), text, w in zip(pieces, texts, words):
+            if not (0.5 * w * rate - 0.4 <= b - a <= 1.7 * w * rate + 1.0):
+                raise _SplitError(f"piece {b - a:.1f}s doesn't match line '{text[:40]}'")
+        for (a, b), path in zip(pieces, paths):
+            run(["ffmpeg", "-y", "-ss", f"{max(0, a - 0.05):.2f}", "-to", f"{b + 0.12:.2f}", "-i", str(full),
+                 "-ar", "48000", str(path)], timeout=60, check=True)
+    finally:
+        full.unlink(missing_ok=True)
 
 
 def synthesize_lines(lines: list[dict], clip_id: str) -> list[dict]:
@@ -334,9 +389,15 @@ def synthesize_lines(lines: list[dict], clip_id: str) -> list[dict]:
 
 
 def place_lines(voiced: list[dict], total: float) -> list[dict]:
-    """Put each line at its moment without overlaps; drop lines that don't fit."""
+    """Put each line at its moment without overlaps. If the script is longer than the clip, middle lines are
+    dropped first so the hook and the ending question always stay."""
+    voiced = sorted(voiced, key=lambda x: x["t"])
+    while len(voiced) > 2 and sum(v["dur"] + 0.35 for v in voiced) > total - 0.6:
+        drop = max(range(1, len(voiced) - 1), key=lambda i: voiced[i]["dur"])
+        log.info("[voice] script too long for the clip - dropping: %s", voiced[drop]["text"])
+        voiced = voiced[:drop] + voiced[drop + 1:]
     placed, cursor = [], 0.0
-    for ln in sorted(voiced, key=lambda x: x["t"]):
+    for ln in voiced:
         start = max(ln["t"], cursor + 0.35, 0.25)
         if start + ln["dur"] > total - 0.3:
             start = max(cursor + 0.35, total - 0.3 - ln["dur"])

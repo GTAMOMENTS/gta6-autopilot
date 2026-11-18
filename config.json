@@ -114,6 +114,7 @@
     "providers": [
       "local",
       "extra_urls",
+      "x_accounts",
       "twitch",
       "dailymotion",
       "youtube"
@@ -498,7 +499,15 @@
       "whole_video_min_sec": 150,
       "whole_video_max_sec": 330,
       "_note": "Long videos (>= slices*slice_sec*2) -> 3 slices joined. For countdown formats (top 5s), a 150-660 s video is used as one reel of up to whole_video_max_sec."
-    }
+    },
+    "x_accounts": [
+      "GtaGameClips"
+    ],
+    "x_accounts_bonus": 3.0,
+    "x_min_sec": 15,
+    "x_max_sec": 600,
+    "x_cache_hours": 4,
+    "_x_note": "x_accounts: video posts from these X accounts join the footage pool (credited as '<account> on X'). Read with the X_COOKIES login, at most every x_cache_hours. Every clip passes the same AI checks."
   },
   "quality_gate": {
     "min_hype_score": 7,
@@ -506,7 +515,11 @@
     "require_ai_check_for_search": true,
     "reject_narrator": true,
     "backup_hype_score": 6,
-    "reject_spoilers": true
+    "reject_spoilers": true,
+    "min_script_lines": 4,
+    "min_script_words": 35,
+    "min_script_lines_stream": 2,
+    "min_script_words_stream": 12
   },
   "gemini": {
     "models": [
@@ -521,7 +534,6 @@
   "voice": {
     "engine": "gemini",
     "gemini_tts_voice": "Fenrir",
-    "gemini_tts_style": "Read this like a real 25-year-old gamer showing his friends a GTA 6 clip: natural, casual, warm and genuinely excited, with real human emphasis and pacing like a popular YouTuber. Never sound like an announcer, a robot or a kid.",
     "gemini_tts_models": [],
     "voices": [
       "en-US-AndrewNeural",
@@ -532,7 +544,7 @@
     "pitch": "+2Hz",
     "volume": "+10%",
     "robot_fallback": false,
-    "_note": "Human voice only: Gemini TTS voice 'Fenrir' (picked from the voice samples). If Gemini fails the video is NOT posted; set robot_fallback to true to allow the Microsoft voices below instead."
+    "_note": "Human voice only: Gemini TTS voice 'Fenrir'. Gemini receives ONLY the script (style instructions would be read out loud) - the YouTuber style comes from the AI-written script. If Gemini fails the video is NOT posted; set robot_fallback to true to allow the Microsoft voices below instead."
   },
   "video": {
     "source_clip_sec": 52,
@@ -570,9 +582,9 @@
     ],
     [
       "#GTA6",
-      "#RockstarGames",
       "#ViceCity",
-      "#TopMoments"
+      "#TopMoments",
+      "#GamingClips"
     ],
     [
       "#GTA6",

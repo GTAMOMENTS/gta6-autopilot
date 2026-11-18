@@ -222,34 +222,39 @@ TASKS
    - Start 1-2 seconds BEFORE the action kicks in, so the first seconds already hook. End right after the
      payoff (crash, escape, punchline, reveal). Skip dialogue-only, walking and loading parts.
    - Motion/loudness analysis says the most intense parts are around: {hints}. Use it as a hint only.
-3. WRITE for the part you picked - sound like a REAL person: a 25-year-old gamer watching this with his friends,
-   reacting honestly and casually ("nah bro, he's not seriously trying this...", "wait wait wait - OH NO",
-   "okay that was actually so clean", "this guy has zero chill"). Natural spoken phrasing, a bit of humour,
-   NOT an announcer and NOT a documentary narrator.
+3. WRITE THE NARRATION SCRIPT for the part you picked. A voice actor reads it over the clip, so it must be a
+   GREAT script like the top GTA Shorts channels (millions of views): a likeable 25-year-old gamer talking
+   straight to the viewer, casual and confident, a bit funny, genuinely hyped - NOT an announcer, NOT a
+   documentary narrator, NOT a list of random reactions. It flows like one story:
+     HOOK (first 2 s, creates curiosity: "This guy really thought the beach was a road.") ->
+     CONTEXT (what's going on, what he's trying to do) -> BUILD-UP (tension: cops closing in, the ramp
+     coming up) -> PAYOFF (react to the crash / escape / punchline right when it happens) ->
+     a cool detail or a GTA 5 comparison you can SEE on screen -> ENDING question that makes people comment.
    content_type (one of):
-     "explainer" = a secret, easter egg, hidden detail, new mechanic or story moment that needs context
+     "explainer" = a secret, easter egg, hidden detail or new mechanic that needs context
      "action"    = chase, shootout, crash, stunt, heist, chaos
      "scenic"    = views, cruising, city life, mostly calm
-   How much the voice talks depends on content_type:
-     * explainer: 4 to 7 lines that explain what the viewer is looking at and why it's cool, right when it
-       appears (max 20 words per line, under 80 words total).
-     * action: 3 or 4 short reactions at the craziest moments (max 8 words each).
-     * scenic: ONLY 2 lines - the hook and a question at the end.
-   - banner: max 6 words, ALL CAPS, makes people NEED to see what happens. No emojis.
    - commentary: list of {{"t": second of THIS footage, "line": "words"}}, every t between clip_start and
-     clip_end. Line 1 at t=clip_start is the HOOK: max 8 words, creates curiosity or tension about what is
-     about to happen, e.g. "He had no idea what was coming...", "This chase went SO wrong", "Watch Lucia's
-     face right here". The last line, about 4 seconds before clip_end, is a short question or call to action.
-     At least 3 seconds between lines.
+     clip_end, in order. 6 to 10 lines; each line is 1-2 spoken sentences (6 to 24 words). All lines together
+     about 2.4 words per second of clip (a 50 s clip = about 120 words). The voice talks for most of the clip
+     but leaves short gaps so the big moment's sound can hit.
+   - Line 1 at t=clip_start is the HOOK (max 12 words). The last line, about 4 seconds before clip_end, is
+     the question. Put each line's t where the thing it talks about happens on screen. Leave enough time for
+     each line: the next t must be at least (words in this line / 2.7) seconds later.
+   - Use spoken English: contractions, "bro", "nah", "watch this part", "I'm dead serious", rhetorical
+     questions, a joke now and then. Exclamation marks where he'd really get loud.
+   - banner: max 6 words, ALL CAPS, makes people NEED to see what happens. No emojis.
    - Every line must be about something SPECIFIC in this clip. BANNED filler: "Rockstar cooked", "this game
      is insane", "the detail is unreal", "look at that", "wait for it", "next level" - unless tied to a
-     concrete thing on screen. Never describe the obvious ("He walks into the store"). Everyday words,
-     contractions, exclamation marks. No emojis, hashtags or stage directions. Say "GTA 6", never "GTA VI".
+     concrete thing on screen. Never just describe the obvious ("He drives the truck to the beach") - add
+     the feeling, the joke or the why ("He took a pickup to the beach like the cops wouldn't notice. They
+     noticed."). No emojis, hashtags or stage directions. Say "GTA 6", never "GTA VI", at most twice.
      Never invent facts - if unsure what something means, react to it instead of explaining it.
    - youtube_title: max 70 characters, curiosity-driven, no hashtags.
    - caption: 1-2 short sentences for Instagram/TikTok ending with a question, no hashtags.
    - x_text: max 200 characters punchy post for X to go with the clip, no hashtags, no links.
-   - hashtags: 4 relevant hashtags (strings starting with #), always include #GTA6.
+   - hashtags: 4 relevant hashtags (strings starting with #), always include #GTA6. Never company or brand
+     tags (no #RockstarGames, #PlayStation, #Xbox, #ad) - no sponsored-looking content.
 
 Return ONLY JSON with exactly these keys:
 {{"is_gta6_footage": bool, "has_facecam": bool, "has_narrator": bool, "is_spoiler": bool, "fits_format": bool, "hype_score": int,
@@ -322,7 +327,8 @@ TASKS
    banner: max 6 words, ALL CAPS, states the angle (e.g. "5 THINGS GTA 5 COULDN'T DO", "ROBBING STORES IS DIFFERENT NOW").
    youtube_title: max 70 characters, like the top channels: "5 CRAZY Things In GTA 6 You CAN'T Do In GTA 5",
    "Robbing Stores in GTA 6 Works Differently To GTA 5", "GTA 6 Is FINALLY Here! First Gameplay". No hashtags. caption: 1-2 sentences ending with a
-   question, no hashtags. x_text: max 200 characters, no hashtags, no links. hashtags: 4, include #GTA6.
+   question, no hashtags. x_text: max 200 characters, no hashtags, no links. hashtags: 4, include #GTA6, never
+   company or brand tags (no #RockstarGames, #PlayStation, #Xbox, #ad).
 
 Return ONLY JSON with exactly these keys:
 {{"is_gta6_footage": bool, "has_facecam": bool, "has_narrator": bool, "is_spoiler": bool, "fits_format": bool, "hype_score": int,
@@ -334,6 +340,8 @@ STREAM_NOTE = """THIS IS A STREAM CLIP: a streamer playing GTA 6 live, usually w
 - The facecam is expected and fine: set has_facecam=false unless the webcam covers most of the game.
 - is_gta6_footage is about the GAME being shown (must be real GTA 6).
 - hype_score: rate the gameplay AND how funny/wild the streamer's reaction is.
+- NARRATION for streams: only 3 to 5 lines (about 40-70 words) - set the scene before the moment, then go
+  quiet so the streamer's own reaction is heard, then one line + the question at the end.
 - Pick the part with the best gameplay moment AND the streamer's biggest reaction (include the build-up).
 - Set content_type to "stream". The streamer is already talking, so the commentary must be ONLY 2 lines:
   a hook at clip_start (max 7 words, e.g. "This streamer was NOT ready!") and a short question near the end.
@@ -478,8 +486,10 @@ def finalize_commentary(copy: dict, start: float, end: float) -> list[dict]:
 RESCUE_PROMPT = """Write the voiceover for a {length:.0f}-second GTA 6 short.
 What happens: {summary}
 Banner on screen: {banner}. Type: {ctype}.
-You are an excited, fun GTA fan talking to friends. {amount}
-Line 1 at t=0 is a hook (max 8 words) that creates curiosity about what's about to happen.
+You are a likeable 25-year-old gamer narrating this clip to your viewers like a top GTA Shorts channel:
+casual, confident, a bit funny, genuinely hyped. {amount} It flows like one story: hook -> what's going on ->
+build-up -> react to the payoff -> ending question.
+Line 1 at t=0 is a hook (max 12 words) that creates curiosity about what's about to happen.
 The last line, about 4 seconds before the end, is a short question or call to action.
 Every line must be about something specific in this clip - no generic filler like "Rockstar cooked".
 Don't repeat the game's name in every line (at most once, as "GTA 6"). No emojis or hashtags.
@@ -488,9 +498,9 @@ Return ONLY JSON: {{"commentary": [{{"t": seconds, "line": "words"}}]}}"""
 
 def rescue_commentary(copy: dict, length: float) -> list[dict]:
     ctype = copy.get("content_type", "action")
-    amount = {"explainer": "Write 4-6 lines that explain what's interesting.",
-              "scenic": "Write ONLY 2 lines.", "stream": "Write ONLY 2 lines."}.get(
-        ctype, "Write 3-4 short hype reactions (max 8 words each).")
+    words = int(length * 2.4)
+    amount = {"stream": "Write 3-4 lines (about 50 words) and leave room for the streamer's reaction."}.get(
+        ctype, f"Write 6-9 lines of 1-2 spoken sentences each, about {words} words in total.")
     prompt = RESCUE_PROMPT.format(length=length, summary=copy.get("scene_summary") or "an intense GTA 6 moment",
                                   banner=copy.get("banner", ""), ctype=ctype, amount=amount)
     data = _generate_json(prompt)
@@ -506,8 +516,23 @@ def rescue_commentary(copy: dict, length: float) -> list[dict]:
     return [{"t": 0.0, "text": hook}, {"t": max(3.0, length - 4), "text": random.choice(_OUTROS)}]
 
 
-LIMITS = {  # content_type -> (max lines, max words per line)
-    "explainer": (7, 22), "action": (4, 10), "scenic": (2, 10), "stream": (2, 10),
+def script_ok(lines: list[dict], kind: str, ai_source: str) -> tuple[bool, str]:
+    """Only post videos with a real script written by an AI that actually saw the clip."""
+    g = load_config().get("quality_gate", {})
+    if ai_source in ("built-in", "text-only", ""):
+        return False, f"no AI could watch the clip and write the script ({ai_source or 'none'})"
+    n_words = sum(len(ln.get("text", "").split()) for ln in lines)
+    if kind == "stream":
+        need_lines, need_words = int(g.get("min_script_lines_stream", 2)), int(g.get("min_script_words_stream", 12))
+    else:
+        need_lines, need_words = int(g.get("min_script_lines", 4)), int(g.get("min_script_words", 35))
+    if len(lines) < need_lines or n_words < need_words:
+        return False, f"script too thin ({len(lines)} lines, {n_words} words; need {need_lines}+ / {need_words}+)"
+    return True, ""
+
+
+LIMITS = {  # content_type -> (max lines, max words per line) - a full narration script, not just reactions
+    "explainer": (10, 26), "action": (10, 26), "scenic": (8, 26), "stream": (5, 22),
 }
 
 

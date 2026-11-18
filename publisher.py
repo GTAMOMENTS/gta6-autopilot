@@ -50,10 +50,23 @@ def routes_for(platform: str) -> list[str]:
 
 # --------------------------------------------------------------------------- captions
 
+# Company / platform brand tags make a post look like undisclosed sponsored ("branded") content on
+# Instagram - never use them. config.json -> publishing.blocked_hashtags can add more.
+BRAND_TAGS = {"rockstargames", "rockstar", "rockstarnorth", "taketwo", "playstation", "ps5", "xbox",
+              "xboxseriesx", "sony", "microsoft", "steam", "epicgames", "nvidia", "amd", "ad", "sponsored",
+              "partner", "giveaway"}
+
+
+def clean_hashtags(tags: list[str]) -> list[str]:
+    blocked = BRAND_TAGS | {t.lower().lstrip("#") for t in _pcfg().get("blocked_hashtags", [])}
+    out = [t for t in tags if t.lstrip("#").lower() not in blocked]
+    return list(dict.fromkeys(out)) or ["#GTA6"]
+
+
 def build_captions(copy: dict, credit: str) -> dict:
-    tags = copy.get("hashtags") or ["#GTA6"]
+    tags = clean_hashtags(copy.get("hashtags") or ["#GTA6"])
     tag_str = " ".join(tags)
-    credit_line = f"🎥 Footage: {credit}" if credit else ""
+    credit_line = f"🎥 Gameplay by {credit}" if credit else ""
     yt_title = copy.get("youtube_title") or copy.get("banner", "GTA 6 moment").title()
     x_text = copy.get("x_text") or copy.get("caption", "")
     x_full = f"{x_text}\n\n{credit_line}".strip()
