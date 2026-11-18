@@ -80,12 +80,18 @@ def _youtube():
         return BAD, f"Google refused: {r.text[:160]}", ("invalid_grant = token expired/revoked: redo step 5-6 of the YouTube guide, "
                                                          "and make sure the app is 'In production'.")
     tok = r.json()["access_token"]
+    info = requests.get("https://oauth2.googleapis.com/tokeninfo", params={"access_token": tok}, timeout=30).json()
+    scopes = info.get("scope", "")
+    if "youtube.upload" not in scopes and "auth/youtube " not in scopes + " ":
+        return BAD, f"token works but has no upload permission (scopes: {scopes or 'none'})", \
+            "Redo Part 2 of the YouTube steps and paste the youtube.upload scope before 'Authorize APIs'."
     ch = requests.get("https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true",
-                      headers={"Authorization": f"Bearer {tok}"}, timeout=30).json()
-    names = [i["snippet"]["title"] for i in ch.get("items", [])]
-    if not names:
-        return BAD, "token works but no channel found", "When authorising, pick the account/brand channel that owns the YouTube channel."
-    return OK, f"works - channel: {', '.join(names)}", ""
+                      headers={"Authorization": f"Bearer {tok}"}, timeout=30)
+    names = [i["snippet"]["title"] for i in ch.json().get("items", [])] if ch.status_code == 200 else []
+    if names:
+        return OK, f"works - uploads go to channel: {', '.join(names)}", ""
+    return OK, "works - upload permission OK (channel name hidden with upload-only permission; "\
+               "videos go to the channel you picked when authorising)", ""
 
 
 def _ytdlp_cookies():
