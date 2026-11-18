@@ -12,15 +12,20 @@ on:
     - cron: '30 19 * * *'
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
   run-autopilot:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Restore clip queue state
+        uses: actions/cache@v4
+        with:
+          path: queue
+          key: gta6-queue-${{ github.run_id }}
+          restore-keys: |
+            gta6-queue-
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -42,16 +47,5 @@ jobs:
           UPLOAD_POST_API_KEY: ${{ secrets.UPLOAD_POST_API_KEY }}
           UPLOAD_POST_PROFILE: ${{ secrets.UPLOAD_POST_PROFILE }}
           ZERNIO_API_KEY: ${{ secrets.ZERNIO_API_KEY }}
-          YT_COOKIES_TXT: ${{ secrets.YT_COOKIES_TXT }}
           TIMEZONE: Europe/Istanbul
         run: python autopilot.py
-
-      - name: Save queue state so clips never double-post
-        run: |
-          git config user.name "gta6-autopilot-bot"
-          git config user.email "bot@users.noreply.github.com"
-          git fetch origin main
-          git reset --soft origin/main
-          git add queue/
-          git diff --staged --quiet || git commit -m "chore: update published clip queue"
-          git push origin main
