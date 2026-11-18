@@ -272,9 +272,6 @@ TASKS
      concrete thing on screen. Never just describe the obvious ("He drives the truck to the beach") - add
      the feeling, the joke or the why ("He took a pickup to the beach like the cops wouldn't notice. They
      noticed."). No emojis, hashtags or stage directions. Say "GTA 6", never "GTA VI", at most twice.
-   - NEVER say real-world brand or company names (no Ford, Mercedes, Toyota, Nike, PlayStation...). GTA 6
-     has its own made-up brands - use the in-game name only if you can clearly read it on screen, otherwise
-     describe it ("this lifted pickup", "a sports car"). Never claim the game has real car models.
      Never invent facts - if unsure what something means, react to it instead of explaining it.
    - youtube_title: max 70 characters, curiosity-driven, no hashtags.
    - caption: 1-2 short sentences for Instagram/TikTok ending with a question, no hashtags.
@@ -340,8 +337,6 @@ TASKS
      insane. Let me show you what it's really like.").
    - Around the middle, a retention line ("But wait till you see what happens when you carry a gun.").
    - The last line ends with a light joke or a question that makes people comment.
-   - NEVER say real-world brand or company names (no Ford, Mercedes, Toyota, Nike, PlayStation...). GTA 6 has
-     its own made-up brands - describe things instead ("a lifted pickup", "this supercar").
    - Only claim what you can actually see or hear. If you're not sure how something works, say what you see
      ("looks like...") instead of inventing facts. Say "GTA 6", never "GTA VI". No emojis, hashtags,
      stage directions or "[Number one]" brackets.
@@ -483,13 +478,20 @@ def _has_brand(text: str) -> bool:
 
 def _strip_brands(text: str, fallback: str = "") -> str:
     """Drop every sentence that names a real brand (cutting just the word leaves broken text)."""
-    if not _has_brand(text):
+    if not _block_brands() or not _has_brand(text):
         return text
     kept = [x.strip() for x in re.findall(r"[^.!?]+[.!?]*", text or "") if x.strip() and not _has_brand(x)]
     return " ".join(kept) or fallback
 
 
+def _block_brands() -> bool:
+    """Off by default: naming cars / brands in scripts is fine (config quality_gate.block_brand_names)."""
+    return bool(load_config().get("quality_gate", {}).get("block_brand_names", False))
+
+
 def _drop_brand_lines(lines: list[dict], key: str = "text") -> list[dict]:
+    if not _block_brands():
+        return lines
     kept = [ln for ln in lines if not _has_brand(ln.get(key, ""))]
     if len(kept) < len(lines):
         log.info("[ai] dropped %d line(s) naming real brands: %s", len(lines) - len(kept),
@@ -556,7 +558,6 @@ Line 1 at t=0 is a hook (max 12 words) that creates curiosity about what's about
 The last line, about 4 seconds before the end, is a short question or call to action.
 Every line must be about something specific in this clip - no generic filler like "Rockstar cooked".
 Don't repeat the game's name in every line (at most once, as "GTA 6"). No emojis or hashtags.
-Never name real-world brands or companies (cars, clothes, drinks, consoles) - describe things instead.
 Return ONLY JSON: {{"commentary": [{{"t": seconds, "line": "words"}}]}}"""
 
 
