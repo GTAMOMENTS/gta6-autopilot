@@ -92,7 +92,10 @@ def _models(p: str) -> list[tuple[str, bool]]:
     uniq = list(dict(found).items())
     pinned_set = set(pinned)
     uniq.sort(key=lambda mv: (mv[0] not in pinned_set,) + _rank(*mv))
-    _model_cache[p] = uniq[: int(_cfg().get("max_models_per_provider", 4))]
+    chosen = [mv for mv in uniq if mv[0] != "openrouter/free"][: int(_cfg().get("max_models_per_provider", 4))]
+    if p == "openrouter" and any(m == "openrouter/free" for m, _ in uniq):
+        chosen.append(("openrouter/free", True))  # OpenRouter's auto-router to whichever free model is up
+    _model_cache[p] = chosen
     log.info("[ai-fallback] %s models: %s", p, [m for m, _ in _model_cache[p]])
     return _model_cache[p]
 
@@ -125,36 +128,78 @@ def _parse(text: str) -> dict | None:
         return None
 
 
+_down_until = 0.0
+
+
+def _message_text(msg: dict) -> str:
+    """Thinking models sometimes put the answer in 'reasoning' and leave 'content' empty."""
+    for key in ("content", "reasoning_content", "reasoning"):
+        val = msg.get(key)
+        if isinstance(val, list):  # some providers return content parts
+            val = " ".join(str(x.get("text", "")) for x in val if isinstance(x, dict))
+        if val and _parse(val):
+            return val
+    return msg.get("content") or msg.get("reasoning") or ""
+
+
+def _call(p: str, model: str, prompt: str, frames: list[str] | None, temperature: float) -> tuple[dict | None, int]:
+    content: list | str = prompt
+    if frames:
+        imgs = frames[: PROVIDERS[p]["max_images"]]
+        content = [{"type": "text", "text": prompt}] + [
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b}"}} for b in imgs]
+    body = {"model": model, "temperature": temperature, "max_tokens": 4096,
+            "messages": [{"role": "user", "content": content}]}
+    if p == "openrouter":
+        body["reasoning"] = {"effort": "low"}
+    r = requests.post(f"{PROVIDERS[p]['base']}/chat/completions", headers=_headers(p), timeout=150, json=body)
+    if r.status_code != 200:
+        log.warning("[ai-fallback] %s/%s HTTP %s: %.140s", p, model, r.status_code, r.text)
+        return None, r.status_code
+    try:
+        msg = r.json()["choices"][0]["message"]
+    except (KeyError, IndexError, ValueError):
+        log.warning("[ai-fallback] %s/%s odd response: %.200s", p, model, r.text)
+        return None, 200
+    text = _message_text(msg)
+    data = _parse(text)
+    if not data:
+        log.warning("[ai-fallback] %s/%s returned no JSON: %.160s", p, model, text.replace("\n", " "))
+    return data, 200
+
+
 def chat_json(prompt: str, frames: list[str] | None = None, temperature: float = 0.9) -> dict | None:
     """Try every configured free provider/model until one returns valid JSON."""
-    for p in _cfg().get("providers", list(PROVIDERS)):
-        if p not in PROVIDERS or not env(PROVIDERS[p]["key"]):
-            continue
-        for model, vision in _models(p):
-            if (p, model) in _dead or (frames and not vision):
+    global _down_until
+    import time
+    if time.time() < _down_until:
+        return None
+    rate_limited: list[tuple[str, str]] = []
+    for round_no in range(2):
+        for p in _cfg().get("providers", list(PROVIDERS)):
+            if p not in PROVIDERS or not env(PROVIDERS[p]["key"]):
                 continue
-            content: list | str = prompt
-            if frames:
-                imgs = frames[: PROVIDERS[p]["max_images"]]
-                content = [{"type": "text", "text": prompt}] + [
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b}"}} for b in imgs]
-            try:
-                r = requests.post(f"{PROVIDERS[p]['base']}/chat/completions", headers=_headers(p), timeout=120, json={
-                    "model": model, "temperature": temperature, "max_tokens": 1800,
-                    "messages": [{"role": "user", "content": content}],
-                })
-                if r.status_code in (400, 404):
-                    _dead.add((p, model))
-                if r.status_code != 200:
-                    log.warning("[ai-fallback] %s/%s HTTP %s: %.150s", p, model, r.status_code, r.text)
+            for model, vision in _models(p):
+                if (p, model) in _dead or (frames and not vision):
                     continue
-                msg = r.json()["choices"][0]["message"].get("content") or ""
-                data = _parse(msg)
+                if round_no == 1 and (p, model) not in rate_limited:
+                    continue
+                try:
+                    data, status = _call(p, model, prompt, frames, temperature)
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("[ai-fallback] %s/%s failed: %.150s", p, model, exc)
+                    continue
                 if data:
                     log.info("[ai-fallback] response from %s/%s%s", p, model, " (with frames)" if frames else "")
                     data["_ai_model"] = f"{p}/{model}"
                     return data
-                log.warning("[ai-fallback] %s/%s returned no JSON", p, model)
-            except Exception as exc:  # noqa: BLE001
-                log.warning("[ai-fallback] %s/%s failed: %.150s", p, model, exc)
+                if status in (400, 404):
+                    _dead.add((p, model))
+                elif status == 429 and round_no == 0:
+                    rate_limited.append((p, model))
+        if not rate_limited or round_no == 1:
+            break
+        log.info("[ai-fallback] %d free models rate-limited - waiting 20s and retrying them once", len(rate_limited))
+        time.sleep(20)
+    _down_until = time.time() + 600  # all free models busy: don't keep retrying this run
     return None
