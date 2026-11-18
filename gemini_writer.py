@@ -200,12 +200,22 @@ TASKS
    - hype_score: 1-10, how exciting the visuals are for a GTA fan (chases, shootouts, stunts,
      cinematic story moments, stunning views = high; menus, walking, loading screens = low).
    - scene_summary: one sentence describing exactly what happens on screen.
-2. WRITE THE VIDEO (only describe what is actually visible; never invent facts, prices, dates or features):
+2. WRITE THE VOICEOVER - fun, simple, hyped. Think: your funniest friend watching this clip next to you
+   and losing his mind. NOT a narrator, NOT a documentary. The game audio carries the video; the voice only
+   jumps in a few times with short reactions.
    - banner: max 6 words, ALL CAPS, curiosity hook for the top of the video, no emojis.
-   - script: {min_words}-{max_words} words of spoken voiceover, hyped but natural, short punchy sentences.
-     First sentence = a scroll-stopping hook (max 10 words). Then react to and narrate what happens on
-     screen in order, adding why it is impressive. End with ONE question that makes people comment.
-     No emojis, hashtags, stage directions or "in this video". Say "GTA 6", not "GTA VI".
+   - commentary: 3 to 5 lines. Each line = {{"t": second in the clip when it is said, "line": "words"}}.
+     The clip is {duration} seconds long.
+       * line 1 at t=0: scroll-stopping hook, max 7 words. Like: "Bro, GTA 6 is actually insane!"
+       * 1-3 reactions placed EXACTLY when the craziest things happen (crash, jump, explosion, twist,
+         stunning view), max 8 words each. Like: "NO WAY he made that jump!", "Look at those physics!",
+         "Rockstar really cooked with this one."
+       * last line around t={end_t}: quick fun question or call to action, max 8 words.
+         Like: "Would you survive this? Tell me!"
+       * at least 5 seconds between lines, under 40 words in total.
+       * NEVER narrate what is on screen ("He walks into the store", "We see a red car", "The camera pans").
+         React to it instead. Everyday words, contractions, exclamation marks. No emojis, hashtags or
+         stage directions. Say "GTA 6", never "GTA VI". Don't invent facts.
    - youtube_title: max 70 characters, curiosity-driven, no hashtags.
    - caption: 1-2 short sentences for Instagram/TikTok ending with a question, no hashtags.
    - x_text: max 200 characters punchy post for X to go with the clip, no hashtags, no links.
@@ -213,18 +223,20 @@ TASKS
 
 Return ONLY JSON with exactly these keys:
 {{"is_gta6_footage": bool, "has_facecam": bool, "hype_score": int, "scene_summary": str,
- "banner": str, "script": str, "youtube_title": str, "caption": str, "x_text": str, "hashtags": [str]}}"""
+ "banner": str, "commentary": [{{"t": number, "line": str}}], "youtube_title": str, "caption": str,
+ "x_text": str, "hashtags": [str]}}"""
 
 
 def write_clip_copy(clip: Path, title: str, credit: str, provider: str) -> dict:
     """Return copy dict. Always returns something usable (fallback if AI fails)."""
     cfg = load_config()
     gcfg = cfg.get("gemini", {})
-    min_w, max_w = gcfg.get("script_words", [145, 165])
+    from common import probe
+    clip_dur = min(probe(clip)["duration"] or 50, float(cfg.get("video", {}).get("duration_sec", 48)))
     prompt_kwargs = dict(
         brand=cfg.get("brand", {}).get("display_name", "GTA VI Top Moments"),
         context=_game_context(), title=title, credit=credit, provider=provider,
-        min_words=min_w, max_words=max_w,
+        duration=int(clip_dur), end_t=max(10, int(clip_dur) - 5),
     )
 
     data = None
@@ -250,9 +262,12 @@ def write_clip_copy(clip: Path, title: str, credit: str, provider: str) -> dict:
     if data is None and ai_fallback.available():
         frames = ai_fallback.extract_frames(clip, 6)
         if frames:
+            full = probe(clip)["duration"] or clip_dur
+            times = ", ".join(f"{full * (i + 0.5) / len(frames):.0f}s" for i in range(len(frames)))
             prompt = CLIP_PROMPT.format(
-                video_note=f"The attached {len(frames)} images are frames sampled in order across the clip that "
-                           "will be posted (it is about 60 seconds long). Study every frame carefully.",
+                video_note=f"The attached {len(frames)} images are frames from the clip that will be posted, "
+                           f"taken in order at these seconds: {times}. Study every frame carefully and use "
+                           "those times for the commentary timestamps.",
                 **prompt_kwargs)
             data = ai_fallback.chat_json(prompt, frames=frames)
             ai_source = (data or {}).get("_ai_model", "")
@@ -270,27 +285,59 @@ def write_clip_copy(clip: Path, title: str, credit: str, provider: str) -> dict:
         if data is not None:
             data["verified_by_video"] = False
 
-    # 4) everything failed -> built-in randomised scripts
-    if not data or len(str(data.get("script", "")).split()) < 50:
+    # 4) everything failed -> built-in randomised lines
+    if not data or not _commentary(data, clip_dur):
         log.warning("[ai] using built-in fallback copy")
-        data = fallback_clip_copy()
+        data = fallback_clip_copy(clip_dur)
         data["verified_by_video"] = False
         ai_source = "built-in"
-    out = _clean_copy(data)
+    out = _clean_copy(data, clip_dur)
     out["ai_source"] = ai_source
     log.info("[ai] copy written by: %s", ai_source)
     return out
 
 
-def _clean_copy(d: dict) -> dict:
+def _commentary(d: dict, clip_dur: float) -> list[dict]:
+    """Normalise the AI's commentary into [{"t": float, "text": str}], short and in order."""
+    raw = d.get("commentary") or []
+    if isinstance(raw, str):
+        raw = [raw]
+    lines = []
+    for i, item in enumerate(raw[:6]):
+        if isinstance(item, dict):
+            text, t = item.get("line") or item.get("text") or "", item.get("t", item.get("time", 0))
+        else:
+            text, t = str(item), None
+        text = re.sub(r"[*_#\[\]()]|\s+", " ", str(text)).strip()
+        if not text:
+            continue
+        words = text.split()
+        if len(words) > 14:
+            text = " ".join(words[:14]).rstrip(",;:") + "!"
+        try:
+            t = float(str(t).rstrip("s"))
+        except (TypeError, ValueError):
+            t = None
+        lines.append({"t": t, "text": text})
+    if not lines:
+        return []
+    n = len(lines)
+    for i, ln in enumerate(lines):  # fill missing / silly timestamps evenly
+        if ln["t"] is None or not 0 <= ln["t"] < clip_dur:
+            ln["t"] = 0.0 if i == 0 else round((clip_dur - 5) * i / max(1, n - 1), 1)
+    lines.sort(key=lambda x: x["t"])
+    lines[0]["t"] = min(lines[0]["t"], 1.0)
+    return lines
+
+
+def _clean_copy(d: dict, clip_dur: float = 48) -> dict:
     def s(key, default=""):
         return re.sub(r"\s+", " ", str(d.get(key) or default)).strip()
     tags = d.get("hashtags") or ["#GTA6", "#GTAVI", "#GrandTheftAutoVI", "#Gaming"]
     tags = ["#" + re.sub(r"[^A-Za-z0-9_]", "", t.lstrip("#")) for t in tags if str(t).strip("# ")]
     if "#GTA6" not in tags:
         tags.insert(0, "#GTA6")
-    script = s("script")
-    script = re.sub(r"[*_#\[\]()]", "", script)
+    commentary = _commentary(d, clip_dur) or fallback_clip_copy(clip_dur)["commentary"]
     return {
         "is_gta6_footage": bool(d.get("is_gta6_footage", True)),
         "has_facecam": bool(d.get("has_facecam", False)),
@@ -298,7 +345,8 @@ def _clean_copy(d: dict) -> dict:
         "scene_summary": s("scene_summary"),
         "verified_by_video": bool(d.get("verified_by_video", False)),
         "banner": re.sub(r"[^A-Z0-9 !?'.,-]", "", s("banner", "INSANE GTA 6 MOMENT").upper())[:48].strip() or "INSANE GTA 6 MOMENT",
-        "script": script,
+        "commentary": commentary,
+        "script": " ".join(ln["text"] for ln in commentary),
         "youtube_title": s("youtube_title", "This GTA 6 moment is unreal")[:80],
         "caption": s("caption", "This GTA 6 moment goes crazy. Would you try this?"),
         "x_text": s("x_text", "This GTA 6 moment goes crazy")[:240],
@@ -309,53 +357,40 @@ def _clean_copy(d: dict) -> dict:
 # --------------------------------------------------------------------------- fallback copy
 
 _HOOKS = [
-    "Wait until you see how this ends.", "This is why GTA 6 broke the internet.",
-    "Rockstar really did not hold back here.", "Nobody is ready for this level of detail.",
-    "Watch this one all the way through.", "This GTA 6 moment is absolutely unreal.",
-    "Leonida is pure chaos and I love it.", "This is next-gen open world, no debate.",
-    "Tell me this does not look insane.", "Vice City has never looked this good.",
+    "Bro, GTA 6 is actually insane!", "Okay, this is NOT normal!", "Wait for it...",
+    "Rockstar did NOT hold back!", "Nobody was ready for this!", "This is GTA 6?! No way!",
+    "Watch this. Just watch.", "Vice City is wild, man!",
 ]
-_MIDDLES = [
-    "Look at how alive every street feels, with traffic, crowds and reactions happening all at once.",
-    "The lighting here is ridiculous, every reflection and shadow reacts in real time.",
-    "Pay attention to the animations, every movement flows straight into the next one.",
-    "The camera work makes this feel more like a movie than a video game.",
-    "Every single detail in the background is doing something, nothing feels static.",
-    "The sense of speed and weight here is on a completely different level.",
-    "This is the kind of moment you will want to replay ten times.",
-    "The sound design alone makes this hit so much harder.",
-    "Leonida feels massive, and somehow every corner is packed with detail.",
-    "You can tell Rockstar spent years polishing moments exactly like this.",
-    "The physics and the destruction make every second feel unpredictable.",
-    "The atmosphere in Vice City is dripping with style, from the neon to the sunsets.",
-    "Even the tiny details, like the way people react around you, sell the whole world.",
-    "This is the moment people waited more than a decade to see.",
+_REACTIONS = [
+    "NO WAY!", "Look at that!", "Oh my god, the physics!", "He's not stopping!", "Rockstar cooked!",
+    "That's crazy!", "Bro, the detail on this!", "This looks like a movie!", "Did you see that?!",
+    "Okay, that was smooth!", "This game is unreal!", "Chaos. Pure chaos!",
 ]
-_CLOSERS = [
-    "Would you rather play as Jason or Lucia? Tell me in the comments.",
-    "Rate this moment from one to ten in the comments.",
-    "What is the first thing you are doing in Leonida? Comment below.",
-    "Is this the best open world ever made? Let me know below.",
-    "What moment should we cover next? Drop it in the comments.",
-    "Be honest, did this give you chills? Tell me below.",
+_OUTROS = [
+    "Would you do this? Tell me!", "Rate this from one to ten!", "Jason or Lucia? Comment!",
+    "Follow for more GTA 6!", "Best game ever? Be honest!", "Would you survive this?",
 ]
 _BANNERS = [
     "THIS GTA 6 MOMENT IS UNREAL", "ROCKSTAR WENT CRAZY HERE", "WAIT FOR THE ENDING",
     "GTA 6 IS NEXT LEVEL", "LEONIDA IS PURE CHAOS", "NOBODY EXPECTED THIS",
     "VICE CITY HITS DIFFERENT", "THE DETAIL IS INSANE", "WATCH THIS TWICE",
-    "THIS IS WHY WE WAITED", "GTA 6 DOES NOT MISS",
 ]
 
 
-def fallback_clip_copy() -> dict:
-    middles = random.sample(_MIDDLES, 8)
-    script = " ".join([random.choice(_HOOKS)] + middles + [random.choice(_CLOSERS)])
+def fallback_clip_copy(clip_dur: float = 48) -> dict:
+    reactions = random.sample(_REACTIONS, 2)
+    commentary = [
+        {"t": 0.0, "text": random.choice(_HOOKS)},
+        {"t": round(clip_dur * 0.35, 1), "text": reactions[0]},
+        {"t": round(clip_dur * 0.65, 1), "text": reactions[1]},
+        {"t": round(max(10, clip_dur - 5), 1), "text": random.choice(_OUTROS)},
+    ]
     banner = random.choice(_BANNERS)
     return {
         "is_gta6_footage": True, "has_facecam": False, "hype_score": 6, "scene_summary": "",
-        "banner": banner, "script": script,
+        "banner": banner, "commentary": commentary,
         "youtube_title": banner.title(),
-        "caption": f"{banner.capitalize()}. {random.choice(_CLOSERS)}",
+        "caption": f"{banner.capitalize()}. {random.choice(_OUTROS)}",
         "x_text": f"{banner.capitalize()} 🔥",
         "hashtags": random.choice(load_config().get("hashtags_pool", [["#GTA6", "#GTAVI"]])),
     }

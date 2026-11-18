@@ -16,10 +16,10 @@ running free on GitHub Actions.
 3. **Downloads only a ~3 min section** of long videos, then **auto-picks the most intense seconds**
    using motion, loudness and black-frame detection (a single shot or a 2–3 cut montage).
 4. **Gemini watches the clip** (if Gemini is busy, a free OpenRouter/Groq/Mistral model checks frames of the clip instead) and rejects it if it isn't real GTA VI, has a facecam, or is boring.
-   It then writes a banner, a ~50 s voiceover that matches what's on screen, a YouTube title,
+   It then writes a banner, 3-5 short hype reaction lines timed to the big moments (not a narration), a YouTube title,
    captions and an X post.
-5. **Renders a 1080×1920 video**: blurred background, zoomed gameplay, wrapped hook banner, big
-   word-by-word captions, AI voice with game audio ducked underneath, loudness normalised to -14 LUFS.
+5. **Renders a ~48 s 1080×1920 video**: blurred background, zoomed gameplay, wrapped hook banner, big
+   word-by-word captions, short hype voice lines (Gemini TTS, edge-tts fallback) over loud game audio, -14 LUFS.
 6. **Publishes** through the cheapest working route per platform (see below), and records history
    so nothing is posted twice.
 
