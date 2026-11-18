@@ -13,7 +13,8 @@ QUEUE_FILE = BASE_DIR / "queue" / "clips_manifest.json"
 
 
 async def generate_tts_with_srt(text: str, voice: str, audio_out: Path, srt_out: Path):
-    communicate = edge_tts.Communicate(text, voice, rate="+6%")
+    # Enthusiastic, fast-paced energetic delivery
+    communicate = edge_tts.Communicate(text, voice, rate="+14%", pitch="+3Hz")
     submaker = edge_tts.SubMaker()
     with open(audio_out, "wb") as audio_file:
         async for chunk in communicate.stream():
@@ -38,28 +39,32 @@ def render_vertical_clip(raw_path: Path, clip_id: str, hook_banner: str, voice_s
     srt_escaped = str(srt_path).replace("\\", "/").replace(":", "\\:")
     safe_banner = hook_banner.replace("'", "").replace(":", "")
 
+    # Loop raw video seamlessly if voiceover is ~50s, crop wider foreground for immersive 9:16 framing, and mix game audio at 22%
     vf_filter = (
-        "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:5[bg];"
-        "[0:v]scale=1080:-2:force_original_aspect_ratio=decrease[fg];"
+        "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=22:6[bg];"
+        "[0:v]scale=1340:-2,crop=1080:ih[fg];"
         "[bg][fg]overlay=(W-w)/2:(H-h)/2,"
-        f"drawtext=text='{safe_banner}':fontcolor=white:fontsize=52:box=1:boxcolor=black@0.75:boxborderw=18:x=(w-text_w)/2:y=240,"
-        f"subtitles='{srt_escaped}':force_style='Alignment=2,MarginV=480,Fontsize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=3,Outline=2'[vout]"
+        f"drawtext=text='{safe_banner}':fontcolor=white:fontsize=54:box=1:boxcolor=black@0.80:boxborderw=20:x=(w-text_w)/2:y=230,"
+        f"subtitles='{srt_escaped}':force_style='Alignment=2,MarginV=430,Fontsize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=3,Outline=2'[vout];"
+        "[0:a]volume=0.22[game_a];"
+        "[1:a]volume=1.15[vo_a];"
+        "[game_a][vo_a]amix=inputs=2:duration=shortest:dropout_transition=2[aout]"
     )
 
     cmd = [
         "ffmpeg", "-y",
-        "-ss", "00:00:01",
-        "-t", "22",
+        "-stream_loop", "-1",
         "-i", str(raw_path),
         "-i", str(mp3_path),
         "-filter_complex", vf_filter,
         "-map", "[vout]",
-        "-map", "1:a:0",
+        "-map", "[aout]",
         "-c:v", "libx264",
         "-preset", "veryfast",
         "-crf", "20",
         "-c:a", "aac",
         "-b:a", "192k",
+        "-t", "54",
         "-shortest",
         str(out_mp4)
     ]
@@ -71,13 +76,13 @@ def render_vertical_clip(raw_path: Path, clip_id: str, hook_banner: str, voice_s
     return None
 
 
-def process_pending_clips(max_to_render: int = 2) -> int:
+def process_pending_clips(max_to_render: int = 1) -> int:
     if not QUEUE_FILE.exists():
         return 0
     with open(QUEUE_FILE, "r", encoding="utf-8") as f:
         manifest = json.load(f)
 
-    voice = os.getenv("TTS_VOICE", "en-US-ChristopherNeural")
+    voice = os.getenv("TTS_VOICE", "en-US-AndrewMultilingualNeural")
     rendered_count = 0
 
     for item in manifest["items"]:
