@@ -382,7 +382,7 @@ def discover_trailers(cfg: dict) -> list[Candidate]:
     return out
 
 
-def rank(cands: list[Candidate], manifest: dict, tf: TitleFilter) -> list[Candidate]:
+def rank(cands: list[Candidate], manifest: dict, tf: TitleFilter, boost: list[str] | None = None) -> list[Candidate]:
     srcs = manifest["sources"]
     now = time.time()
     ranked = []
@@ -399,6 +399,8 @@ def rank(cands: list[Candidate], manifest: dict, tf: TitleFilter) -> list[Candid
         if uses >= max_uses:
             continue
         score = c.score + tf.bonus(c.title)
+        if boost and any(b in _norm(c.title) for b in boost):
+            score += 4.0                       # title matches this run's video format
         score += math.log10(c.views + 10) * 0.6
         if c.language in ("en", ""):
             score += 1.0
@@ -431,14 +433,22 @@ def pick_kind(cfg: dict) -> str:
     return random.choices(kinds, weights=weights, k=1)[0]
 
 
-def discover(cfg: dict, manifest: dict, kind: str | None = None) -> list[Candidate]:
+def discover(cfg: dict, manifest: dict, kind: str | None = None, fmt: dict | None = None) -> list[Candidate]:
     s = cfg.get("sources", {})
     providers = s.get("providers", ["local", "extra_urls", "twitch", "dailymotion", "youtube"])
-    kind = kind or pick_kind(cfg)
-    log.info("[sources] content type this run: %s", kind.upper())
+    kind = (fmt or {}).get("kind") or kind or pick_kind(cfg)
+    log.info("[sources] content type this run: %s%s", kind.upper(),
+             f" | format: {fmt['name']}" if fmt else "")
     tf, stf = TitleFilter(cfg), _stream_filter(cfg)
     n = int(s.get("queries_per_run", 4))
     g_all, s_all = s.get("search_queries", ["GTA 6 gameplay"]), s.get("stream_search_queries", [])
+    if fmt and fmt.get("queries"):
+        # search for footage that fits this run's format (the other content type stays as a backup)
+        if kind == "stream":
+            s_all = fmt["queries"]
+        else:
+            g_all = fmt["queries"]
+    boost = [t.lower() for t in (fmt or {}).get("title_terms", [])]
     g_queries = random.sample(g_all, k=min(len(g_all), n))
     s_queries = random.sample(s_all, k=min(len(s_all), max(2, n // 2)))
 
@@ -458,7 +468,7 @@ def discover(cfg: dict, manifest: dict, kind: str | None = None) -> list[Candida
             stream += discover_youtube(cfg, s_queries, stf, "stream")
 
     first, second = (stream, gameplay) if kind == "stream" else (gameplay, stream)
-    ranked = rank(first, manifest, tf) + rank(second, manifest, tf)  # preferred type first, other as backup
+    ranked = rank(first, manifest, tf, boost) + rank(second, manifest, tf, boost)  # preferred type first
     if "official_trailers" in providers:
         ranked += rank(discover_trailers(cfg), manifest, tf)
     return ranked
@@ -578,7 +588,8 @@ def _fill_metadata(c: Candidate, cfg: dict) -> bool:
     return c.duration > 0
 
 
-def iter_clips(target_sec: int, max_attempts: int = 6, skip_providers: set | None = None):
+def iter_clips(target_sec: int, max_attempts: int = 6, skip_providers: set | None = None,
+               fmt: dict | None = None):
     """Yield ClipSource objects (best first). Caller calls mark_used / mark_rejected.
     `skip_providers` may be modified by the caller while iterating (e.g. AI check is down)."""
     skip_providers = skip_providers if skip_providers is not None else set()
@@ -590,7 +601,7 @@ def iter_clips(target_sec: int, max_attempts: int = 6, skip_providers: set | Non
     style = s.get("clip_style", "auto")
     youtube_blocked = False
 
-    cands = discover(cfg, manifest)
+    cands = discover(cfg, manifest, fmt=fmt)
     log.info("[sources] %d ranked candidates; top: %s", len(cands),
              [f"{c.provider}:{c.title[:40]}" for c in cands[:5]])
     attempts = 0

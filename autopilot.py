@@ -85,13 +85,13 @@ def slot_id(slot: dict) -> str:
 
 # --------------------------------------------------------------------------- video slot
 
-def run_video_slot(slot: dict, dry_run: bool) -> tuple[bool, dict]:
+def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[bool, dict]:
     from common import RAW_DIR, probe
     from gemini_writer import finalize_commentary, write_clip_copy
     from highlight import best_window, cut_segments, energy_curve, energy_hints
     from publisher import _available, publish_video, routes_for
     from source_fetcher import iter_clips, load_manifest, mark_rejected, mark_used, save_manifest
-    from video_processor import render, synthesize_lines
+    from video_processor import HumanVoiceUnavailable, render, synthesize_lines
 
     cfg = load_config()
     platforms = slot["platforms"]
@@ -120,7 +120,7 @@ def run_video_slot(slot: dict, dry_run: bool) -> tuple[bool, dict]:
             "id": clip_id, "slot": slot["type"], "created_at": datetime.now(timezone.utc).isoformat(),
             "source": {"provider": c.provider, "kind": c.kind, "url": c.url, "title": c.title, "credit": src.credit,
                        "section": list(src.section), "segments": ranges},
-            "copy": copy, "rendered": rendered["path"], "duration": rendered["duration"],
+            "format_id": (fmt or {}).get("id", ""), "copy": copy, "rendered": rendered["path"], "duration": rendered["duration"],
             "voice_lines": rendered.get("lines", []),
             "dry_run": dry_run, "results": results, "status": "published" if ok and not dry_run else
             ("dry_run" if dry_run else "failed"),
@@ -187,7 +187,10 @@ def run_video_slot(slot: dict, dry_run: bool) -> tuple[bool, dict]:
 
     backup = None  # best "almost good enough" clip, used only if nothing reaches min_hype
     skip: set[str] = set()
-    for src in iter_clips(target_sec=0, max_attempts=int(scfg.get("max_attempts", 8)), skip_providers=skip):
+    if fmt:
+        log.info("[format] this video: %s", fmt["name"])
+    for src in iter_clips(target_sec=0, max_attempts=int(scfg.get("max_attempts", 8)), skip_providers=skip,
+                          fmt=fmt):
         if time.time() > budget_end:
             log.warning("Time budget exhausted")
             src.clip_path.unlink(missing_ok=True)
@@ -197,7 +200,7 @@ def run_video_slot(slot: dict, dry_run: bool) -> tuple[bool, dict]:
         sec_dur = probe(section)["duration"]
         energy = energy_curve(section)
         copy = write_clip_copy(section, c.title, src.credit, c.provider, c.kind, energy_hints(energy, 30, 3),
-                               tour=src.is_reel)
+                               tour=src.is_reel, fmt=fmt)
         if not copy["verified_by_video"] and c.provider in SEARCH_PROVIDERS and gate.get("require_ai_check_for_search", True):
             # Can't confirm a random upload is real GTA VI without the AI watching it -> don't risk it.
             log.warning("[gate] AI video check unavailable - skipping search results, using trusted sources only")
@@ -208,16 +211,20 @@ def run_video_slot(slot: dict, dry_run: bool) -> tuple[bool, dict]:
             reason = None
             if not copy["is_gta6_footage"]:
                 reason = "not GTA VI footage"
+            elif copy.get("is_spoiler") and gate.get("reject_spoilers", True):
+                reason = "story spoiler"
             elif copy.get("has_narrator") and gate.get("reject_narrator", True) and c.kind != "stream":
                 reason = "someone already talks over this footage"
             elif copy["has_facecam"] and gate.get("reject_facecam", True) and c.kind != "stream":
                 reason = "facecam / overlay"
             elif copy["hype_score"] < min_hype:
                 reason = f"low hype ({copy['hype_score']})"
+            elif fmt and not copy.get("fits_format", True):
+                reason = f"doesn't fit the '{fmt['name']}' format"
             if reason:
                 log.info("[gate] ✋ rejected '%s': %s | %s", c.title[:60], reason, copy["scene_summary"])
                 mark_rejected(c, reason)
-                keep = (reason.startswith("low hype") and copy["hype_score"] >= backup_hype
+                keep = (reason.startswith(("low hype", "doesn't fit")) and copy["hype_score"] >= backup_hype
                         and (backup is None or copy["hype_score"] > backup[1]["hype_score"]))
                 if keep:
                     if backup:
@@ -230,12 +237,19 @@ def run_video_slot(slot: dict, dry_run: bool) -> tuple[bool, dict]:
             log.info("[gate] ✅ accepted (hype %s, %s): %s", copy["hype_score"], copy.get("content_type"),
                      copy["scene_summary"])
 
-        if src.is_reel and len(copy.get("shots") or []) >= int(vcfg.get("tour_min_shots", 5)):
-            result = produce_tour(src, copy, sec_dur)
-        else:
-            if src.is_reel:
-                log.info("[tour] AI gave too few shots - making a single-moment video instead")
-            result = produce(src, copy, energy, sec_dur)
+        try:
+            if src.is_reel and len(copy.get("shots") or []) >= int(vcfg.get("tour_min_shots", 5)):
+                result = produce_tour(src, copy, sec_dur)
+            else:
+                if src.is_reel:
+                    log.info("[tour] AI gave too few shots - making a single-moment video instead")
+                result = produce(src, copy, energy, sec_dur)
+        except HumanVoiceUnavailable as exc:
+            # every clip would hit the same wall - stop instead of posting a robot voice
+            for p in (src.clip_path, backup[0].clip_path if backup else None):
+                if p:
+                    p.unlink(missing_ok=True)
+            return False, {"error": f"human voice unavailable, nothing posted: {exc}"}
         if result:
             if backup:
                 backup[0].clip_path.unlink(missing_ok=True)
@@ -245,10 +259,13 @@ def run_video_slot(slot: dict, dry_run: bool) -> tuple[bool, dict]:
         log.info("[gate] nothing reached hype %d - posting the best backup (hype %s)", min_hype,
                  backup[1]["hype_score"])
         b_src, b_copy, b_energy, b_dur = backup
-        if b_src.is_reel and len(b_copy.get("shots") or []) >= int(vcfg.get("tour_min_shots", 5)):
-            result = produce_tour(b_src, b_copy, b_dur)
-        else:
-            result = produce(*backup)
+        try:
+            if b_src.is_reel and len(b_copy.get("shots") or []) >= int(vcfg.get("tour_min_shots", 5)):
+                result = produce_tour(b_src, b_copy, b_dur)
+            else:
+                result = produce(*backup)
+        except HumanVoiceUnavailable as exc:
+            return False, {"error": f"human voice unavailable, nothing posted: {exc}"}
         if result:
             return result
     return False, {"error": "no usable clip could be produced"}
@@ -292,6 +309,8 @@ def record_history(sid: str, slot: dict, ok: bool, detail: dict) -> None:
 
 def summarize(slot: dict, sid: str, ok: bool, detail: dict, dry_run: bool) -> None:
     lines = [f"## {'✅' if ok else '❌'} {slot['type']} ({sid}){' — DRY RUN' if dry_run else ''}"]
+    if detail.get("format"):
+        lines.append(f"**Format:** {detail['format']}  ")
     if "text" in detail:
         lines.append(f"> {detail['text']}")
     if "copy" in detail:
@@ -351,7 +370,13 @@ def main() -> int:
 
     READY_DIR.mkdir(parents=True, exist_ok=True)
     if slot["type"] in VIDEO_TYPES:
-        ok, detail = run_video_slot(slot, args.dry_run)
+        from formats import advance_format, current_format
+        fmt = current_format(cfg)
+        ok, detail = run_video_slot(slot, args.dry_run, fmt)
+        if fmt:
+            detail.setdefault("format", fmt["name"])
+            if not args.dry_run and "skipped" not in detail:
+                advance_format(fmt, ok)
     else:
         ok, detail = run_text_slot(slot, args.dry_run)
 

@@ -15,55 +15,73 @@
   },
   "schedule": [
     {
-      "time": "09:30",
+      "time": "09:50",
       "type": "x_text_morning",
       "platforms": [
         "x"
       ]
     },
     {
-      "time": "12:00",
+      "time": "13:40",
       "type": "vertical_clip",
       "platforms": [
         "instagram",
         "tiktok",
-        "youtube"
-      ]
-    },
-    {
-      "time": "14:30",
-      "type": "x_video_clip",
-      "platforms": [
+        "youtube",
         "x"
       ]
     },
     {
-      "time": "17:00",
+      "time": "16:20",
       "type": "x_question_nostalgia",
       "platforms": [
         "x"
       ]
     },
     {
-      "time": "19:30",
+      "time": "17:40",
       "type": "vertical_clip",
       "platforms": [
         "instagram",
         "tiktok",
-        "youtube"
+        "youtube",
+        "x"
       ]
     },
     {
-      "time": "21:00",
-      "type": "x_video_clip",
+      "time": "20:40",
+      "type": "vertical_clip",
+      "platforms": [
+        "instagram",
+        "tiktok",
+        "youtube",
+        "x"
+      ]
+    },
+    {
+      "time": "22:20",
+      "type": "x_daily_recap",
       "platforms": [
         "x"
       ]
     },
     {
-      "time": "22:30",
-      "type": "x_daily_recap",
+      "time": "23:40",
+      "type": "vertical_clip",
       "platforms": [
+        "instagram",
+        "tiktok",
+        "youtube",
+        "x"
+      ]
+    },
+    {
+      "time": "02:40",
+      "type": "vertical_clip",
+      "platforms": [
+        "instagram",
+        "tiktok",
+        "youtube",
         "x"
       ]
     }
@@ -104,29 +122,32 @@
     "only_after_launch": false,
     "extra_urls": [],
     "search_queries": [
-      "GTA 6 gameplay",
-      "GTA 6 gameplay no commentary",
-      "GTA 6 walkthrough",
-      "GTA 6 mission",
-      "GTA 6 cutscene",
-      "GTA 6 story",
-      "GTA 6 heist",
+      "GTA 6 funny moments",
+      "GTA 6 top 5 moments",
+      "GTA 6 top 10 moments",
+      "GTA 6 best moments",
+      "GTA 6 craziest moments",
+      "GTA 6 fails",
+      "GTA 6 funny fails",
       "GTA 6 police chase",
-      "GTA 6 wanted level",
-      "GTA 6 shootout",
       "GTA 6 car chase",
       "GTA 6 stunts",
-      "GTA 6 funny moments",
-      "GTA 6 free roam",
-      "GTA 6 Vice City",
-      "GTA 6 Jason Lucia",
-      "GTA 6 4K",
-      "GTA VI gameplay walkthrough part",
-      "GTA 6 boss fight",
-      "GTA 6 ending",
-      "GTA 6 secrets no commentary",
+      "GTA 6 crazy stunts",
+      "GTA 6 free roam gameplay",
+      "GTA 6 open world gameplay",
+      "GTA 6 physics",
+      "GTA 6 ragdoll",
+      "GTA 6 things you missed",
+      "GTA 6 details",
       "GTA 6 easter eggs gameplay",
-      "GTA 6 hidden details gameplay"
+      "GTA 6 wanted level",
+      "GTA 6 6 star wanted level",
+      "GTA 6 shootout",
+      "GTA 6 rampage",
+      "GTA 6 NPC reactions",
+      "GTA 6 4K gameplay no commentary",
+      "GTA 6 Vice City free roam",
+      "GTA 6 crazy things you can do"
     ],
     "queries_per_run": 5,
     "min_duration_sec": 50,
@@ -147,19 +168,8 @@
     "context_title_terms": [
       "gameplay",
       "game play",
-      "mission",
-      "missions",
-      "cutscene",
-      "cutscenes",
-      "cinematic",
-      "walkthrough",
-      "playthrough",
       "let's play",
       "lets play",
-      "part",
-      "chapter",
-      "story",
-      "ending",
       "chase",
       "chases",
       "heist",
@@ -177,14 +187,41 @@
       "8k",
       "60fps",
       "no commentary",
-      "first hour",
       "trailer",
       "boss",
       "combat",
       "rtx",
       "highlights",
       "drive",
-      "car"
+      "car",
+      "fails",
+      "fail",
+      "top 5",
+      "top 10",
+      "top",
+      "physics",
+      "ragdoll",
+      "npc",
+      "details",
+      "easter egg",
+      "easter eggs",
+      "secret",
+      "secrets",
+      "hidden",
+      "things to do",
+      "things you can do",
+      "activities",
+      "pursuit",
+      "getaway",
+      "escape",
+      "crash",
+      "crashes",
+      "jump",
+      "jumps",
+      "missed",
+      "features",
+      "funniest",
+      "best"
     ],
     "blocked_title_terms": [
       "gta 5",
@@ -301,33 +338,61 @@
       "wait for gta 6",
       "whilst you wait",
       "while you wait",
-      "waiting for gta 6"
+      "waiting for gta 6",
+      "walkthrough",
+      "playthrough",
+      "full game",
+      "story",
+      "story mode",
+      "cutscene",
+      "cutscenes",
+      "ending",
+      "endings",
+      "final mission",
+      "last mission",
+      "spoiler",
+      "spoilers",
+      "boss fight",
+      "dies",
+      "death of",
+      "full movie",
+      "all cutscenes",
+      "credits",
+      "chapter",
+      "mission 1",
+      "mission #1",
+      "prologue",
+      "epilogue",
+      "plot",
+      "lore"
     ],
     "preferred_title_terms": {
       "no commentary": 2.0,
-      "cutscene": 0.5,
-      "cinematic": 1.0,
-      "4k": 1.5,
-      "mission": 1.5,
-      "walkthrough": -1.5,
-      "chase": 2.5,
-      "heist": 2.0,
+      "4k": 1.0,
+      "chase": 2.0,
       "shootout": 2.5,
-      "ending": 1.0,
       "stunt": 2.0,
       "60fps": 0.5,
       "police": 1.5,
-      "funny": 2.0,
-      "crazy": 1.5,
+      "funny": 3.0,
+      "crazy": 2.0,
       "insane": 1.0,
-      "best moments": 2.0,
+      "best moments": 3.0,
       "rampage": 2.0,
       "explosion": 2.0,
       "crash": 1.5,
       "wanted": 1.5,
-      "full game": -2.0,
-      "part 1": -1.0,
-      "intro": -1.0
+      "top 5": 3.0,
+      "top 10": 3.0,
+      "craziest": 2.5,
+      "fails": 2.5,
+      "free roam": 2.0,
+      "physics": 1.5,
+      "ragdoll": 1.5,
+      "secrets": 2.0,
+      "hidden": 1.5,
+      "things to do": 2.0,
+      "funniest": 3.0
     },
     "official_trailers": [
       {
@@ -385,13 +450,11 @@
     "stream_search_queries": [
       "GTA 6 stream highlights",
       "GTA 6 funniest stream moments",
-      "GTA 6 streamer reaction",
-      "GTA 6 livestream best moments",
+      "GTA 6 streamer funny moments",
       "GTA 6 stream rage",
       "GTA 6 twitch clips",
-      "GTA 6 streamers react",
-      "GTA 6 first time playing reaction",
-      "GTA 6 stream funny moments",
+      "GTA 6 streamers react funny",
+      "GTA 6 stream fails",
       "GTA 6 kick stream highlights"
     ],
     "stream_allowed_terms": [
@@ -439,7 +502,8 @@
     "reject_facecam": true,
     "require_ai_check_for_search": true,
     "reject_narrator": true,
-    "backup_hype_score": 6
+    "backup_hype_score": 6,
+    "reject_spoilers": true
   },
   "gemini": {
     "models": [
@@ -452,7 +516,7 @@
     "tour_frames": 12
   },
   "voice": {
-    "engine": "auto",
+    "engine": "gemini",
     "gemini_tts_voice": "Fenrir",
     "gemini_tts_style": "Read this like a real 25-year-old gamer showing his friends a GTA 6 clip: natural, casual, warm and genuinely excited, with real human emphasis and pacing like a popular YouTuber. Never sound like an announcer, a robot or a kid.",
     "gemini_tts_models": [],
@@ -463,7 +527,9 @@
     ],
     "rate": "+23%",
     "pitch": "+2Hz",
-    "volume": "+10%"
+    "volume": "+10%",
+    "robot_fallback": false,
+    "_note": "Human voice only: Gemini TTS voice 'Fenrir' (picked from the voice samples). If Gemini fails the video is NOT posted; set robot_fallback to true to allow the Microsoft voices below instead."
   },
   "video": {
     "source_clip_sec": 52,
@@ -481,7 +547,7 @@
     "min_clip_sec": 50,
     "tour_max_sec": 90,
     "tour_min_shots": 4,
-    "game_audio_volume_tour": 0.55
+    "game_audio_volume_tour": 0.4
   },
   "blocked_keywords": [
     "nsfw",
@@ -537,5 +603,162 @@
   "x_text_hashtags": [
     "#GTA6",
     "#GTAVI"
-  ]
+  ],
+  "formats": {
+    "enabled": true,
+    "_note": "Every video run makes the NEXT format in this list (position saved in queue/format_rotation.json). Set \"enabled\": false on one to skip it.",
+    "rotation": [
+      {
+        "id": "top5_funny",
+        "name": "Top 5 funniest moments",
+        "kind": "gameplay",
+        "countdown": 5,
+        "brief": "The 5 funniest moments in the footage: fails, ragdolls, NPC reactions, chaos, dumb luck. Funny and a bit of roasting, every item ends on a punchline.",
+        "banner_example": "TOP 5 FUNNIEST GTA 6 MOMENTS",
+        "title_example": "Top 5 FUNNIEST Moments In GTA 6",
+        "queries": [
+          "GTA 6 funny moments",
+          "GTA 6 funniest moments",
+          "GTA 6 fails",
+          "GTA 6 funny fails",
+          "GTA 6 NPC reactions",
+          "GTA 6 ragdoll physics",
+          "GTA 6 best moments"
+        ],
+        "title_terms": [
+          "funny",
+          "funniest",
+          "fail",
+          "fails",
+          "ragdoll",
+          "npc",
+          "moments"
+        ]
+      },
+      {
+        "id": "car_chases",
+        "name": "Fast car chases",
+        "kind": "gameplay",
+        "brief": "High-speed car and police chases: near misses, crashes, cops boxing you in, wanted stars, the escape. Fast and tense, react like you're in the passenger seat and point out what the cops do and how the driver gets away.",
+        "banner_example": "THIS GTA 6 CHASE IS INSANE",
+        "title_example": "This GTA 6 Police Chase Went CRAZY",
+        "queries": [
+          "GTA 6 police chase",
+          "GTA 6 car chase",
+          "GTA 6 high speed chase",
+          "GTA 6 cop chase",
+          "GTA 6 wanted level chase",
+          "GTA 6 5 star wanted level",
+          "GTA 6 getaway"
+        ],
+        "title_terms": [
+          "chase",
+          "pursuit",
+          "police",
+          "cops",
+          "wanted",
+          "getaway",
+          "escape"
+        ]
+      },
+      {
+        "id": "top5_things_to_do",
+        "name": "Top 5 things to do in GTA 6",
+        "kind": "gameplay",
+        "countdown": 5,
+        "brief": "5 fun things a player can actually do in the open world (activities, vehicles, side stuff, shops, wildlife, mechanics), told in 'you' form so viewers want to try them. Compare with GTA 5 when the difference is obvious on screen.",
+        "banner_example": "5 THINGS TO DO IN GTA 6",
+        "title_example": "5 Things You NEED To Try In GTA 6",
+        "queries": [
+          "GTA 6 things to do",
+          "GTA 6 things you can do",
+          "GTA 6 crazy things you can do",
+          "GTA 6 free roam gameplay",
+          "GTA 6 open world gameplay",
+          "GTA 6 activities",
+          "GTA 6 side activities"
+        ],
+        "title_terms": [
+          "things to do",
+          "things you can do",
+          "free roam",
+          "open world",
+          "activities"
+        ]
+      },
+      {
+        "id": "secrets",
+        "name": "Secrets and hidden details",
+        "kind": "gameplay",
+        "brief": "Hidden details, easter eggs and secret mechanics in the WORLD that most players miss ('you probably walked past this'). Never story secrets or plot. Only claim what you can actually see.",
+        "banner_example": "GTA 6 SECRETS YOU MISSED",
+        "title_example": "GTA 6 Secrets You Probably MISSED",
+        "queries": [
+          "GTA 6 secrets",
+          "GTA 6 hidden details",
+          "GTA 6 easter eggs gameplay",
+          "GTA 6 things you missed",
+          "GTA 6 small details",
+          "GTA 6 hidden features"
+        ],
+        "title_terms": [
+          "secret",
+          "secrets",
+          "hidden",
+          "easter egg",
+          "easter eggs",
+          "details",
+          "missed"
+        ]
+      },
+      {
+        "id": "stunts_crashes",
+        "name": "Crazy stunts and crashes",
+        "kind": "gameplay",
+        "brief": "The wildest stunts, jumps and crashes: big air, bikes, flips, brutal physics. Hype the build-up, then react to the landing or the crash.",
+        "banner_example": "GTA 6 CRASH PHYSICS ARE BRUTAL",
+        "title_example": "GTA 6 Crash Physics Are INSANE",
+        "queries": [
+          "GTA 6 stunts",
+          "GTA 6 crazy stunts",
+          "GTA 6 car crashes",
+          "GTA 6 crash physics",
+          "GTA 6 jumps",
+          "GTA 6 bike stunts"
+        ],
+        "title_terms": [
+          "stunt",
+          "stunts",
+          "crash",
+          "crashes",
+          "jump",
+          "jumps",
+          "physics"
+        ]
+      },
+      {
+        "id": "stream_reactions",
+        "name": "Funniest streamer reactions",
+        "kind": "stream",
+        "brief": "A streamer's funniest or wildest reaction to something that happens in GTA 6. Set up what's about to happen, then let the reaction land.",
+        "banner_example": "HE WAS NOT READY FOR THIS",
+        "title_example": "Streamer Was NOT Ready For This GTA 6 Moment",
+        "queries": [
+          "GTA 6 stream highlights",
+          "GTA 6 funniest stream moments",
+          "GTA 6 streamer funny moments",
+          "GTA 6 stream rage",
+          "GTA 6 twitch clips",
+          "GTA 6 stream fails"
+        ],
+        "title_terms": [
+          "funny",
+          "funniest",
+          "rage",
+          "fails",
+          "highlights"
+        ]
+      }
+    ]
+  }
 }

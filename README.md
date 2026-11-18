@@ -5,6 +5,35 @@
 Fully automated faceless GTA 6 clip channel for YouTube Shorts, Instagram Reels, TikTok and X,
 running free on GitHub Actions.
 
+## Daily schedule (fully automatic)
+
+**5 videos a day**, each posted to YouTube Shorts + Instagram + TikTok + X, at peak hours
+(times in Turkey time, TRT; each run starts ~20 min early so the post is live on the hour):
+
+| Live at (TRT) | Audience peak |
+|---|---|
+| 14:00 | Europe lunch break |
+| 18:00 | US morning (11:00 New York) |
+| 21:00 | Europe prime time (19:00 CET) / US lunch |
+| 00:00 | US afternoon (17:00 New York) |
+| 03:00 | US prime time (20:00 New York) |
+
+Plus 3 text posts on X (09:50, 16:20, 22:20). Change times in `config.json → schedule` **and** the
+matching `cron` lines in `.github/workflows/main.yml`.
+
+**Formats rotate automatically** - every video run makes the next one in `config.json → formats.rotation`:
+Top 5 funniest moments → Fast car chases → Top 5 things to do → Secrets & hidden details →
+Crazy stunts & crashes → Funniest streamer reactions → (repeat). Each format has its own search
+queries, and the AI is told to make exactly that video (countdowns say "Number five... number one").
+Footage that can't honestly fit the format is skipped (used only as a last-resort backup).
+
+**No spoilers**: story/walkthrough/cutscene/ending titles are blocked and the AI rejects any clip
+that shows story spoilers.
+
+**Human voice only**: every voice-over uses Gemini's "Fenrir" voice. If Gemini's voice fails
+(quota/outage), the video is **not posted** rather than using a robotic voice
+(`voice.robot_fallback: true` would allow the Microsoft voices instead).
+
 ## What each run does
 
 1. **Finds recent footage from anywhere** (last 14 days, min 720p), mixing two types: **gameplay**
@@ -26,7 +55,7 @@ running free on GitHub Actions.
    It then writes a banner, 3-5 short hype reaction lines timed to the big moments (not a narration), a YouTube title,
    captions and an X post.
 5. **Renders a ~48 s 1080×1920 video**: blurred background, zoomed gameplay, wrapped hook banner, big
-   word-by-word captions, short hype voice lines (Gemini TTS, edge-tts fallback) over loud game audio, -14 LUFS.
+   word-by-word captions, human voice-over (Gemini TTS "Fenrir") over game audio, -14 LUFS.
 6. **Publishes** through the cheapest working route per platform (see below), and records history
    so nothing is posted twice.
 
@@ -79,6 +108,7 @@ Run the workflow with `slot = check_setup`. It tests every secret and shows a �
 
 *Actions → GTA6 Top Moments 24/7 Autopilot → Run workflow*:
 - `slot`: what to run (`vertical_clip`, `x_video_clip`, `test_all`, or a text post type).
+- `format`: only for test runs - `auto` (default) uses the rotation, or force one format to preview it.
 - `dry_run` (default **on**): finds and renders the video **without posting**. Download it from the
   run's *Artifacts* to check the quality.
 
@@ -95,6 +125,7 @@ Locally: `python autopilot.py --slot vertical_clip --dry-run` (needs ffmpeg, plu
 | `ai_fallback.py` | free backup AIs (OpenRouter / Groq / Mistral), models auto-discovered |
 | `video_processor.py` | TTS, word-timed captions, vertical render |
 | `publisher.py` | YouTube API / Zernio / X API / Upload-Post with automatic fallback |
-| `config.json` | schedule, routes, search queries, filters, style |
+| `formats.py` | video format rotation (top 5 funny, car chases, secrets, ...) |
+| `config.json` | schedule, formats, routes, search queries, filters, voice, style |
 
 State (posted history + used sources) lives in the Actions cache (`queue/`), not in git.

@@ -21,6 +21,7 @@ from datetime import date
 from pathlib import Path
 
 import ai_fallback
+import formats
 from common import WORK_DIR, env, load_config, now_local, parse_json_loose, run
 
 log = logging.getLogger("autopilot")
@@ -196,6 +197,7 @@ CONTEXT: {context}
 Source footage title: "{title}" (credit: {credit}). Source type: {provider}.
 {video_note}
 {kind_note}
+{format_note}
 
 TASKS
 1. QUALITY GATE - judge honestly:
@@ -205,6 +207,10 @@ TASKS
    - has_facecam: true if a streamer webcam / face overlay or a big channel watermark covers the video.
    - has_narrator: true if a YouTuber / commentator talks over the footage in their own voice
      (NOT game characters, NOT music). Only judge this if you can hear the audio; else false.
+   - is_spoiler: true if the footage (or the part you pick) shows STORY SPOILERS - story cutscenes,
+     plot reveals, character deaths or betrayals, mission outcomes, endings, late-game locations/unlocks.
+     Normal free-roam gameplay, chases, stunts, funny moments and the world itself are NOT spoilers.
+   - fits_format: true if this footage can honestly make THIS VIDEO'S FORMAT (true if no format is given).
    - hype_score: 1-10 for the BEST part you pick in step 2, judged like a strict viral-shorts editor:
      9-10 = jaw-dropping (insane crash, wild chase, shootout, huge stunt, shocking story twist, hilarious chaos)
      7-8 = clearly exciting or intriguing; 5-6 = okay but would be scrolled past;
@@ -212,6 +218,7 @@ TASKS
    - scene_summary: one sentence on exactly what happens in the part you pick.
 2. EDIT - pick the single best continuous part, {min_len} to {max_len} seconds long:
    - clip_start / clip_end in seconds of THIS footage ({duration} s long).
+   - NO STORY SPOILERS: never pick a story cutscene or plot moment; pick exciting or funny gameplay.
    - Start 1-2 seconds BEFORE the action kicks in, so the first seconds already hook. End right after the
      payoff (crash, escape, punchline, reveal). Skip dialogue-only, walking and loading parts.
    - Motion/loudness analysis says the most intense parts are around: {hints}. Use it as a hint only.
@@ -245,8 +252,8 @@ TASKS
    - hashtags: 4 relevant hashtags (strings starting with #), always include #GTA6.
 
 Return ONLY JSON with exactly these keys:
-{{"is_gta6_footage": bool, "has_facecam": bool, "has_narrator": bool, "hype_score": int, "scene_summary": str,
- "clip_start": number, "clip_end": number, "content_type": "explainer" | "action" | "scenic",
+{{"is_gta6_footage": bool, "has_facecam": bool, "has_narrator": bool, "is_spoiler": bool, "fits_format": bool, "hype_score": int,
+ "scene_summary": str, "clip_start": number, "clip_end": number, "content_type": "explainer" | "action" | "scenic",
  "banner": str, "commentary": [{{"t": number, "line": str}}], "youtube_title": str, "caption": str,
  "x_text": str, "hashtags": [str]}}"""
 
@@ -258,6 +265,7 @@ with a warm, casual, human voice that keeps telling the viewer something new.
 CONTEXT: {context}
 Source footage title: "{title}" (credit: {credit}).
 {video_note}
+{format_note}
 
 TASKS
 1. QUALITY GATE - judge honestly:
@@ -266,12 +274,21 @@ TASKS
    - has_facecam: true if a webcam / face overlay or big channel watermark covers the video.
    - has_narrator: true if a YouTuber talks over the footage in their own voice (not game characters).
      Only judge this if you can hear the audio; else false.
+   - is_spoiler: true if the footage (or the part you pick) shows STORY SPOILERS - story cutscenes,
+     plot reveals, character deaths or betrayals, mission outcomes, endings, late-game locations/unlocks.
+     Normal free-roam gameplay, chases, stunts, funny moments and the world itself are NOT spoilers.
+   - fits_format: true if this footage can honestly make THIS VIDEO'S FORMAT (true if no format is given).
    - hype_score 1-10: how interesting and VARIED the footage is for a GTA fan (new mechanics, wildlife,
      chaos, combat, NPC reactions, funny moments = high; one long cutscene, menus, walking = low).
    - scene_summary: one sentence on what the footage shows.
-2. CHOOSE THE ANGLE that fits this footage best (like the top GTA shorts with millions of views):
+2. CHOOSE THE ANGLE (like the top GTA shorts with millions of views). If THIS VIDEO'S FORMAT is given above,
+   follow it; otherwise pick the angle below that fits this footage best.
+   NO STORY SPOILERS: never pick story cutscenes or plot moments, never mention plot, characters' fates or
+   mission outcomes. Prefer exciting and funny free-roam moments.
+     "top_moments" - "Top 5 craziest / funniest moments in GTA 6. Number five..." (3 to 5 numbered items)
      "listicle" - "Here's 5 crazy things you can do in GTA 6 that you could never do in GTA 5. Number one..."
                   (3 to 5 numbered items, each shown with 1-2 shots)
+     "funny_moments" - a fast run of the funniest fails, NPC reactions and chaos, with jokes
      "how_it_works" - one mechanic explained step by step in "you" form, like a guide:
                   "If you rob a store in GTA 6 the way you did in GTA 5, the police can be waiting outside..."
      "first_look" - a personal tour of the coolest things in the footage: "Let me show you what it's really like."
@@ -301,15 +318,15 @@ TASKS
      "So put a mask on first - a mask can keep your description away from the police, even on camera." /
      "One of the craziest things: cars now need gas. See this? My tank isn't full." /
      "This is Jason's house. It's pretty small, but it's better than nothing."
-4. angle: "listicle" | "how_it_works" | "first_look".
+4. angle: "top_moments" | "listicle" | "funny_moments" | "how_it_works" | "first_look".
    banner: max 6 words, ALL CAPS, states the angle (e.g. "5 THINGS GTA 5 COULDN'T DO", "ROBBING STORES IS DIFFERENT NOW").
    youtube_title: max 70 characters, like the top channels: "5 CRAZY Things In GTA 6 You CAN'T Do In GTA 5",
    "Robbing Stores in GTA 6 Works Differently To GTA 5", "GTA 6 Is FINALLY Here! First Gameplay". No hashtags. caption: 1-2 sentences ending with a
    question, no hashtags. x_text: max 200 characters, no hashtags, no links. hashtags: 4, include #GTA6.
 
 Return ONLY JSON with exactly these keys:
-{{"is_gta6_footage": bool, "has_facecam": bool, "has_narrator": bool, "hype_score": int, "scene_summary": str,
- "angle": str, "shots": [{{"start": number, "line": str}}], "banner": str, "youtube_title": str, "caption": str,
+{{"is_gta6_footage": bool, "has_facecam": bool, "has_narrator": bool, "is_spoiler": bool, "fits_format": bool, "hype_score": int,
+ "scene_summary": str, "angle": str, "shots": [{{"start": number, "line": str}}], "banner": str, "youtube_title": str, "caption": str,
  "x_text": str, "hashtags": [str]}}"""
 
 
@@ -324,7 +341,7 @@ STREAM_NOTE = """THIS IS A STREAM CLIP: a streamer playing GTA 6 live, usually w
 
 
 def write_clip_copy(clip: Path, title: str, credit: str, provider: str, kind: str = "gameplay",
-                    hints: list | None = None, tour: bool = False) -> dict:
+                    hints: list | None = None, tour: bool = False, fmt: dict | None = None) -> dict:
     """The AI watches the whole downloaded section, judges it, picks the best part (clip_start/clip_end)
     and writes for it. Commentary times are in SECTION time; finalize_commentary() converts them."""
     cfg = load_config()
@@ -340,6 +357,7 @@ def write_clip_copy(clip: Path, title: str, credit: str, provider: str, kind: st
         duration=int(clip_dur), min_len=min_len, max_len=max_len,
         hints=", ".join(f"{a}-{b}s" for a, b in (hints or [])) or "unknown",
         kind_note=STREAM_NOTE if kind == "stream" else "",
+        format_note=formats.prompt_note(fmt, tour),
     )
     template = TOUR_PROMPT if tour else CLIP_PROMPT
 
@@ -563,6 +581,8 @@ def _clean_copy(d: dict, clip_dur: float = 48) -> dict:
         "is_gta6_footage": bool(d.get("is_gta6_footage", True)),
         "has_facecam": bool(d.get("has_facecam", False)),
         "has_narrator": bool(d.get("has_narrator", False)),
+        "is_spoiler": bool(d.get("is_spoiler", False)),
+        "fits_format": bool(d.get("fits_format", True)),
         "content_type": str(d.get("content_type", "action")).lower(),
         "hype_score": int(d.get("hype_score") or 6),
         "scene_summary": s("scene_summary"),
