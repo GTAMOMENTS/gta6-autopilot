@@ -1,0 +1,54 @@
+name: GTA6 Top Moments 24/7 Autopilot
+
+on:
+  schedule:
+    # Runs at 09:30, 12:00, 14:30, 17:00, 19:30, 21:00, and 22:30 Turkey Time (UTC+3)
+    - cron: '30 6 * * *'
+    - cron: '0 9 * * *'
+    - cron: '30 11 * * *'
+    - cron: '0 14 * * *'
+    - cron: '30 16 * * *'
+    - cron: '0 18 * * *'
+    - cron: '30 19 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  run-autopilot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Install Python dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run Gemini + Autopilot Pipeline
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          UPLOAD_POST_API_KEY: ${{ secrets.UPLOAD_POST_API_KEY }}
+          UPLOAD_POST_PROFILE: ${{ secrets.UPLOAD_POST_PROFILE }}
+          ZERNIO_API_KEY: ${{ secrets.ZERNIO_API_KEY }}
+          TIMEZONE: Europe/Istanbul
+        run: python autopilot.py
+
+      - name: Save queue state so clips never double-post
+        run: |
+          git config user.name "gta6-autopilot-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add queue/
+          git diff --staged --quiet || git commit -m "chore: update published clip queue"
+          git push
