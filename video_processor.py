@@ -25,26 +25,31 @@ log = logging.getLogger("autopilot")
 
 # --------------------------------------------------------------------------- TTS
 
-async def _edge_tts(text: str, voice: str, rate: str, out: Path) -> list[dict]:
+async def _edge_tts(text: str, voice: str, rate: str, out: Path, boundary: str = "WordBoundary") -> list[dict]:
     import edge_tts
     words: list[dict] = []
-    communicate = edge_tts.Communicate(text, voice, rate=rate, boundary="WordBoundary")
+    communicate = edge_tts.Communicate(text, voice, rate=rate, boundary=boundary)
     with open(out, "wb") as f:
         async for chunk in communicate.stream():
             if chunk["type"] == "audio":
                 f.write(chunk["data"])
-            elif chunk["type"] == "WordBoundary":
+            elif chunk["type"] in ("WordBoundary", "SentenceBoundary"):
                 start = chunk["offset"] / 1e7
-                words.append({"text": chunk["text"], "start": start, "end": start + chunk["duration"] / 1e7})
+                end = start + chunk["duration"] / 1e7
+                if chunk["type"] == "WordBoundary":
+                    words.append({"text": chunk["text"], "start": start, "end": end})
+                else:  # spread the sentence's words across its time span
+                    words.extend((w | {"start": w["start"] + start, "end": w["end"] + start})
+                                 for w in _even_word_timings(chunk["text"], end - start, lead=0.0))
     return words
 
 
-def _even_word_timings(text: str, duration: float) -> list[dict]:
+def _even_word_timings(text: str, duration: float, lead: float = 0.15) -> list[dict]:
     tokens = text.split()
     weights = [max(2, len(t)) for t in tokens]
     total = sum(weights) or 1
-    t, out = 0.15, []
-    span = max(1.0, duration - 0.3)
+    t, out = lead, []
+    span = max(0.2, duration - 2 * lead)
     for tok, w in zip(tokens, weights):
         d = span * w / total
         out.append({"text": tok, "start": t, "end": t + d})
@@ -58,16 +63,17 @@ def synthesize(text: str, out: Path) -> tuple[float, list[dict]]:
     voices = [env("TTS_VOICE")] + vcfg.get("voices", ["en-US-AndrewNeural", "en-US-GuyNeural"])
     rate = vcfg.get("rate", "+10%")
     words: list[dict] = []
-    attempts = [v for v in dict.fromkeys(voices) if v]
-    attempts = attempts[:1] * 2 + attempts[1:]  # main voice gets a second chance (edge-tts hiccups)
-    for voice in attempts:
+    names = [v for v in dict.fromkeys(voices) if v]
+    # main voice: word timings first, then sentence timings (some voices reject word-boundary mode)
+    attempts = [(names[0], "WordBoundary"), (names[0], "SentenceBoundary")] + [(v, "WordBoundary") for v in names[1:]]
+    for voice, boundary in attempts:
         try:
-            words = asyncio.run(_edge_tts(text, voice, rate, out))
+            words = asyncio.run(_edge_tts(text, voice, rate, out, boundary))
             if out.exists() and out.stat().st_size > 5000:
-                log.info("[voice] edge-tts voice %s (%d word timings)", voice, len(words))
+                log.info("[voice] edge-tts voice %s/%s (%d word timings)", voice, boundary, len(words))
                 break
         except Exception as exc:  # noqa: BLE001
-            log.warning("[voice] %s failed: %s", voice, exc)
+            log.warning("[voice] %s/%s failed: %s", voice, boundary, exc)
             time.sleep(2)
         words = []
     else:
