@@ -44,7 +44,13 @@ def _simple_key(name, url, hint):
     if not env(name):
         return OFF, "not set", hint
     r = requests.get(url, headers={"Authorization": f"Bearer {env(name)}"}, timeout=20)
-    return (OK, "works", "") if r.status_code == 200 else (BAD, f"rejected ({r.status_code})", hint)
+    if r.status_code != 200:
+        return BAD, f"rejected ({r.status_code})", hint
+    import ai_fallback
+    provider = next((p for p, v in ai_fallback.PROVIDERS.items() if v["key"] == name), None)
+    models = ai_fallback._models(provider) if provider else []
+    shown = ", ".join(f"{m}{' (sees images)' if vision else ''}" for m, vision in models[:3])
+    return OK, f"works - will use: {shown or 'no suitable models found'}", ""
 
 
 def _zernio():
