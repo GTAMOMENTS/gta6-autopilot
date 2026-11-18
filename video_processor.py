@@ -397,11 +397,20 @@ def place_lines(voiced: list[dict], total: float) -> list[dict]:
         log.info("[voice] script too long for the clip - dropping: %s", voiced[drop]["text"])
         voiced = voiced[:drop] + voiced[drop + 1:]
     placed, cursor = [], 0.0
-    for ln in voiced:
-        start = max(ln["t"], cursor + 0.35, 0.25)
-        if start + ln["dur"] > total - 0.3:
-            start = max(cursor + 0.35, total - 0.3 - ln["dur"])
-        if start + ln["dur"] > total or start < cursor:
+    for i, ln in enumerate(voiced):
+        last = i == len(voiced) - 1
+        while True:
+            start = max(ln["t"], cursor + 0.35, 0.25)
+            if start + ln["dur"] > total - 0.3:
+                start = max(cursor + 0.35, total - 0.3 - ln["dur"])
+            fits = start + ln["dur"] <= total and start >= cursor
+            if fits or not last or len(placed) < 2:
+                break
+            # the closing question always stays: drop the line before it instead
+            gone = placed.pop()
+            log.info("[voice] making room for the ending question - dropping: %s", gone["text"])
+            cursor = placed[-1]["start"] + placed[-1]["dur"] if placed else 0.0
+        if not fits:
             log.info("[voice] dropping line that doesn't fit: %s", ln["text"])
             continue
         placed.append({**ln, "start": start})
