@@ -28,10 +28,11 @@ log = logging.getLogger("autopilot")
 
 # --------------------------------------------------------------------------- TTS
 
-async def _edge_tts(text: str, voice: str, rate: str, out: Path, boundary: str = "WordBoundary") -> list[dict]:
+async def _edge_tts(text: str, voice: str, rate: str, out: Path, boundary: str = "WordBoundary",
+                    pitch: str = "+0Hz", volume: str = "+0%") -> list[dict]:
     import edge_tts
     words: list[dict] = []
-    communicate = edge_tts.Communicate(text, voice, rate=rate, boundary=boundary)
+    communicate = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch, volume=volume, boundary=boundary)
     with open(out, "wb") as f:
         async for chunk in communicate.stream():
             if chunk["type"] == "audio":
@@ -61,15 +62,19 @@ def _even_word_timings(text: str, duration: float, lead: float = 0.15) -> list[d
 
 
 def _edge_line(text: str, voice: str, rate: str, out: Path) -> list[dict]:
-    """One short line with edge-tts. Word timings relative to the line start."""
-    for boundary in ("WordBoundary", "SentenceBoundary"):
-        try:
-            words = asyncio.run(_edge_tts(text, voice, rate, out, boundary))
-            if out.exists() and out.stat().st_size > 2000:
-                return words
-        except Exception as exc:  # noqa: BLE001
-            log.debug("[voice] edge %s/%s: %s", voice, boundary, exc)
-            time.sleep(1.5)
+    """One short line with edge-tts. Word timings relative to the line start.
+    Tries the energetic settings (pitch/volume lift) first, then plain settings."""
+    vcfg = load_config().get("voice", {})
+    styles = [(vcfg.get("pitch", "+2Hz"), vcfg.get("volume", "+10%")), ("+0Hz", "+0%")]
+    for pitch, volume in styles:
+        for boundary in ("WordBoundary", "SentenceBoundary"):
+            try:
+                words = asyncio.run(_edge_tts(text, voice, rate, out, boundary, pitch, volume))
+                if out.exists() and out.stat().st_size > 2000:
+                    return words
+            except Exception as exc:  # noqa: BLE001
+                log.debug("[voice] edge %s/%s/%s: %s", voice, boundary, pitch, exc)
+                time.sleep(1.5)
     raise RuntimeError(f"edge-tts {voice} gave no audio")
 
 
@@ -269,8 +274,9 @@ def render(clip: Path, clip_id: str, banner: str, commentary: list[dict]) -> dic
     READY_DIR.mkdir(parents=True, exist_ok=True)
 
     info = probe(clip)
+    # never loop footage: short stream clips simply make a shorter video
     total = round(min(float(vcfg.get("duration_sec", 48)), float(vcfg.get("max_duration_sec", 58)),
-                      info["duration"] if info["duration"] >= 20 else 999), 2)
+                      info["duration"] or 48), 2)
     lines = place_lines(synthesize_lines(commentary, clip_id), total)
     words = [{"text": w["text"], "start": w["start"] + ln["start"], "end": w["end"] + ln["start"]}
              for ln in lines for w in ln["words"]]

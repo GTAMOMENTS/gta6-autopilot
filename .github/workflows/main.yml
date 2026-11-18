@@ -55,20 +55,38 @@ jobs:
           python-version: '3.11'
           cache: pip
 
+      - name: Month (for refreshing the package cache)
+        id: month
+        run: echo "value=$(date +%Y-%m)" >> "$GITHUB_OUTPUT"
+
+      # The Ubuntu mirror is sometimes extremely slow, and ffmpeg needs ~60 packages.
+      # Keep the downloaded .deb files in the Actions cache so later runs install offline in seconds.
+      - name: Restore cached ffmpeg packages
+        id: aptcache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/apt-debs
+          key: apt-debs-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.month.outputs.value }}
+          restore-keys: |
+            apt-debs-v2-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Install FFmpeg + fonts (apt)
-        id: apt
-        timeout-minutes: 5
+        timeout-minutes: 6
         continue-on-error: true
         run: |
           # Ubuntu's background auto-updater grabs the package lock on fresh runners -> stop it first
           sudo systemctl stop unattended-upgrades apt-daily.service apt-daily-upgrade.service 2>/dev/null || true
           sudo killall -q unattended-upgr 2>/dev/null || true
-          APT="-o DPkg::Lock::Timeout=120 -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
-          sudo apt-get $APT update -q
-          sudo apt-get $APT install -y -q --no-install-recommends ffmpeg fonts-montserrat fontconfig
+          mkdir -p ~/apt-debs/partial
+          OPTS="-o Dir::Cache::Archives=$HOME/apt-debs -o APT::Keep-Downloaded-Packages=true -o DPkg::Lock::Timeout=120 -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          PKGS="ffmpeg fonts-montserrat fontconfig"
+          # fast path: runner's package lists + cached .debs (no downloads); otherwise refresh lists and download
+          sudo apt-get install -y -q --no-install-recommends $OPTS $PKGS \
+            || { sudo apt-get update -q $OPTS && sudo apt-get install -y -q --no-install-recommends $OPTS $PKGS; }
+          sudo chmod -R a+rX ~/apt-debs
 
       - name: Retry FFmpeg install (only if the first attempt stalled)
-        timeout-minutes: 8
+        timeout-minutes: 10
         run: |
           if command -v ffmpeg >/dev/null && command -v ffprobe >/dev/null; then ffmpeg -version | head -1; exit 0; fi
           echo "First apt attempt failed/stalled - repairing and retrying"
@@ -77,10 +95,20 @@ jobs:
           sleep 3
           sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock /var/lib/apt/lists/lock
           sudo dpkg --configure -a || true
-          APT="-o DPkg::Lock::Timeout=120 -o Acquire::Retries=5 -o Acquire::http::Timeout=30"
-          sudo apt-get $APT update -q
-          sudo apt-get $APT install -y -q --no-install-recommends ffmpeg fontconfig
+          mkdir -p ~/apt-debs/partial
+          OPTS="-o Dir::Cache::Archives=$HOME/apt-debs -o APT::Keep-Downloaded-Packages=true -o DPkg::Lock::Timeout=120 -o Acquire::Retries=5 -o Acquire::http::Timeout=30"
+          sudo apt-get update -q $OPTS
+          sudo apt-get install -y -q --no-install-recommends $OPTS ffmpeg fontconfig
+          sudo chmod -R a+rX ~/apt-debs
           ffmpeg -version | head -1
+
+      - name: Save ffmpeg packages for next runs
+        if: steps.aptcache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ~/apt-debs
+          key: apt-debs-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.month.outputs.value }}
 
       - name: Install Python dependencies
         run: pip install -U -r requirements.txt
@@ -115,6 +143,8 @@ jobs:
           UPLOAD_POST_PROFILE: ${{ secrets.UPLOAD_POST_PROFILE }}
           YTDLP_COOKIES: ${{ secrets.YTDLP_COOKIES }}
           X_COOKIES: ${{ secrets.X_COOKIES }}
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
           TIMEZONE: Europe/Istanbul
           SCHEDULE_CRON: ${{ github.event.schedule }}
           SLOT: ${{ github.event_name == 'workflow_dispatch' && inputs.slot || 'auto' }}

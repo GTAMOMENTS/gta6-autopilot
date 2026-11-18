@@ -36,7 +36,15 @@ from highlight import cut_highlight
 log = logging.getLogger("autopilot")
 
 DM_API = "https://api.dailymotion.com/videos"
-YTDLP_FORMAT = "bv*[height<=1080][vcodec!*=av01]+ba/b[height<=1080]/bv*+ba/b"
+def ytdlp_format() -> str:
+    """Quality between `min_height` (default 720p) and 1080p, preferring <=30fps
+    (our videos are 30fps - 60fps sources are ~2x bigger for nothing)."""
+    h = int(load_config().get("sources", {}).get("min_height", 720))
+    q = f"[height>={h}][height<=1080]"
+    return (f"bv*{q}[fps<=?30][vcodec!*=av01]+ba/bv*{q}[fps<=?30]+ba/b{q}[fps<=?30]/"
+            f"bv*{q}+ba/b{q}")
+FULL_DOWNLOAD_MAX_SEC = 600      # only fetch whole videos (no section support) when they are short
+FULL_DOWNLOAD_MAX_SIZE = "250M"
 BOT_BLOCK_MARKERS = ("confirm you", "not a bot", "sign in to confirm", "http error 429", "precondition", "403: forbidden", "403 forbidden")
 
 
@@ -54,6 +62,8 @@ class Candidate:
     official: bool = False
     local_path: str | None = None
     score: float = 0.0
+    kind: str = "gameplay"          # "gameplay" or "stream" (streamer clips / VODs with reactions)
+    heatmap: list | None = None     # YouTube "most replayed" data [{start_time, end_time, value}]
 
 
 @dataclass
@@ -68,6 +78,8 @@ class ClipSource:
         c = self.candidate
         if c.official:
             return "Rockstar Games"
+        if c.provider in ("twitch_clip", "twitch_vod"):
+            return f"{c.uploader} on Twitch" if c.uploader else "Twitch"
         return c.uploader or "original creator"
 
 
@@ -142,6 +154,17 @@ def _launch_ts(cfg: dict) -> float | None:
         return None
 
 
+def _min_created_ts(cfg: dict) -> float | None:
+    """Only recent uploads: now - max_age_days (and never before launch if only_after_launch)."""
+    s = cfg.get("sources", {})
+    stamps = []
+    if s.get("max_age_days"):
+        stamps.append(time.time() - float(s["max_age_days"]) * 86400)
+    if (lt := _launch_ts(cfg)):
+        stamps.append(lt)
+    return max(stamps) if stamps else None
+
+
 def discover_local() -> list[Candidate]:
     out = []
     if LOCAL_CLIPS_DIR.exists():
@@ -169,7 +192,7 @@ def discover_extra_urls(cfg: dict) -> list[Candidate]:
 
 def discover_dailymotion(cfg: dict, queries: list[str], tf: TitleFilter) -> list[Candidate]:
     s = cfg.get("sources", {})
-    after = _launch_ts(cfg)
+    after = _min_created_ts(cfg)
     out: dict[str, Candidate] = {}
     for q in queries:
         for sort in ("relevance", "recent"):
@@ -196,7 +219,9 @@ def discover_dailymotion(cfg: dict, queries: list[str], tf: TitleFilter) -> list
                     continue
                 key = f"dm:{v['id']}"
                 fmts = v.get("available_formats") or []
-                quality = 1.5 if "hd1080" in fmts else (0.8 if "hd720" in fmts else -2.0)
+                if not ({"hd720", "hd1080", "hd1440", "uhd2160"} & set(fmts)):
+                    continue  # no 720p+ version -> skip (min quality 720p)
+                quality = 1.5 if "hd1080" in fmts else 0.8
                 out[key] = Candidate(score=quality,
                     key=key, url=v.get("url") or f"https://www.dailymotion.com/video/{v['id']}",
                     title=v.get("title", ""), uploader=v.get("owner.screenname", ""),
@@ -209,7 +234,7 @@ def discover_dailymotion(cfg: dict, queries: list[str], tf: TitleFilter) -> list
 
 def _ytdlp_base() -> list[str]:
     cmd = ["yt-dlp", "--no-warnings", "--no-playlist", "--socket-timeout", "45", "--retries", "3",
-           "--extractor-retries", "3"]
+           "--extractor-retries", "3", "--concurrent-fragments", "4"]
     # YouTube (especially when logged in with cookies) needs a JavaScript engine to unlock the
     # video streams; Node.js is preinstalled on GitHub runners but yt-dlp only uses Deno by default.
     if shutil.which("node"):
@@ -227,7 +252,7 @@ def _ytdlp_base() -> list[str]:
     return cmd
 
 
-def discover_youtube(cfg: dict, queries: list[str], tf: TitleFilter) -> list[Candidate]:
+def discover_youtube(cfg: dict, queries: list[str], tf: TitleFilter, kind: str = "gameplay") -> list[Candidate]:
     s = cfg.get("sources", {})
     out: dict[str, Candidate] = {}
     for q in queries:
@@ -256,10 +281,93 @@ def discover_youtube(cfg: dict, queries: list[str], tf: TitleFilter) -> list[Can
             out[key] = Candidate(
                 key=key, url=f"https://www.youtube.com/watch?v={e['id']}", title=e.get("title", ""),
                 uploader=e.get("channel") or e.get("uploader") or "", provider="youtube",
-                duration=dur, views=int(e.get("view_count") or 0),
+                duration=dur, views=int(e.get("view_count") or 0), kind=kind,
             )
-    log.info("[sources] YouTube: %d usable videos", len(out))
+    log.info("[sources] YouTube (%s): %d usable videos", kind, len(out))
     return list(out.values())
+
+
+_twitch_token: str | None = None
+
+
+def _twitch_headers() -> dict | None:
+    global _twitch_token
+    cid, secret = env("TWITCH_CLIENT_ID"), env("TWITCH_CLIENT_SECRET")
+    if not (cid and secret):
+        return None
+    if _twitch_token is None:
+        r = requests.post("https://id.twitch.tv/oauth2/token", timeout=20, params={
+            "client_id": cid, "client_secret": secret, "grant_type": "client_credentials"})
+        r.raise_for_status()
+        _twitch_token = r.json()["access_token"]
+    return {"Client-Id": cid, "Authorization": f"Bearer {_twitch_token}"}
+
+
+def _twitch_duration(d: str) -> float:
+    """'3h21m12s' -> seconds"""
+    total = 0.0
+    for num, unit in re.findall(r"(\d+)([hms])", d or ""):
+        total += int(num) * {"h": 3600, "m": 60, "s": 1}[unit]
+    return total
+
+
+def discover_twitch(cfg: dict, tf: "TitleFilter") -> list[Candidate]:
+    """Most-viewed recent GTA VI clips + recorded streams (VODs) from Twitch's official API."""
+    tcfg = cfg.get("sources", {}).get("twitch", {})
+    try:
+        headers = _twitch_headers()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[sources] Twitch login failed: %s", exc)
+        return []
+    if not headers:
+        return []
+    api = "https://api.twitch.tv/helix"
+    out: list[Candidate] = []
+    try:
+        g = requests.get(f"{api}/games", headers=headers, timeout=20,
+                         params={"name": tcfg.get("game_name", "Grand Theft Auto VI")}).json().get("data", [])
+        if not g:
+            log.warning("[sources] Twitch: game not found")
+            return []
+        game_id = g[0]["id"]
+        langs = set(tcfg.get("languages", ["en"]))
+        start = datetime.fromtimestamp(time.time() - float(tcfg.get("clip_days", 3)) * 86400, timezone.utc)
+        clips = requests.get(f"{api}/clips", headers=headers, timeout=20, params={
+            "game_id": game_id, "first": 100, "started_at": start.strftime("%Y-%m-%dT%H:%M:%SZ")}).json().get("data", [])
+        for c in clips:
+            if langs and c.get("language") not in langs:
+                continue
+            if int(c.get("view_count") or 0) < int(tcfg.get("min_clip_views", 300)):
+                continue
+            if float(c.get("duration") or 0) < float(tcfg.get("min_clip_sec", 12)):
+                continue
+            if tf.blocked and tf.blocked.search(_norm(c.get("title", ""))):
+                continue
+            out.append(Candidate(
+                key=f"twc:{c['id']}", url=c["url"], title=c.get("title") or "Twitch clip",
+                uploader=c.get("broadcaster_name", ""), provider="twitch_clip", kind="stream",
+                duration=float(c.get("duration") or 0), views=int(c.get("view_count") or 0),
+                created=datetime.fromisoformat(c["created_at"].replace("Z", "+00:00")).timestamp(),
+                language=c.get("language", ""), score=float(tcfg.get("clip_bonus", 3.0)),
+            ))
+        if tcfg.get("include_vods", True):
+            vods = requests.get(f"{api}/videos", headers=headers, timeout=20, params={
+                "game_id": game_id, "first": 30, "sort": "views", "type": "archive",
+                "period": tcfg.get("vod_period", "week")}).json().get("data", [])
+            for v in vods:
+                if langs and v.get("language") not in langs:
+                    continue
+                out.append(Candidate(
+                    key=f"twv:{v['id']}", url=v["url"], title=v.get("title") or "Twitch stream",
+                    uploader=v.get("user_name", ""), provider="twitch_vod", kind="stream",
+                    duration=_twitch_duration(v.get("duration", "")), views=int(v.get("view_count") or 0),
+                    created=datetime.fromisoformat(v["created_at"].replace("Z", "+00:00")).timestamp(),
+                    language=v.get("language", ""),
+                ))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[sources] Twitch API error: %s", exc)
+    log.info("[sources] Twitch: %d clips/streams", len(out))
+    return out
 
 
 def discover_trailers(cfg: dict) -> list[Candidate]:
@@ -296,6 +404,8 @@ def rank(cands: list[Candidate], manifest: dict, tf: TitleFilter) -> list[Candid
             age_days = (now - c.created) / 86400
             score += max(0.0, 2.0 - age_days / 7)  # fresh footage first
         score -= uses * 2.5                    # prefer never-used videos
+        if c.provider == "dailymotion" and c.duration > FULL_DOWNLOAD_MAX_SEC:
+            score -= 2.0                       # may need a full download -> slow
         score += random.uniform(0, 2.0)        # variety between runs
         c.score = score
         ranked.append(c)
@@ -303,26 +413,52 @@ def rank(cands: list[Candidate], manifest: dict, tf: TitleFilter) -> list[Candid
     return ranked
 
 
-def discover(cfg: dict, manifest: dict) -> list[Candidate]:
+def _stream_filter(cfg: dict) -> TitleFilter:
+    """Like the normal filter, but streams/reactions are allowed (that's the point)."""
     s = cfg.get("sources", {})
-    providers = s.get("providers", ["local", "extra_urls", "dailymotion", "youtube", "official_trailers"])
-    tf = TitleFilter(cfg)
-    all_queries = s.get("search_queries", ["GTA 6 gameplay"])
-    queries = random.sample(all_queries, k=min(len(all_queries), int(s.get("queries_per_run", 4))))
-    log.info("[sources] search queries this run: %s", queries)
+    allowed = {t.lower() for t in s.get("stream_allowed_terms", [])}
+    c2 = json.loads(json.dumps(cfg))
+    c2["sources"]["blocked_title_terms"] = [t for t in s.get("blocked_title_terms", []) if t.lower() not in allowed]
+    c2["sources"]["context_title_terms"] = s.get("context_title_terms", []) + s.get("stream_context_terms", [])
+    return TitleFilter(c2)
 
-    primary: list[Candidate] = []
+
+def pick_kind(cfg: dict) -> str:
+    mix = cfg.get("sources", {}).get("content_mix", {"gameplay": 0.6, "stream": 0.4})
+    kinds, weights = zip(*mix.items())
+    return random.choices(kinds, weights=weights, k=1)[0]
+
+
+def discover(cfg: dict, manifest: dict, kind: str | None = None) -> list[Candidate]:
+    s = cfg.get("sources", {})
+    providers = s.get("providers", ["local", "extra_urls", "twitch", "dailymotion", "youtube"])
+    kind = kind or pick_kind(cfg)
+    log.info("[sources] content type this run: %s", kind.upper())
+    tf, stf = TitleFilter(cfg), _stream_filter(cfg)
+    n = int(s.get("queries_per_run", 4))
+    g_all, s_all = s.get("search_queries", ["GTA 6 gameplay"]), s.get("stream_search_queries", [])
+    g_queries = random.sample(g_all, k=min(len(g_all), n))
+    s_queries = random.sample(s_all, k=min(len(s_all), max(2, n // 2)))
+
+    gameplay: list[Candidate] = []
+    stream: list[Candidate] = []
     if "local" in providers:
-        primary += discover_local()
+        gameplay += discover_local()
     if "extra_urls" in providers:
-        primary += discover_extra_urls(cfg)
+        gameplay += discover_extra_urls(cfg)
+    if "twitch" in providers:
+        stream += discover_twitch(cfg, stf)
     if "dailymotion" in providers:
-        primary += discover_dailymotion(cfg, queries, tf)
+        gameplay += discover_dailymotion(cfg, g_queries, tf)
     if "youtube" in providers:
-        primary += discover_youtube(cfg, queries, tf)
-    ranked = rank(primary, manifest, tf)
+        gameplay += discover_youtube(cfg, g_queries, tf, "gameplay")
+        if s_queries:
+            stream += discover_youtube(cfg, s_queries, stf, "stream")
+
+    first, second = (stream, gameplay) if kind == "stream" else (gameplay, stream)
+    ranked = rank(first, manifest, tf) + rank(second, manifest, tf)  # preferred type first, other as backup
     if "official_trailers" in providers:
-        ranked += rank(discover_trailers(cfg), manifest, tf)  # always last
+        ranked += rank(discover_trailers(cfg), manifest, tf)
     return ranked
 
 
@@ -333,6 +469,16 @@ def _pick_section(c: Candidate, manifest: dict, length: int) -> tuple[int, int]:
     if dur <= 0 or dur <= length + 10:
         return 0, dur or length
     used = [(u[0], u[1]) for u in manifest["sources"].get(c.key, {}).get("uses", [])]
+    if c.heatmap:
+        # YouTube "most replayed": centre the section on the part viewers rewatch the most
+        peaks = sorted((p for p in c.heatmap if p.get("start_time", 0) > dur * 0.04),
+                       key=lambda p: p.get("value", 0), reverse=True)
+        for p in peaks[:12]:
+            mid = (float(p["start_time"]) + float(p.get("end_time", p["start_time"]))) / 2
+            start = int(min(max(0, mid - length / 2), dur - length))
+            if not any(start < b and start + length > a for a, b in used):
+                log.info("[sources] using YouTube 'most replayed' peak around %ds", int(mid))
+                return start, start + length
     lo = int(dur * 0.06) if dur > 300 else 3           # skip intros / "subscribe" talk
     hi = max(lo + 1, int(dur * 0.93) - length)         # skip outros
     for _ in range(25):
@@ -360,7 +506,7 @@ def _download(c: Candidate, start: int, end: int, out: Path) -> bool:
 
     # 1) fast path: only download the section we need
     res = run(_ytdlp_base() + [
-        "-f", YTDLP_FORMAT, "--merge-output-format", "mp4",
+        "-f", ytdlp_format(), "--merge-output-format", "mp4",
         "--download-sections", f"*{start}-{end}",
         "-o", str(out), c.url,
     ], timeout=300)
@@ -375,14 +521,14 @@ def _download(c: Candidate, start: int, end: int, out: Path) -> bool:
 
     # 2) fallback: some HLS sources (Dailymotion with split audio/video) can't be
     #    section-downloaded -> fetch the whole video (if not huge) and cut locally.
-    if c.duration and c.duration > 2400:
-        log.warning("[sources] section download failed and video too long for full download: %s", err)
+    if c.duration and c.duration > FULL_DOWNLOAD_MAX_SEC:
+        log.warning("[sources] section download failed and video too long for a full download - skipping")
         return False
     full = out.with_name(out.stem + "_full.mp4")
     full.unlink(missing_ok=True)
     out.unlink(missing_ok=True)
-    res = run(_ytdlp_base() + ["-f", YTDLP_FORMAT, "--merge-output-format", "mp4",
-                               "--max-filesize", "900M", "-o", str(full), c.url], timeout=600)
+    res = run(_ytdlp_base() + ["-f", ytdlp_format(), "--merge-output-format", "mp4",
+                               "--max-filesize", FULL_DOWNLOAD_MAX_SIZE, "-o", str(full), c.url], timeout=300)
     if res.returncode != 0 or not _valid_video(full):
         log.warning("[sources] download failed (%s): %s", c.provider, res.stderr[-400:])
         full.unlink(missing_ok=True)
@@ -401,8 +547,9 @@ def _fill_metadata(c: Candidate, cfg: dict) -> bool:
     if c.local_path:
         c.duration = probe(Path(c.local_path))["duration"]
         return c.duration > 0
-    need_date = c.provider == "youtube" and _launch_ts(cfg)
-    if c.duration and not need_date:
+    need_date = c.provider == "youtube" and _min_created_ts(cfg)
+    need_meta = need_date or (c.provider == "youtube" and c.duration > 300)  # heatmap for long videos
+    if c.duration and not need_meta:
         return True
     res = run(_ytdlp_base() + ["-J", "--skip-download", c.url], timeout=90)
     if res.returncode != 0:
@@ -414,13 +561,17 @@ def _fill_metadata(c: Candidate, cfg: dict) -> bool:
     except json.JSONDecodeError:
         return False
     c.duration = float(meta.get("duration") or c.duration or 0)
+    c.heatmap = meta.get("heatmap") or None
     c.uploader = c.uploader or meta.get("channel") or meta.get("uploader") or ""
     if meta.get("timestamp"):
         c.created = float(meta["timestamp"])
     elif meta.get("upload_date"):
         c.created = datetime.strptime(meta["upload_date"], "%Y%m%d").replace(tzinfo=timezone.utc).timestamp()
-    if need_date and c.created and c.created < _launch_ts(cfg):
-        log.info("[sources] skip pre-launch YouTube video: %s", c.title)
+    if need_date and c.created and c.created < _min_created_ts(cfg):
+        log.info("[sources] skip old YouTube video (%s): %s",
+                 datetime.fromtimestamp(c.created, timezone.utc).date(), c.title[:60])
+        _note_failure(c)
+        _note_failure(c)  # 2 strikes -> never retried
         return False
     return c.duration > 0
 
@@ -471,6 +622,14 @@ def iter_clips(target_sec: int, max_attempts: int = 6, skip_providers: set | Non
                             "(add a YTDLP_COOKIES secret to fix).")
             continue
 
+        min_h = int(s.get("min_height", 720))
+        sec_info = probe(sec_file)
+        if c.provider != "local" and min(sec_info["width"], sec_info["height"]) < min_h:
+            log.info("[sources] skipping %s: only %dx%d (< %dp)", c.title[:50], sec_info["width"],
+                     sec_info["height"], min_h)
+            sec_file.unlink(missing_ok=True)
+            mark_rejected(c, f"low resolution {sec_info['width']}x{sec_info['height']}")
+            continue
         clip_file = RAW_DIR / f"clip_{int(time.time())}.mp4"
         try:
             clip, segments = cut_highlight(sec_file, clip_file, target_sec, style)

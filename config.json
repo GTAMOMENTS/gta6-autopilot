@@ -96,9 +96,9 @@
     "providers": [
       "local",
       "extra_urls",
+      "twitch",
       "dailymotion",
-      "youtube",
-      "official_trailers"
+      "youtube"
     ],
     "launch_date": "2026-11-19",
     "only_after_launch": false,
@@ -123,12 +123,15 @@
       "GTA 6 4K",
       "GTA VI gameplay walkthrough part",
       "GTA 6 boss fight",
-      "GTA 6 ending"
+      "GTA 6 ending",
+      "GTA 6 secrets no commentary",
+      "GTA 6 easter eggs gameplay",
+      "GTA 6 hidden details gameplay"
     ],
     "queries_per_run": 5,
     "min_duration_sec": 50,
     "max_duration_sec": 21600,
-    "section_length_sec": 180,
+    "section_length_sec": 120,
     "clip_style": "auto",
     "max_attempts": 6,
     "time_budget_min": 22,
@@ -292,7 +295,13 @@
       "everything we know",
       "tout",
       "test",
-      "review"
+      "review",
+      "memes",
+      "before gta 6",
+      "wait for gta 6",
+      "whilst you wait",
+      "while you wait",
+      "waiting for gta 6"
     ],
     "preferred_title_terms": {
       "no commentary": 3.0,
@@ -309,6 +318,26 @@
       "60fps": 0.5
     },
     "official_trailers": [
+      {
+        "title": "Grand Theft Auto VI: An Extended Look",
+        "url": "https://www.youtube.com/watch?v=tJbzMqJGH4k",
+        "duration": 1609
+      },
+      {
+        "title": "Grand Theft Auto VI Launch Trailer",
+        "url": "https://www.youtube.com/watch?v=rz1B4B2yBZY",
+        "duration": 91
+      },
+      {
+        "title": "Grand Theft Auto VI Trailer 2",
+        "url": "https://www.youtube.com/watch?v=VQRLujxTm3c",
+        "duration": 167
+      },
+      {
+        "title": "Grand Theft Auto VI Trailer 1",
+        "url": "https://www.youtube.com/watch?v=QdBZY2fkU-0",
+        "duration": 91
+      },
       {
         "title": "Grand Theft Auto VI Official Trailer 2",
         "url": "https://www.dailymotion.com/video/x9j2dp6",
@@ -334,12 +363,65 @@
       "part 1",
       "part 2",
       "part 3"
-    ]
+    ],
+    "min_height": 720,
+    "max_age_days": 14,
+    "content_mix": {
+      "gameplay": 0.6,
+      "stream": 0.4
+    },
+    "stream_search_queries": [
+      "GTA 6 stream highlights",
+      "GTA 6 funniest stream moments",
+      "GTA 6 streamer reaction",
+      "GTA 6 livestream best moments",
+      "GTA 6 stream rage",
+      "GTA 6 twitch clips",
+      "GTA 6 streamers react",
+      "GTA 6 first time playing reaction",
+      "GTA 6 stream funny moments",
+      "GTA 6 kick stream highlights"
+    ],
+    "stream_allowed_terms": [
+      "live",
+      "livestream",
+      "stream",
+      "reaction",
+      "reacts",
+      "react",
+      "reacting"
+    ],
+    "stream_context_terms": [
+      "stream",
+      "streamer",
+      "streamers",
+      "twitch",
+      "kick",
+      "highlights",
+      "reaction",
+      "reacts",
+      "rage",
+      "live",
+      "vod"
+    ],
+    "twitch": {
+      "game_name": "Grand Theft Auto VI",
+      "clip_days": 3,
+      "min_clip_views": 300,
+      "min_clip_sec": 15,
+      "languages": [
+        "en"
+      ],
+      "include_vods": true,
+      "vod_period": "week",
+      "clip_bonus": 3.0
+    }
   },
   "quality_gate": {
     "min_hype_score": 5,
     "reject_facecam": true,
-    "require_ai_check_for_search": true
+    "require_ai_check_for_search": true,
+    "reject_narrator": true
   },
   "gemini": {
     "models": [
@@ -350,18 +432,18 @@
     "max_total_sec": 240
   },
   "voice": {
-    "engine": "auto",
+    "engine": "edge",
     "gemini_tts_voice": "Puck",
     "gemini_tts_style": "Say this like a fun, hyped-up gaming YouTuber reacting live to an insane clip - energetic, casual, natural, never robotic",
     "gemini_tts_models": [],
     "voices": [
-      "en-US-BrianMultilingualNeural",
-      "en-US-AndrewMultilingualNeural",
       "en-US-AndrewNeural",
-      "en-US-BrianNeural",
+      "en-US-AndrewMultilingualNeural",
       "en-US-GuyNeural"
     ],
-    "rate": "+12%"
+    "rate": "+23%",
+    "pitch": "+2Hz",
+    "volume": "+10%"
   },
   "video": {
     "source_clip_sec": 52,
