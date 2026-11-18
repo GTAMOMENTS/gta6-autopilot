@@ -101,36 +101,57 @@ def _gemini_tts_models() -> list[str]:
     return _gemini_tts_cache
 
 
-def _gemini_line(text: str, out: Path, model: str) -> None:
-    """One line with Gemini TTS - natural, steerable 'hyped YouTuber' delivery."""
-    import base64
-    import gemini_writer
-    from google.genai import types
-    vcfg = load_config().get("voice", {})
-    style = vcfg.get("gemini_tts_style", "Say this like a hyped, fun gaming YouTuber reacting live to an insane clip")
-    resp = gemini_writer._client_beta().models.generate_content(
-        model=model,
-        contents=f"{style}: {text}",
-        config=types.GenerateContentConfig(
-            response_modalities=["AUDIO"],
-            speech_config=types.SpeechConfig(voice_config=types.VoiceConfig(
-                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=vcfg.get("gemini_tts_voice", "Puck")))),
-        ),
-    )
-    part = resp.candidates[0].content.parts[0]
-    data = part.inline_data.data
-    if isinstance(data, str):
-        data = base64.b64decode(data)
-    m = re.search(r"rate=(\d+)", part.inline_data.mime_type or "")
-    raw = out.with_suffix(".pcm")
-    raw.write_bytes(data)
-    # PCM -> mp3, trimming silence at both ends so the line lands exactly on its moment
+class HumanVoiceUnavailable(RuntimeError):
+    """Gemini's human voice failed and config says never to fall back to a robotic voice."""
+
+
+def _gemini_line(text: str, out: Path, model: str, voice: str) -> None:
+    """One line, one Gemini TTS request (used when the all-in-one audio can't be split)."""
+    style = load_config().get("voice", {}).get("gemini_tts_style", "")
+    wav = _gemini_tts_wav(f"{style}\nSay only this line:\n\n{text}", model, voice, out.with_suffix(".wav"))
+    # trim silence at both ends so the line lands exactly on its moment
     trim = "silenceremove=start_periods=1:start_threshold=-45dB"
-    res = run(["ffmpeg", "-y", "-f", "s16le", "-ar", m.group(1) if m else "24000", "-ac", "1", "-i", str(raw),
-               "-af", f"{trim},areverse,{trim},areverse", "-ar", "48000", str(out)], timeout=60)
-    raw.unlink(missing_ok=True)
+    res = run(["ffmpeg", "-y", "-i", str(wav), "-af", f"{trim},areverse,{trim},areverse", "-ar", "48000",
+               str(out)], timeout=60)
+    wav.unlink(missing_ok=True)
     if res.returncode != 0 or probe(out)["duration"] < 0.3:
         raise RuntimeError("Gemini TTS returned no usable audio")
+
+
+def _rate_limited(exc: Exception) -> bool:
+    msg = str(exc)
+    return ("429" in msg or "RESOURCE_EXHAUSTED" in msg) and "PerDay" not in msg and "per day" not in msg.lower()
+
+
+def _gemini_voice(lines: list[dict], paths: list[Path], voice: str) -> str:
+    """Voice all lines with Gemini's human voice. Tries every TTS model; on a per-minute rate limit waits
+    once and retries; if the one-request audio can't be split, records the lines one by one.
+    Returns the model used, raises RuntimeError if nothing worked."""
+    errors = []
+    models = _gemini_tts_models()
+    if not models:
+        raise RuntimeError("no Gemini TTS model available for this API key")
+    for model in models:
+        for attempt in (1, 2):
+            try:
+                try:
+                    _gemini_all_lines(lines, paths, model, voice)
+                except RuntimeError as exc:
+                    if "could not split" not in str(exc):
+                        raise
+                    log.info("[voice] %s - recording the %d lines one by one", exc, len(lines))
+                    for ln, path in zip(lines, paths):
+                        _gemini_line(ln["text"], path, model, voice)
+                return model
+            except Exception as exc:  # noqa: BLE001
+                if attempt == 1 and _rate_limited(exc):
+                    log.info("[voice] %s rate-limited - waiting 25s and retrying once", model)
+                    time.sleep(25)
+                    continue
+                log.warning("[voice] Gemini TTS %s failed (%.150s)", model, exc)
+                errors.append(f"{model}: {str(exc)[:80]}")
+                break
+    raise RuntimeError("; ".join(errors) or "Gemini TTS failed")
 
 
 def _speech_segments(path: Path, min_silence: float) -> list[tuple[float, float]]:
@@ -263,7 +284,8 @@ def _gemini_all_lines(lines: list[dict], paths: list[Path], model: str, voice: s
 
 def synthesize_lines(lines: list[dict], clip_id: str) -> list[dict]:
     """Voice every commentary line with ONE consistent voice.
-    Order: Gemini TTS (most human) -> edge-tts voices -> gTTS. Returns lines + path/dur/words."""
+    Gemini TTS (human voice, config voice.gemini_tts_voice). With engine "gemini" and robot_fallback off it
+    raises HumanVoiceUnavailable instead of using edge-tts / gTTS. Returns lines + path/dur/words."""
     vcfg = load_config().get("voice", {})
     engine = vcfg.get("engine", "auto")
     paths = [VO_DIR / f"{clip_id}_l{i}.mp3" for i in range(len(lines))]
@@ -278,13 +300,20 @@ def synthesize_lines(lines: list[dict], clip_id: str) -> list[dict]:
         log.info("[voice] %d lines voiced with %s", len(out), label)
         return out
 
-    if engine in ("auto", "gemini") and env("GEMINI_API_KEY"):
-        for model in _gemini_tts_models()[:3]:
+    human_only = engine == "gemini" and not vcfg.get("robot_fallback", False)
+    if engine in ("auto", "gemini"):
+        voice = vcfg.get("gemini_tts_voice", "Fenrir")
+        if not env("GEMINI_API_KEY"):
+            err = "GEMINI_API_KEY is not set"
+        else:
             try:
-                _gemini_all_lines(lines, paths, model)
-                return finish([[] for _ in lines], f"Gemini TTS {model}/{vcfg.get('gemini_tts_voice', 'Fenrir')}")
+                model = _gemini_voice(lines, paths, voice)
+                return finish([[] for _ in lines], f"Gemini TTS {model}/{voice}")
             except Exception as exc:  # noqa: BLE001
-                log.warning("[voice] Gemini TTS %s failed (%.120s) - next option", model, exc)
+                err = str(exc)
+        if human_only:
+            raise HumanVoiceUnavailable(f"Gemini voice {voice} failed ({err[:200]}) - robot_fallback is off")
+        log.warning("[voice] Gemini voice failed (%.150s) - falling back to edge-tts", err)
 
     voices = [env("TTS_VOICE")] + vcfg.get("voices", ["en-US-AndrewMultilingualNeural", "en-US-AndrewNeural"])
     rate = vcfg.get("rate", "+12%")

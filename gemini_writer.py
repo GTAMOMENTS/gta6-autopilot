@@ -21,6 +21,7 @@ from datetime import date
 from pathlib import Path
 
 import ai_fallback
+import formats
 from common import WORK_DIR, env, load_config, now_local, parse_json_loose, run
 
 log = logging.getLogger("autopilot")
@@ -196,6 +197,7 @@ CONTEXT: {context}
 Source footage title: "{title}" (credit: {credit}). Source type: {provider}.
 {video_note}
 {kind_note}
+{format_note}
 
 TASKS
 1. QUALITY GATE - judge honestly:
@@ -208,6 +210,7 @@ TASKS
    - is_spoiler: true if the footage (or the part you pick) shows STORY SPOILERS - story cutscenes,
      plot reveals, character deaths or betrayals, mission outcomes, endings, late-game locations/unlocks.
      Normal free-roam gameplay, chases, stunts, funny moments and the world itself are NOT spoilers.
+   - fits_format: true if this footage can honestly make THIS VIDEO'S FORMAT (true if no format is given).
    - hype_score: 1-10 for the BEST part you pick in step 2, judged like a strict viral-shorts editor:
      9-10 = jaw-dropping (insane crash, wild chase, shootout, huge stunt, shocking story twist, hilarious chaos)
      7-8 = clearly exciting or intriguing; 5-6 = okay but would be scrolled past;
@@ -249,7 +252,7 @@ TASKS
    - hashtags: 4 relevant hashtags (strings starting with #), always include #GTA6.
 
 Return ONLY JSON with exactly these keys:
-{{"is_gta6_footage": bool, "has_facecam": bool, "has_narrator": bool, "is_spoiler": bool, "hype_score": int,
+{{"is_gta6_footage": bool, "has_facecam": bool, "has_narrator": bool, "is_spoiler": bool, "fits_format": bool, "hype_score": int,
  "scene_summary": str, "clip_start": number, "clip_end": number, "content_type": "explainer" | "action" | "scenic",
  "banner": str, "commentary": [{{"t": number, "line": str}}], "youtube_title": str, "caption": str,
  "x_text": str, "hashtags": [str]}}"""
@@ -262,6 +265,7 @@ with a warm, casual, human voice that keeps telling the viewer something new.
 CONTEXT: {context}
 Source footage title: "{title}" (credit: {credit}).
 {video_note}
+{format_note}
 
 TASKS
 1. QUALITY GATE - judge honestly:
@@ -273,10 +277,12 @@ TASKS
    - is_spoiler: true if the footage (or the part you pick) shows STORY SPOILERS - story cutscenes,
      plot reveals, character deaths or betrayals, mission outcomes, endings, late-game locations/unlocks.
      Normal free-roam gameplay, chases, stunts, funny moments and the world itself are NOT spoilers.
+   - fits_format: true if this footage can honestly make THIS VIDEO'S FORMAT (true if no format is given).
    - hype_score 1-10: how interesting and VARIED the footage is for a GTA fan (new mechanics, wildlife,
      chaos, combat, NPC reactions, funny moments = high; one long cutscene, menus, walking = low).
    - scene_summary: one sentence on what the footage shows.
-2. CHOOSE THE ANGLE that fits this footage best (like the top GTA shorts with millions of views).
+2. CHOOSE THE ANGLE (like the top GTA shorts with millions of views). If THIS VIDEO'S FORMAT is given above,
+   follow it; otherwise pick the angle below that fits this footage best.
    NO STORY SPOILERS: never pick story cutscenes or plot moments, never mention plot, characters' fates or
    mission outcomes. Prefer exciting and funny free-roam moments.
      "top_moments" - "Top 5 craziest / funniest moments in GTA 6. Number five..." (3 to 5 numbered items)
@@ -319,7 +325,7 @@ TASKS
    question, no hashtags. x_text: max 200 characters, no hashtags, no links. hashtags: 4, include #GTA6.
 
 Return ONLY JSON with exactly these keys:
-{{"is_gta6_footage": bool, "has_facecam": bool, "has_narrator": bool, "is_spoiler": bool, "hype_score": int,
+{{"is_gta6_footage": bool, "has_facecam": bool, "has_narrator": bool, "is_spoiler": bool, "fits_format": bool, "hype_score": int,
  "scene_summary": str, "angle": str, "shots": [{{"start": number, "line": str}}], "banner": str, "youtube_title": str, "caption": str,
  "x_text": str, "hashtags": [str]}}"""
 
@@ -335,7 +341,7 @@ STREAM_NOTE = """THIS IS A STREAM CLIP: a streamer playing GTA 6 live, usually w
 
 
 def write_clip_copy(clip: Path, title: str, credit: str, provider: str, kind: str = "gameplay",
-                    hints: list | None = None, tour: bool = False) -> dict:
+                    hints: list | None = None, tour: bool = False, fmt: dict | None = None) -> dict:
     """The AI watches the whole downloaded section, judges it, picks the best part (clip_start/clip_end)
     and writes for it. Commentary times are in SECTION time; finalize_commentary() converts them."""
     cfg = load_config()
@@ -351,6 +357,7 @@ def write_clip_copy(clip: Path, title: str, credit: str, provider: str, kind: st
         duration=int(clip_dur), min_len=min_len, max_len=max_len,
         hints=", ".join(f"{a}-{b}s" for a, b in (hints or [])) or "unknown",
         kind_note=STREAM_NOTE if kind == "stream" else "",
+        format_note=formats.prompt_note(fmt, tour),
     )
     template = TOUR_PROMPT if tour else CLIP_PROMPT
 
@@ -575,6 +582,7 @@ def _clean_copy(d: dict, clip_dur: float = 48) -> dict:
         "has_facecam": bool(d.get("has_facecam", False)),
         "has_narrator": bool(d.get("has_narrator", False)),
         "is_spoiler": bool(d.get("is_spoiler", False)),
+        "fits_format": bool(d.get("fits_format", True)),
         "content_type": str(d.get("content_type", "action")).lower(),
         "hype_score": int(d.get("hype_score") or 6),
         "scene_summary": s("scene_summary"),
