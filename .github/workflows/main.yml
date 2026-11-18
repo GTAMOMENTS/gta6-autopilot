@@ -13,10 +13,11 @@ on:
   workflow_dispatch:
     inputs:
       slot:
-        description: 'What to run'
+        description: 'What to run (check_setup = test all your secrets, posts nothing)'
         type: choice
-        default: vertical_clip
+        default: check_setup
         options:
+          - check_setup
           - vertical_clip
           - x_video_clip
           - test_all
@@ -77,6 +78,17 @@ jobs:
       - name: Install Python dependencies
         run: pip install -U -r requirements.txt
 
+      - name: Install browser for free X posting (only if X_COOKIES is set)
+        timeout-minutes: 6
+        continue-on-error: true
+        env:
+          X_COOKIES: ${{ secrets.X_COOKIES }}
+        run: |
+          if [ -z "$X_COOKIES" ]; then echo "X_COOKIES not set - skipping"; exit 0; fi
+          pip install -q playwright
+          # Google Chrome is preinstalled on GitHub runners; only fetch Chromium if it is missing
+          command -v google-chrome >/dev/null || python -m playwright install chromium
+
       - name: Run autopilot
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -94,6 +106,7 @@ jobs:
           UPLOAD_POST_API_KEY: ${{ secrets.UPLOAD_POST_API_KEY }}
           UPLOAD_POST_PROFILE: ${{ secrets.UPLOAD_POST_PROFILE }}
           YTDLP_COOKIES: ${{ secrets.YTDLP_COOKIES }}
+          X_COOKIES: ${{ secrets.X_COOKIES }}
           TIMEZONE: Europe/Istanbul
           SCHEDULE_CRON: ${{ github.event.schedule }}
           SLOT: ${{ github.event_name == 'workflow_dispatch' && inputs.slot || 'auto' }}
@@ -105,7 +118,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: video-${{ github.run_id }}
-          path: work/ready/*.mp4
+          path: |
+            work/ready/*.mp4
+            work/ready/*.png
           retention-days: 5
           if-no-files-found: ignore
 

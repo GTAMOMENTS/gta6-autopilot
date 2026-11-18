@@ -1,5 +1,7 @@
 # GTA VI Top Moments — 24/7 Autopilot
 
+> **Not a programmer? Start with [SETUP_GUIDE.md](SETUP_GUIDE.md)**: click-by-click setup, no code needed.
+
 Fully automated faceless GTA 6 clip channel for YouTube Shorts, Instagram Reels, TikTok and X,
 running free on GitHub Actions.
 
@@ -31,7 +33,7 @@ summary page shows the source, AI verdict, script and post links.
 | YouTube   | `youtube_api` → zernio → upload_post | **Free** (official API, 100 uploads/day) |
 | Instagram | `zernio` → upload_post               | **Free** (Zernio: first 2 accounts free, unlimited posts) |
 | TikTok    | `zernio` → upload_post               | **Free** (the 2nd free Zernio account) |
-| X         | `x_api` → zernio → upload_post       | X has **no free API tier** any more. Official API is pay-per-use, about $0.015 per post, so roughly $3/month for this schedule |
+| X         | `x_api` → `x_browser` → zernio → upload_post | `x_browser` is **free**: a hidden browser posts with your login cookies (`X_COOKIES`). It breaks X's automation rules, so there's a risk of lock/suspension. The official API is paid (about $3/month) |
 
 Change the order in `config.json → publishing.routes`. A provider without secrets is skipped automatically.
 
@@ -44,7 +46,8 @@ Change the order in `config.json → publishing.routes`. A provider without secr
 | `GROQ_API_KEY` | Optional 2nd free backup (console.groq.com), text only |
 | `MISTRAL_API_KEY` | Optional 3rd free backup (console.mistral.ai, free "Experiment" plan) |
 | `ZERNIO_API_KEY` | Instagram + TikTok (connect exactly these 2 accounts in Zernio) |
-| `YT_CLIENT_ID`, `YT_CLIENT_SECRET`, `YT_REFRESH_TOKEN` | YouTube. Run `python tools/youtube_auth.py client_secret.json` once on your PC |
+| `YT_CLIENT_ID`, `YT_CLIENT_SECRET`, `YT_REFRESH_TOKEN` | YouTube. See SETUP_GUIDE.md section C (browser only) or run `tools/youtube_auth.py` |
+| `X_COOKIES` | Free X posting via browser (SETUP_GUIDE.md section E) |
 | `X_API_KEY`, `X_API_SECRET`, `X_ACCESS_TOKEN`, `X_ACCESS_TOKEN_SECRET` | X (optional, paid). From console.x.com, app with Read+Write, OAuth 1.0a |
 | `UPLOAD_POST_API_KEY`, `UPLOAD_POST_PROFILE` | Optional fallback (10 free uploads/month) |
 | `YTDLP_COOKIES` | Optional. YouTube blocks GitHub's servers ("not a bot" check). Paste a Netscape-format `cookies.txt` exported from a **throwaway** Google account to unlock YouTube as a source. Without it, Dailymotion and the other sources still work |
@@ -56,6 +59,10 @@ Change the order in `config.json → publishing.routes`. A provider without secr
 3. *Credentials → Create OAuth client ID → Desktop app* → download the JSON.
 4. On your PC: `pip install requests` then `python tools/youtube_auth.py path/to/client_secret.json`,
    log in with the account that owns the channel, and copy the 3 printed values into GitHub secrets.
+
+## Checking your setup
+
+Run the workflow with `slot = check_setup`. It tests every secret and shows a ✅/❌ table with fixes. It posts nothing.
 
 ## Running manually
 

@@ -85,6 +85,7 @@
       ],
       "x": [
         "x_api",
+        "x_browser",
         "zernio",
         "upload_post"
       ]
@@ -422,5 +423,9 @@
       "mistral": []
     },
     "max_models_per_provider": 4
-  }
+  },
+  "x_text_hashtags": [
+    "#GTA6",
+    "#GTAVI"
+  ]
 }

@@ -1,0 +1,179 @@
+"""'check_setup' slot: tests every secret and prints a plain-English report.
+
+Run it from GitHub: Actions -> GTA6 Top Moments 24/7 Autopilot -> Run workflow ->
+slot = check_setup. Then open the run and read the summary table. Nothing is posted.
+"""
+from __future__ import annotations
+
+import json
+import logging
+
+import requests
+
+from common import WORK_DIR, cookies_to_netscape, env, parse_cookies, run, write_summary
+
+log = logging.getLogger("autopilot")
+OK, BAD, OFF = "✅", "❌", "⚪"
+
+
+def _gemini():
+    if not env("GEMINI_API_KEY"):
+        return OFF, "not set", "Optional but recommended: free key at aistudio.google.com → Get API key."
+    try:
+        import gemini_writer
+        models = gemini_writer._discover_models()
+        if models:
+            return OK, f"works - models: {', '.join(models)}", "If you see quota errors in runs, it resets daily; backups take over."
+        return BAD, "key set but no models returned", "Create a new key at aistudio.google.com."
+    except Exception as exc:  # noqa: BLE001
+        return BAD, f"error: {str(exc)[:150]}", "Create a new key at aistudio.google.com."
+
+
+def _openrouter():
+    if not env("OPENROUTER_API_KEY"):
+        return OFF, "not set", "Free backup AI: openrouter.ai → Keys → Create key."
+    r = requests.get("https://openrouter.ai/api/v1/key", headers={"Authorization": f"Bearer {env('OPENROUTER_API_KEY')}"}, timeout=20)
+    if r.status_code != 200:
+        return BAD, f"rejected ({r.status_code})", "Copy the key again from openrouter.ai → Keys (starts with sk-or-)."
+    import ai_fallback
+    models = [m for m, vision in ai_fallback._models("openrouter") if vision]
+    return OK, f"works - free vision models: {', '.join(models[:3]) or 'none right now'}", ""
+
+
+def _simple_key(name, url, hint):
+    if not env(name):
+        return OFF, "not set", hint
+    r = requests.get(url, headers={"Authorization": f"Bearer {env(name)}"}, timeout=20)
+    return (OK, "works", "") if r.status_code == 200 else (BAD, f"rejected ({r.status_code})", hint)
+
+
+def _zernio():
+    if not env("ZERNIO_API_KEY"):
+        return OFF, "not set", "Needed for Instagram + TikTok (free for 2 accounts): zernio.com → API keys."
+    r = requests.get("https://zernio.com/api/v1/accounts", headers={"Authorization": f"Bearer {env('ZERNIO_API_KEY')}"}, timeout=30)
+    if r.status_code != 200:
+        return BAD, f"rejected ({r.status_code}): {r.text[:120]}", "Create a new API key in Zernio and update ZERNIO_API_KEY."
+    data = r.json()
+    accounts = data.get("accounts", data.get("data", data if isinstance(data, list) else []))
+    linked = [f"{a.get('platform')} ({a.get('username') or a.get('name') or a.get('displayName') or '?'})" for a in accounts]
+    platforms = {a.get("platform") for a in accounts}
+    tip = ""
+    missing = {"instagram", "tiktok"} - platforms
+    if missing:
+        tip = f"Connect {', '.join(sorted(missing))} in Zernio (Accounts → Connect). "
+    if len(accounts) > 2:
+        tip += "More than 2 accounts may cost money on Zernio - keep only Instagram + TikTok."
+    return (OK if not missing else BAD), f"linked: {', '.join(linked) or 'nothing'}", tip
+
+
+def _youtube():
+    keys = ("YT_CLIENT_ID", "YT_CLIENT_SECRET", "YT_REFRESH_TOKEN")
+    have = [k for k in keys if env(k)]
+    if not have:
+        return OFF, "not set", "Free YouTube uploads: follow 'YouTube' in SETUP_GUIDE.md."
+    if len(have) < 3:
+        return BAD, f"missing {', '.join(k for k in keys if not env(k))}", "Add all 3 secrets."
+    r = requests.post("https://oauth2.googleapis.com/token", data={
+        "client_id": env("YT_CLIENT_ID"), "client_secret": env("YT_CLIENT_SECRET"),
+        "refresh_token": env("YT_REFRESH_TOKEN"), "grant_type": "refresh_token"}, timeout=30)
+    if r.status_code != 200:
+        return BAD, f"Google refused: {r.text[:160]}", ("invalid_grant = token expired/revoked: redo step 5-6 of the YouTube guide, "
+                                                         "and make sure the app is 'In production'.")
+    tok = r.json()["access_token"]
+    ch = requests.get("https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true",
+                      headers={"Authorization": f"Bearer {tok}"}, timeout=30).json()
+    names = [i["snippet"]["title"] for i in ch.get("items", [])]
+    if not names:
+        return BAD, "token works but no channel found", "When authorising, pick the account/brand channel that owns the YouTube channel."
+    return OK, f"works - channel: {', '.join(names)}", ""
+
+
+def _ytdlp_cookies():
+    raw = env("YTDLP_COOKIES")
+    if not raw:
+        return OFF, "not set", "Optional: lets the bot use YouTube videos as clip sources. See SETUP_GUIDE.md."
+    cookies = [c for c in parse_cookies(raw, ".youtube.com") if "youtube" in c["domain"] or "google" in c["domain"]]
+    if not cookies:
+        return BAD, "secret is set but no youtube.com cookies could be read from it", \
+            "Export again from youtube.com with Cookie-Editor → Export → JSON, and paste the whole thing."
+    names = {c["name"] for c in cookies}
+    important = {"SID", "HSID", "SSID", "SAPISID", "__Secure-3PSID", "LOGIN_INFO"}
+    if not names & important:
+        return BAD, f"{len(cookies)} cookies read, but none are login cookies", "You were probably not logged in when exporting."
+    path = WORK_DIR / "check_cookies.txt"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(cookies_to_netscape(cookies), encoding="utf-8")
+    res = run(["yt-dlp", "--cookies", str(path), "--skip-download", "--no-warnings", "-J",
+               "https://www.youtube.com/watch?v=QdBZY2fkU-0"], timeout=120)
+    path.unlink(missing_ok=True)
+    if res.returncode == 0:
+        return OK, f"works - {len(cookies)} cookies, YouTube accepted them", ""
+    err = res.stderr.strip().splitlines()[-1][:180] if res.stderr.strip() else "unknown error"
+    return BAD, f"YouTube rejected them: {err}", ("Cookies expire when you keep using that browser session. Use a private/incognito "
+                                                  "window, log in, export, then CLOSE the window without logging out.")
+
+
+def _x_cookies():
+    if not env("X_COOKIES"):
+        return OFF, "not set", "Optional FREE X posting through a browser. See 'X' in SETUP_GUIDE.md."
+    import x_browser
+    if not x_browser.configured():
+        return BAD, "auth_token / ct0 cookies not found in the secret", "Export x.com cookies with Cookie-Editor → Export → JSON."
+    try:
+        ok, msg = x_browser.check_login()
+    except Exception as exc:  # noqa: BLE001
+        return BAD, f"browser error: {str(exc)[:150]}", ""
+    return (OK if ok else BAD), msg, ""
+
+
+def _x_api():
+    keys = ("X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_TOKEN_SECRET")
+    have = [k for k in keys if env(k)]
+    if not have:
+        return OFF, "not set", "Paid option (~$3/month). Not needed if X_COOKIES works."
+    if len(have) < 4:
+        return BAD, f"missing {', '.join(k for k in keys if not env(k))}", ""
+    return OK, "all 4 keys set (not test-called, each call costs money)", ""
+
+
+def _upload_post():
+    if not env("UPLOAD_POST_API_KEY"):
+        return OFF, "not set", "Optional last-resort fallback (10 free uploads/month)."
+    return OK, "set (used only as a fallback)", ""
+
+
+CHECKS = [
+    ("Gemini AI (GEMINI_API_KEY)", _gemini),
+    ("Backup AI (OPENROUTER_API_KEY)", _openrouter),
+    ("Backup AI (GROQ_API_KEY)", lambda: _simple_key("GROQ_API_KEY", "https://api.groq.com/openai/v1/models",
+                                                     "Optional: console.groq.com → API Keys.")),
+    ("Backup AI (MISTRAL_API_KEY)", lambda: _simple_key("MISTRAL_API_KEY", "https://api.mistral.ai/v1/models",
+                                                        "Optional: console.mistral.ai → API Keys.")),
+    ("Instagram + TikTok (ZERNIO_API_KEY)", _zernio),
+    ("YouTube uploads (YT_CLIENT_ID / SECRET / REFRESH_TOKEN)", _youtube),
+    ("X posting - free browser (X_COOKIES)", _x_cookies),
+    ("X posting - paid API (X_API_KEY ...)", _x_api),
+    ("YouTube as clip source (YTDLP_COOKIES)", _ytdlp_cookies),
+    ("Upload-Post fallback (UPLOAD_POST_API_KEY)", _upload_post),
+]
+
+
+def run_checks() -> int:
+    rows = ["## 🔧 Setup check", "", "| | What | Result | What to do |", "|---|---|---|---|"]
+    for label, fn in CHECKS:
+        try:
+            icon, result, todo = fn()
+        except Exception as exc:  # noqa: BLE001
+            icon, result, todo = BAD, f"check crashed: {str(exc)[:150]}", ""
+        log.info("%s %s: %s %s", icon, label, result, f"-> {todo}" if todo else "")
+        rows.append(f"| {icon} | {label} | {result.replace('|', '/')} | {todo.replace('|', '/')} |")
+    rows += ["", "✅ works · ❌ set but broken · ⚪ not set up (optional unless the platform needs it)"]
+    write_summary("\n".join(rows))
+    return 0
+
+
+if __name__ == "__main__":
+    from common import setup_logging
+    setup_logging()
+    run_checks()
+    print(json.dumps({"done": True}))

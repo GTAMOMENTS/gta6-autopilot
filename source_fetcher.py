@@ -28,8 +28,8 @@ from pathlib import Path
 
 import requests
 
-from common import (LOCAL_CLIPS_DIR, MANIFEST_FILE, RAW_DIR, WORK_DIR, env, load_config,
-                    load_json, probe, run, save_json)
+from common import (LOCAL_CLIPS_DIR, MANIFEST_FILE, RAW_DIR, WORK_DIR, cookies_to_netscape, env,
+                    load_config, load_json, parse_cookies, probe, run, save_json)
 from highlight import cut_highlight
 
 log = logging.getLogger("autopilot")
@@ -211,8 +211,12 @@ def _ytdlp_base() -> list[str]:
            "--extractor-retries", "3"]
     cookies = WORK_DIR / "yt_cookies.txt"
     if env("YTDLP_COOKIES") and not cookies.exists():
-        cookies.parent.mkdir(parents=True, exist_ok=True)
-        cookies.write_text(env("YTDLP_COOKIES") + "\n", encoding="utf-8")
+        parsed = parse_cookies(env("YTDLP_COOKIES"), ".youtube.com")
+        if parsed:
+            cookies.parent.mkdir(parents=True, exist_ok=True)
+            cookies.write_text(cookies_to_netscape(parsed), encoding="utf-8")
+        else:
+            log.warning("[sources] YTDLP_COOKIES is set but could not be read")
     if cookies.exists():
         cmd += ["--cookies", str(cookies)]
     return cmd
@@ -451,8 +455,12 @@ def iter_clips(target_sec: int, max_attempts: int = 6, skip_providers: set | Non
                 continue
         except PermissionError:
             youtube_blocked = True
-            log.warning("[sources] YouTube is blocking this runner - skipping YouTube for this run "
-                        "(add a YTDLP_COOKIES secret to fix).")
+            if env("YTDLP_COOKIES"):
+                log.warning("[sources] YouTube rejected the YTDLP_COOKIES (expired or logged out?) - skipping "
+                            "YouTube for this run. Run the 'check_setup' workflow for details.")
+            else:
+                log.warning("[sources] YouTube is blocking this runner - skipping YouTube for this run "
+                            "(add a YTDLP_COOKIES secret to fix).")
             continue
 
         clip_file = RAW_DIR / f"clip_{int(time.time())}.mp4"

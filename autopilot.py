@@ -160,7 +160,7 @@ def run_video_slot(slot: dict, dry_run: bool) -> tuple[bool, dict]:
 
 def run_text_slot(slot: dict, dry_run: bool) -> tuple[bool, dict]:
     from gemini_writer import write_text_post
-    from publisher import publish_text
+    from publisher import add_hashtags, publish_text
     from source_fetcher import load_manifest
 
     history = load_json(HISTORY_FILE, {"completed_slots": [], "posts": []})
@@ -168,7 +168,7 @@ def run_text_slot(slot: dict, dry_run: bool) -> tuple[bool, dict]:
     today = now_local().date().isoformat()
     todays = [i.get("copy", {}).get("banner", "") for i in load_manifest()["items"]
               if i.get("status") == "published" and i.get("created_at", "")[:10] == today]
-    text = write_text_post(slot["type"], recent, todays)
+    text = add_hashtags(write_text_post(slot["type"], recent, todays))
     log.info("[text] %s", text)
     result = {"ok": True, "dry_run": True} if dry_run else publish_text(text)
     return bool(result.get("ok")), {"text": text, "result": result}
@@ -226,6 +226,10 @@ def main() -> int:
 
     from dotenv import load_dotenv
     load_dotenv(Path(__file__).with_name(".env"))
+
+    if args.slot == "check_setup":
+        from setup_check import run_checks
+        return run_checks()
 
     cfg = load_config()
     slot = resolve_slot(cfg, args.slot)

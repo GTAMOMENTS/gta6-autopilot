@@ -108,6 +108,65 @@ def probe(path: Path) -> dict:
     return info
 
 
+def parse_cookies(raw: str, default_domain: str) -> list[dict]:
+    """Read cookies pasted in ANY common format into a list of dicts
+    (name, value, domain, path, secure, expires, httpOnly).
+
+    Accepts: JSON export from the "Cookie-Editor" / "EditThisCookie" browser extensions,
+    Netscape cookies.txt (from "Get cookies.txt LOCALLY"), or a raw "a=b; c=d" header string.
+    """
+    raw = (raw or "").strip().lstrip("﻿")
+    out: list[dict] = []
+    if not raw:
+        return out
+    if raw.startswith("[") or raw.startswith("{"):
+        try:
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                data = data.get("cookies", [data])
+            for c in data:
+                if not c.get("name"):
+                    continue
+                out.append({
+                    "name": c["name"], "value": str(c.get("value", "")),
+                    "domain": c.get("domain") or default_domain, "path": c.get("path") or "/",
+                    "secure": bool(c.get("secure", True)), "httpOnly": bool(c.get("httpOnly", False)),
+                    "expires": int(c.get("expirationDate") or c.get("expires") or 0),
+                })
+            return out
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            pass
+    lines = [ln for ln in raw.splitlines() if ln.strip()]
+    tabbed = [ln.split("\t") for ln in lines if ln.count("\t") >= 6 and not ln.startswith("# ")]
+    if not tabbed:  # tabs often become spaces when copy-pasted
+        tabbed = [ln.split(None, 6) for ln in lines if not ln.startswith("# ") and len(ln.split(None, 6)) == 7
+                  and ln.split()[1].upper() in ("TRUE", "FALSE")]
+    if tabbed:
+        for parts in tabbed:
+            domain = parts[0].removeprefix("#HttpOnly_")
+            out.append({"name": parts[5], "value": parts[6].strip(), "domain": domain, "path": parts[2] or "/",
+                        "secure": parts[3].upper() == "TRUE", "httpOnly": parts[0].startswith("#HttpOnly_"),
+                        "expires": int(parts[4]) if parts[4].strip().isdigit() else 0})
+        return out
+    for pair in raw.replace("\n", ";").split(";"):  # raw header string
+        if "=" in pair:
+            k, v = pair.split("=", 1)
+            out.append({"name": k.strip(), "value": v.strip(), "domain": default_domain, "path": "/",
+                        "secure": True, "httpOnly": False, "expires": 0})
+    return out
+
+
+def cookies_to_netscape(cookies: list[dict]) -> str:
+    lines = ["# Netscape HTTP Cookie File"]
+    for c in cookies:
+        domain = c["domain"] if c["domain"].startswith(".") or c["domain"].count(".") > 1 else "." + c["domain"]
+        sub = "TRUE" if domain.startswith(".") else "FALSE"
+        expires = c.get("expires") or 2147483647
+        lines.append("\t".join([domain, sub, c.get("path", "/"), "TRUE" if c.get("secure") else "FALSE",
+                                str(int(expires)), c["name"], c["value"]]))
+    return "\n".join(lines) + "\n"
+
+
 def write_summary(markdown: str) -> None:
     """Append to the GitHub Actions job summary (no-op locally)."""
     path = os.getenv("GITHUB_STEP_SUMMARY")

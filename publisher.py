@@ -34,7 +34,7 @@ DEFAULT_ROUTES = {
     "youtube": ["youtube_api", "zernio", "upload_post"],
     "instagram": ["zernio", "upload_post"],
     "tiktok": ["zernio", "upload_post"],
-    "x": ["x_api", "zernio", "upload_post"],
+    "x": ["x_api", "x_browser", "zernio", "upload_post"],
 }
 
 _disabled: set[str] = set()   # providers that hit a quota / auth error this run
@@ -57,8 +57,12 @@ def build_captions(copy: dict, credit: str) -> dict:
     yt_title = copy.get("youtube_title") or copy.get("banner", "GTA 6 moment").title()
     x_text = copy.get("x_text") or copy.get("caption", "")
     x_full = f"{x_text}\n\n{credit_line}".strip()
-    if len(x_full) + 7 <= 280:
-        x_full += " #GTA6"
+    x_tags = ""
+    for t in tags[:3]:
+        if len(x_full) + len(x_tags) + len(t) + 2 <= 280:
+            x_tags += " " + t
+    if x_tags:
+        x_full += "\n" + x_tags.strip()
     return {
         "youtube_title": f"{yt_title} #GTA6 #Shorts"[:100],
         "youtube_description": f"{copy.get('caption', '')}\n\n{credit_line}\n\n{tag_str} #Shorts".strip(),
@@ -82,6 +86,15 @@ def _available(provider: str, platform: str) -> bool:
         return bool(env("ZERNIO_API_KEY")) and _zernio_account(platform) is not None
     if provider == "upload_post":
         return bool(env("UPLOAD_POST_API_KEY"))
+    if provider == "x_browser":
+        if platform != "x":
+            return False
+        import x_browser
+        try:
+            import playwright  # noqa: F401
+        except ImportError:
+            return False
+        return x_browser.configured()
     return False
 
 
@@ -363,6 +376,9 @@ def publish_video(video: Path, platforms: list[str], copy: dict, credit: str) ->
                     out = {"youtube": youtube_api_upload(video, caps)}
                 elif provider == "x_api":
                     out = {"x": x_api_video(video, caps)}
+                elif provider == "x_browser":
+                    import x_browser
+                    out = {"x": x_browser.post(caps["x"], video)}
                 elif provider == "zernio":
                     out = zernio_video(video, plats, caps)
                 else:
@@ -382,6 +398,20 @@ def publish_video(video: Path, platforms: list[str], copy: dict, credit: str) ->
     return results
 
 
+def add_hashtags(text: str, tags: list[str] | None = None) -> str:
+    """Make sure a text post carries a couple of hashtags (without passing 280 chars)."""
+    tags = tags or load_config().get("x_text_hashtags", ["#GTA6", "#GTAVI"])
+    missing = [t for t in tags if t.lower() not in text.lower()]
+    if not missing or not text.split():
+        return text
+    sep = " " if text.split()[-1].startswith("#") else "\n\n"
+    addition = ""
+    for t in missing:
+        if len(text) + len(sep) + len(addition) + len(t) + 1 <= 280:
+            addition += (" " if addition else "") + t
+    return text + sep + addition if addition else text
+
+
 def publish_text(text: str) -> dict:
     provs = list(routes_for("x"))
     last = {"ok": False, "error": "no configured X provider"}
@@ -391,6 +421,9 @@ def publish_text(text: str) -> dict:
         try:
             if provider == "x_api":
                 res = _x_tweet(text)
+            elif provider == "x_browser":
+                import x_browser
+                res = x_browser.post(text)
             elif provider == "zernio":
                 res = zernio_text(text)
             else:
