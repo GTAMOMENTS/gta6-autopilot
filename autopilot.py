@@ -200,7 +200,7 @@ def summarize(slot: dict, sid: str, ok: bool, detail: dict, dry_run: bool) -> No
         cp, s = detail["copy"], detail["source"]
         lines += [f"**Banner:** {cp['banner']}  ", f"**Source:** [{s['title']}]({s['url']}) by {s['credit']} "
                   f"({s['provider']}, section {s['section']})  ",
-                  f"**AI check:** hype {cp['hype_score']}, verified={cp['verified_by_video']} — {cp['scene_summary']}  ",
+                  f"**AI check:** hype {cp['hype_score']}, verified={cp['verified_by_video']} by {cp.get('ai_source', '?')} — {cp['scene_summary']}  ",
                   f"**Script:** {cp['script']}"]
     for plat, r in (detail.get("results") or {}).items():
         lines.append(f"- {plat}: {'✅' if r.get('ok') else '❌'} {r.get('provider', '')} {r.get('url') or r.get('error') or ''}")

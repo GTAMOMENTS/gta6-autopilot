@@ -408,5 +408,18 @@
       "#ViralGaming",
       "#OpenWorld"
     ]
-  ]
+  ],
+  "ai_fallback": {
+    "providers": [
+      "openrouter",
+      "groq",
+      "mistral"
+    ],
+    "models": {
+      "openrouter": [],
+      "groq": [],
+      "mistral": []
+    },
+    "max_models_per_provider": 4
+  }
 }

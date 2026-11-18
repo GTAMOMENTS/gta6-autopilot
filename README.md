@@ -13,7 +13,7 @@ running free on GitHub Actions.
    reaction/news/talk videos, livestreams.
 3. **Downloads only a ~3 min section** of long videos, then **auto-picks the most intense seconds**
    using motion, loudness and black-frame detection (a single shot or a 2–3 cut montage).
-4. **Gemini watches the clip** and rejects it if it isn't real GTA VI, has a facecam, or is boring.
+4. **Gemini watches the clip** (if Gemini is busy, a free OpenRouter/Groq/Mistral model checks frames of the clip instead) and rejects it if it isn't real GTA VI, has a facecam, or is boring.
    It then writes a banner, a ~50 s voiceover that matches what's on screen, a YouTube title,
    captions and an X post.
 5. **Renders a 1080×1920 video**: blurred background, zoomed gameplay, wrapped hook banner, big
@@ -39,7 +39,10 @@ Change the order in `config.json → publishing.routes`. A provider without secr
 
 | Secret | Needed for |
 |--------|-----------|
-| `GEMINI_API_KEY` | AI check + scripts (free at aistudio.google.com) |
+| `GEMINI_API_KEY` | AI check + scripts (free at aistudio.google.com). Watches the whole clip |
+| `OPENROUTER_API_KEY` | **Free backup AI** when Gemini is busy (openrouter.ai → Keys). Free vision models look at 6 frames of the clip |
+| `GROQ_API_KEY` | Optional 2nd free backup (console.groq.com), text only |
+| `MISTRAL_API_KEY` | Optional 3rd free backup (console.mistral.ai, free "Experiment" plan) |
 | `ZERNIO_API_KEY` | Instagram + TikTok (connect exactly these 2 accounts in Zernio) |
 | `YT_CLIENT_ID`, `YT_CLIENT_SECRET`, `YT_REFRESH_TOKEN` | YouTube. Run `python tools/youtube_auth.py client_secret.json` once on your PC |
 | `X_API_KEY`, `X_API_SECRET`, `X_ACCESS_TOKEN`, `X_ACCESS_TOKEN_SECRET` | X (optional, paid). From console.x.com, app with Read+Write, OAuth 1.0a |
@@ -71,6 +74,7 @@ Locally: `python autopilot.py --slot vertical_clip --dry-run` (needs ffmpeg, plu
 | `source_fetcher.py` | footage discovery, filtering, ranking, section download |
 | `highlight.py` | finds the most action-packed seconds |
 | `gemini_writer.py` | AI quality gate, scripts, captions, X posts (with fallbacks) |
+| `ai_fallback.py` | free backup AIs (OpenRouter / Groq / Mistral), models auto-discovered |
 | `video_processor.py` | TTS, word-timed captions, vertical render |
 | `publisher.py` | YouTube API / Zernio / X API / Upload-Post with automatic fallback |
 | `config.json` | schedule, routes, search queries, filters, style |

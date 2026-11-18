@@ -20,6 +20,7 @@ import time
 from datetime import date
 from pathlib import Path
 
+import ai_fallback
 from common import WORK_DIR, env, load_config, now_local, run
 
 log = logging.getLogger("autopilot")
@@ -77,7 +78,7 @@ def _discover_models() -> list[str]:
                                               ("image", "tts", "audio", "live", "embedding", "native", "robotics")):
                     continue
                 names.append(name)
-            _discovered = sorted(set(names), key=_version_key, reverse=True)[:6]
+            _discovered = sorted(set(names), key=_version_key, reverse=True)[:3]
             log.info("[gemini] models available to this key: %s", _discovered)
         except Exception as exc:  # noqa: BLE001
             log.warning("[gemini] could not list models: %.200s", exc)
@@ -231,6 +232,8 @@ def write_clip_copy(clip: Path, title: str, credit: str, provider: str) -> dict:
     )
 
     data = None
+    ai_source = ""
+    # 1) Gemini WATCHES the full clip (best: sees motion + hears audio)
     uploaded = None
     if gcfg.get("watch_video", True) and env("GEMINI_API_KEY") and time.time() >= _unavailable_until:
         try:
@@ -241,24 +244,46 @@ def write_clip_copy(clip: Path, title: str, credit: str, provider: str) -> dict:
         prompt = CLIP_PROMPT.format(video_note="The attached video IS the clip that will be posted. Watch it carefully.",
                                     **prompt_kwargs)
         data = _generate_json([uploaded, prompt])
+        ai_source = "gemini-video"
         try:
             _client().files.delete(name=uploaded.name)
         except Exception:  # noqa: BLE001
             pass
-    if data is None:
+
+    # 2) Gemini busy -> free vision model looks at frames sampled from the clip
+    if data is None and ai_fallback.available():
+        frames = ai_fallback.extract_frames(clip, 6)
+        if frames:
+            prompt = CLIP_PROMPT.format(
+                video_note=f"The attached {len(frames)} images are frames sampled in order across the clip that "
+                           "will be posted (it is about 60 seconds long). Study every frame carefully.",
+                **prompt_kwargs)
+            data = ai_fallback.chat_json(prompt, frames=frames)
+            ai_source = (data or {}).get("_ai_model", "")
+
+    if data is not None:
+        data["verified_by_video"] = True
+    else:
+        # 3) nobody could look at the clip -> text-only copy from the title
         prompt = CLIP_PROMPT.format(video_note="(You cannot see the video this time - base everything on the title, "
                                                "keep descriptions general, and set hype_score to 6.)", **prompt_kwargs)
         data = _generate_json(prompt)
+        if data is None and ai_fallback.available():
+            data = ai_fallback.chat_json(prompt)
+        ai_source = "text-only"
         if data is not None:
             data["verified_by_video"] = False
-    else:
-        data["verified_by_video"] = True
 
+    # 4) everything failed -> built-in randomised scripts
     if not data or len(str(data.get("script", "")).split()) < 50:
-        log.warning("[gemini] using fallback copy")
+        log.warning("[ai] using built-in fallback copy")
         data = fallback_clip_copy()
         data["verified_by_video"] = False
-    return _clean_copy(data)
+        ai_source = "built-in"
+    out = _clean_copy(data)
+    out["ai_source"] = ai_source
+    log.info("[ai] copy written by: %s", ai_source)
+    return out
 
 
 def _clean_copy(d: dict) -> dict:
@@ -393,6 +418,8 @@ never invent news, leaks, prices or release details. Must be clearly different f
 {recent_texts[-12:]}
 Return ONLY JSON: {{"text": "..."}}"""
     data = _generate_json(prompt, temperature=1.0)
+    if data is None and ai_fallback.available():
+        data = ai_fallback.chat_json(prompt, temperature=1.0)
     text = re.sub(r"\s+", " ", str((data or {}).get("text", ""))).strip()
     text = re.sub(r"https?://\S+", "", text).strip()
     if 15 <= len(text) <= 280 and text not in recent_texts:
