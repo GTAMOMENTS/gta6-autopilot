@@ -15,7 +15,11 @@ running free on GitHub Actions.
    only a last resort.
 2. **Filters out junk**: GTA 5 mods posing as GTA 6, fan "concept" trailers, AI fakes, leaks,
    reaction/news/talk videos, livestreams.
-3. **Downloads only a ~2 min section** of long videos (YouTube's "most replayed" peak when available).
+3. **Gameplay = "feature tour" shorts** (like the top GTA channels): 3 slices of a long gameplay video
+   (YouTube "most replayed" peaks) are joined into a reel; the AI picks an angle (listicle "5 things GTA 5
+   couldn't do", "how X works", or "first look"), chooses 6-12 different shots and narrates them in a
+   casual human voice - every shot lasts exactly as long as its line (60-80 s videos).
+   **Streams / short sources = "moment" shorts:** a ~2 min section, the AI picks the best ~1 minute.
    **The AI acts as the editor**: it watches the whole section and picks the most gripping 25–50 seconds
    (starting right before the action), with motion/loudness analysis as hints and as fallback.
 4. **The AI judges the clip** (min 7/10 hype; a 6/10 clip is only used if nothing better is found) and (if Gemini is busy, a free OpenRouter/Groq/Mistral model checks frames of the clip instead) and rejects it if it isn't real GTA VI, has a facecam, or is boring.
@@ -65,6 +69,9 @@ Change the order in `config.json → publishing.routes`. A provider without secr
    log in with the account that owns the channel, and copy the 3 printed values into GitHub secrets.
 
 ## Checking your setup
+
+Run the workflow with `slot = voice_samples` to hear the available voices (mp3s in the run's Artifacts),
+then set `voice.gemini_tts_voice` in `config.json`.
 
 Run the workflow with `slot = check_setup`. It tests every secret and shows a ✅/❌ table with fixes. It posts nothing.
 

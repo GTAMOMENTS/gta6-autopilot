@@ -91,7 +91,7 @@ def run_video_slot(slot: dict, dry_run: bool) -> tuple[bool, dict]:
     from highlight import best_window, cut_segments, energy_curve, energy_hints
     from publisher import _available, publish_video, routes_for
     from source_fetcher import iter_clips, load_manifest, mark_rejected, mark_used, save_manifest
-    from video_processor import render
+    from video_processor import render, synthesize_lines
 
     cfg = load_config()
     platforms = slot["platforms"]
@@ -111,6 +111,53 @@ def run_video_slot(slot: dict, dry_run: bool) -> tuple[bool, dict]:
     backup_hype = int(gate.get("backup_hype_score", min_hype - 1))
     budget_end = time.time() + int(scfg.get("time_budget_min", 25)) * 60
 
+    def publish_and_record(src, copy, clip_id, rendered, ranges) -> tuple[bool, dict]:
+        c = src.candidate
+        mark_used(src)
+        results = {} if dry_run else publish_video(Path(rendered["path"]), platforms, copy, src.credit)
+        ok = dry_run or any(r.get("ok") for r in results.values())
+        record = {
+            "id": clip_id, "slot": slot["type"], "created_at": datetime.now(timezone.utc).isoformat(),
+            "source": {"provider": c.provider, "kind": c.kind, "url": c.url, "title": c.title, "credit": src.credit,
+                       "section": list(src.section), "segments": ranges},
+            "copy": copy, "rendered": rendered["path"], "duration": rendered["duration"],
+            "voice_lines": rendered.get("lines", []),
+            "dry_run": dry_run, "results": results, "status": "published" if ok and not dry_run else
+            ("dry_run" if dry_run else "failed"),
+        }
+        m = load_manifest()
+        m["items"].append(record)
+        save_manifest(m)
+        return ok, record
+
+    def produce_tour(src, copy, sec_dur) -> tuple[bool, dict] | None:
+        """Feature tour: every shot lasts exactly as long as its narration line (the edit follows the voice)."""
+        c, reel = src.candidate, src.clip_path
+        shots = copy["shots"]
+        clip_id = "gta6_" + now_local().strftime("%Y%m%d_%H%M") + "_" + hashlib.md5(c.key.encode()).hexdigest()[:6]
+        voiced = synthesize_lines([{"t": 0.0, "text": sh["text"]} for sh in shots], clip_id)
+        max_total = float(vcfg.get("tour_max_sec", 80))
+        segments, cursor, kept = [], 0.0, []
+        for sh, v in zip(shots, voiced):
+            dur = min(max(v["dur"] + 0.45, 3.0), 12.0)
+            if cursor + dur > max_total:
+                break
+            a = min(max(0.0, sh["start"] - 0.3), max(0.0, sec_dur - dur))
+            segments.append((round(a, 2), round(a + dur, 2)))
+            kept.append({**v, "t": cursor + 0.15})
+            cursor += dur
+        log.info("[tour] %d shots, %.0fs: %s", len(segments), cursor,
+                 [f"{a:.0f}s '{v['text'][:40]}'" for (a, _), v in zip(segments, kept)])
+        clip = cut_segments(reel, RAW_DIR / f"tour_{int(time.time())}.mp4", segments)
+        reel.unlink(missing_ok=True)
+        if not clip:
+            return None
+        copy["commentary"] = [{"t": round(v["t"], 1), "text": v["text"]} for v in kept]
+        rendered = render(clip, clip_id, copy["banner"], copy["commentary"], voiced=kept)
+        if not rendered:
+            return None
+        return publish_and_record(src, copy, clip_id, rendered, segments)
+
     def produce(src, copy, energy, sec_dur) -> tuple[bool, dict] | None:
         """AI editor's window -> cut -> voice lines -> render -> publish -> record."""
         c, section = src.candidate, src.clip_path
@@ -118,7 +165,7 @@ def run_video_slot(slot: dict, dry_run: bool) -> tuple[bool, dict]:
         max_len = min(float(vcfg.get("duration_sec", 50)), sec_dur)
         start, end = copy.get("clip_start"), copy.get("clip_end")
         if start is None or end is None or not (0 <= start < end) or (end - start) < min_len * 0.8:
-            a, b = best_window(energy, int(min(45, max_len)))
+            a, b = best_window(energy, int(min(58, max_len)))
             start, end = float(a), float(b)
             log.info("[editor] AI gave no usable window - using the most intense %ds", int(end - start))
         else:
@@ -136,22 +183,7 @@ def run_video_slot(slot: dict, dry_run: bool) -> tuple[bool, dict]:
         rendered = render(clip, clip_id, copy["banner"], commentary)
         if not rendered:
             return None
-        mark_used(src)
-        results = {} if dry_run else publish_video(Path(rendered["path"]), platforms, copy, src.credit)
-        ok = dry_run or any(r.get("ok") for r in results.values())
-        record = {
-            "id": clip_id, "slot": slot["type"], "created_at": datetime.now(timezone.utc).isoformat(),
-            "source": {"provider": c.provider, "kind": c.kind, "url": c.url, "title": c.title, "credit": src.credit,
-                       "section": [src.section[0] + start, src.section[0] + end], "segments": [[start, end]]},
-            "copy": copy, "rendered": rendered["path"], "duration": rendered["duration"],
-            "voice_lines": rendered.get("lines", []),
-            "dry_run": dry_run, "results": results, "status": "published" if ok and not dry_run else
-            ("dry_run" if dry_run else "failed"),
-        }
-        m = load_manifest()
-        m["items"].append(record)
-        save_manifest(m)
-        return ok, record
+        return publish_and_record(src, copy, clip_id, rendered, [[start, end]])
 
     backup = None  # best "almost good enough" clip, used only if nothing reaches min_hype
     skip: set[str] = set()
@@ -164,7 +196,8 @@ def run_video_slot(slot: dict, dry_run: bool) -> tuple[bool, dict]:
         section = src.clip_path                     # the whole downloaded slice (~2 min)
         sec_dur = probe(section)["duration"]
         energy = energy_curve(section)
-        copy = write_clip_copy(section, c.title, src.credit, c.provider, c.kind, energy_hints(energy, 30, 3))
+        copy = write_clip_copy(section, c.title, src.credit, c.provider, c.kind, energy_hints(energy, 30, 3),
+                               tour=src.is_reel)
         if not copy["verified_by_video"] and c.provider in SEARCH_PROVIDERS and gate.get("require_ai_check_for_search", True):
             # Can't confirm a random upload is real GTA VI without the AI watching it -> don't risk it.
             log.warning("[gate] AI video check unavailable - skipping search results, using trusted sources only")
@@ -197,7 +230,12 @@ def run_video_slot(slot: dict, dry_run: bool) -> tuple[bool, dict]:
             log.info("[gate] ✅ accepted (hype %s, %s): %s", copy["hype_score"], copy.get("content_type"),
                      copy["scene_summary"])
 
-        result = produce(src, copy, energy, sec_dur)
+        if src.is_reel and len(copy.get("shots") or []) >= int(vcfg.get("tour_min_shots", 5)):
+            result = produce_tour(src, copy, sec_dur)
+        else:
+            if src.is_reel:
+                log.info("[tour] AI gave too few shots - making a single-moment video instead")
+            result = produce(src, copy, energy, sec_dur)
         if result:
             if backup:
                 backup[0].clip_path.unlink(missing_ok=True)
@@ -206,7 +244,11 @@ def run_video_slot(slot: dict, dry_run: bool) -> tuple[bool, dict]:
     if backup:
         log.info("[gate] nothing reached hype %d - posting the best backup (hype %s)", min_hype,
                  backup[1]["hype_score"])
-        result = produce(*backup)
+        b_src, b_copy, b_energy, b_dur = backup
+        if b_src.is_reel and len(b_copy.get("shots") or []) >= int(vcfg.get("tour_min_shots", 5)):
+            result = produce_tour(b_src, b_copy, b_dur)
+        else:
+            result = produce(*backup)
         if result:
             return result
     return False, {"error": "no usable clip could be produced"}
@@ -287,6 +329,9 @@ def main() -> int:
     if args.slot == "check_setup":
         from setup_check import run_checks
         return run_checks()
+    if args.slot == "voice_samples":
+        from video_processor import voice_samples
+        return voice_samples()
 
     cfg = load_config()
     slot = resolve_slot(cfg, args.slot)

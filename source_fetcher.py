@@ -31,7 +31,7 @@ import requests
 
 from common import (LOCAL_CLIPS_DIR, MANIFEST_FILE, RAW_DIR, WORK_DIR, cookies_to_netscape, env,
                     load_config, load_json, parse_cookies, probe, run, save_json)
-from highlight import cut_highlight
+from highlight import concat_files, cut_highlight
 
 log = logging.getLogger("autopilot")
 
@@ -72,6 +72,8 @@ class ClipSource:
     clip_path: Path
     section: tuple[int, int]
     segments: list = field(default_factory=list)
+    sections: list = field(default_factory=list)   # all slices joined into this reel (tour format)
+    is_reel: bool = False
 
     @property
     def credit(self) -> str:
@@ -464,11 +466,11 @@ def discover(cfg: dict, manifest: dict, kind: str | None = None) -> list[Candida
 
 # --------------------------------------------------------------------------- download
 
-def _pick_section(c: Candidate, manifest: dict, length: int) -> tuple[int, int]:
+def _pick_section(c: Candidate, manifest: dict, length: int, avoid: list | None = None) -> tuple[int, int]:
     dur = int(c.duration or 0)
     if dur <= 0 or dur <= length + 10:
         return 0, dur or length
-    used = [(u[0], u[1]) for u in manifest["sources"].get(c.key, {}).get("uses", [])]
+    used = [(u[0], u[1]) for u in manifest["sources"].get(c.key, {}).get("uses", [])] + list(avoid or [])
     if c.heatmap:
         # YouTube "most replayed": centre the section on the part viewers rewatch the most
         peaks = sorted((p for p in c.heatmap if p.get("start_time", 0) > dur * 0.04),
@@ -602,16 +604,47 @@ def iter_clips(target_sec: int, max_attempts: int = 6, skip_providers: set | Non
             if not _fill_metadata(c, cfg):
                 _note_failure(c)
                 continue
-            start, end = _pick_section(c, manifest, section_len)
-            if end <= start:
-                end = start + section_len
-            if c.duration:
-                end = min(end, int(c.duration))
             sec_file = RAW_DIR / f"section_{re.sub(r'[^a-z0-9]', '_', c.key.lower())}.mp4"
-            log.info("[sources] downloading %s [%ds-%ds] %s", c.provider, start, end, c.title[:80])
-            if not _download(c, start, end, sec_file):
-                _note_failure(c)
-                continue
+            tour = s.get("tour", {})
+            n_slices = int(tour.get("slices", 3))
+            slice_len = int(tour.get("slice_sec", 100))
+            if (tour.get("enabled", True) and c.kind == "gameplay" and c.duration
+                    and c.duration >= n_slices * slice_len * 2):
+                # feature-tour format: several slices from different parts -> one reel
+                ranges, files = [], []
+                for k in range(n_slices):
+                    a, b = _pick_section(c, manifest, slice_len, avoid=[(x - 20, y + 20) for x, y in ranges])
+                    b = min(b if b > a else a + slice_len, int(c.duration))
+                    f = RAW_DIR / f"slice{k}_{sec_file.name}"
+                    log.info("[sources] downloading slice %d/%d [%ds-%ds] %s", k + 1, n_slices, a, b, c.title[:70])
+                    if _download(c, a, b, f):
+                        ranges.append((a, b))
+                        files.append(f)
+                if len(files) < 2:
+                    for f in files:
+                        f.unlink(missing_ok=True)
+                    _note_failure(c)
+                    continue
+                order = sorted(range(len(ranges)), key=lambda i: ranges[i][0])
+                reel = concat_files([files[i] for i in order], sec_file)
+                for f in files:
+                    f.unlink(missing_ok=True)
+                if not reel:
+                    _note_failure(c)
+                    continue
+                ranges = [ranges[i] for i in order]
+                start, end = ranges[0][0], ranges[-1][1]
+            else:
+                ranges = []
+                start, end = _pick_section(c, manifest, section_len)
+                if end <= start:
+                    end = start + section_len
+                if c.duration:
+                    end = min(end, int(c.duration))
+                log.info("[sources] downloading %s [%ds-%ds] %s", c.provider, start, end, c.title[:80])
+                if not _download(c, start, end, sec_file):
+                    _note_failure(c)
+                    continue
         except PermissionError:
             youtube_blocked = True
             if env("YTDLP_COOKIES"):
@@ -634,8 +667,9 @@ def iter_clips(target_sec: int, max_attempts: int = 6, skip_providers: set | Non
             sec_file.unlink(missing_ok=True)
             _note_failure(c)
             continue
-        # the AI editor (autopilot.py) watches this whole section and picks the best part
-        yield ClipSource(candidate=c, clip_path=sec_file, section=(start, end), segments=[])
+        # the AI editor (autopilot.py) watches this whole section / reel and picks the best part(s)
+        yield ClipSource(candidate=c, clip_path=sec_file, section=(start, end), segments=[],
+                         sections=ranges, is_reel=bool(ranges))
 
 
 def _note_failure(c: Candidate) -> None:
@@ -662,6 +696,7 @@ def mark_rejected(c: Candidate, reason: str) -> None:
 def mark_used(src: ClipSource) -> None:
     m = load_manifest()
     st = m["sources"].setdefault(src.candidate.key, {"title": src.candidate.title, "uses": []})
-    st.setdefault("uses", []).append([src.section[0], src.section[1], int(time.time())])
+    for a, b in (src.sections or [src.section]):
+        st.setdefault("uses", []).append([a, b, int(time.time())])
     st["url"] = src.candidate.url
     save_manifest(m)

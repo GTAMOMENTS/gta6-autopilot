@@ -88,6 +88,137 @@
       "dry_run": true,
       "results": {},
       "status": "dry_run"
+    },
+    {
+      "id": "gta6_20261118_2336_b1f14f",
+      "slot": "vertical_clip",
+      "created_at": "2026-11-18T20:38:11.640945+00:00",
+      "source": {
+        "provider": "local",
+        "kind": "gameplay",
+        "url": "test",
+        "title": "GTA 6 free roam",
+        "credit": "Tester",
+        "section": [
+          0,
+          60
+        ],
+        "segments": [
+          [
+            0.7,
+            5.64
+          ],
+          [
+            11.7,
+            18.29
+          ],
+          [
+            23.7,
+            28.93
+          ],
+          [
+            35.7,
+            38.7
+          ],
+          [
+            46.7,
+            52.0
+          ]
+        ]
+      },
+      "copy": {
+        "is_gta6_footage": true,
+        "has_facecam": false,
+        "has_narrator": false,
+        "content_type": "action",
+        "hype_score": 8,
+        "scene_summary": "Jason and Lucia on a heist, chases and the city",
+        "verified_by_video": true,
+        "banner": "5 THINGS GTA 5 COULDN'T DO",
+        "commentary_raw": [],
+        "shots": [
+          {
+            "start": 1.0,
+            "text": "Here's five crazy things you can do in GTA 6 that you could never do in GTA 5."
+          },
+          {
+            "start": 12.0,
+            "text": "Number one: you can rob places as a duo. Jason and Lucia split the job, and it actually feels like Bonnie and Clyde."
+          },
+          {
+            "start": 24.0,
+            "text": "Number two: the masks matter now. Put one on before the job and the cops get no description."
+          },
+          {
+            "start": 36.0,
+            "text": "But wait till you see what happens when the getaway goes wrong."
+          },
+          {
+            "start": 47.0,
+            "text": "Number three: you can switch to whoever's riding shotgun mid-chase. Would you drive, or shoot?"
+          }
+        ],
+        "angle": "listicle",
+        "clip_start": null,
+        "clip_end": null,
+        "script": "Here's five crazy things you can do in GTA 6 that you could never do in GTA 5. Number one: you can rob places as a duo. Jason and Lucia split the job, and it actually feels like Bonnie and Clyde. Number two: the masks matter now. Put one on before the job and the cops get no description. But wait till you see what happens when the getaway goes wrong. Number three: you can switch to whoever's riding shotgun mid-chase. Would you drive, or shoot?",
+        "youtube_title": "5 CRAZY Things In GTA 6 You CAN'T Do In GTA 5",
+        "caption": "c",
+        "x_text": "x",
+        "hashtags": [
+          "#GTA6"
+        ],
+        "ai_source": "fake",
+        "commentary": [
+          {
+            "t": 0.1,
+            "text": "Here's five crazy things you can do in GTA 6 that you could never do in GTA 5."
+          },
+          {
+            "t": 5.1,
+            "text": "Number one: you can rob places as a duo. Jason and Lucia split the job, and it actually feels like Bonnie and Clyde."
+          },
+          {
+            "t": 11.7,
+            "text": "Number two: the masks matter now. Put one on before the job and the cops get no description."
+          },
+          {
+            "t": 16.9,
+            "text": "But wait till you see what happens when the getaway goes wrong."
+          },
+          {
+            "t": 19.9,
+            "text": "Number three: you can switch to whoever's riding shotgun mid-chase. Would you drive, or shoot?"
+          }
+        ]
+      },
+      "rendered": "/home/user/gta6-autopilot/work/ready/gta6_20261118_2336_b1f14f.mp4",
+      "duration": 25.1,
+      "voice_lines": [
+        {
+          "t": 0.3,
+          "text": "Here's five crazy things you can do in GTA 6 that you could never do in GTA 5."
+        },
+        {
+          "t": 5.2,
+          "text": "Number one: you can rob places as a duo. Jason and Lucia split the job, and it actually feels like Bonnie and Clyde."
+        },
+        {
+          "t": 11.7,
+          "text": "Number two: the masks matter now. Put one on before the job and the cops get no description."
+        },
+        {
+          "t": 16.9,
+          "text": "But wait till you see what happens when the getaway goes wrong."
+        },
+        {
+          "t": 19.9,
+          "text": "Number three: you can switch to whoever's riding shotgun mid-chase. Would you drive, or shoot?"
+        }
+      ],
+      "dry_run": true,
+      "results": {},
+      "status": "dry_run"
     }
   ],
   "version": 2,
@@ -99,6 +230,17 @@
           0,
           60,
           1795031736
+        ]
+      ],
+      "url": "test"
+    },
+    "local:tour": {
+      "title": "GTA 6 free roam",
+      "uses": [
+        [
+          0,
+          60,
+          1795034291
         ]
       ],
       "url": "test"

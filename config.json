@@ -427,6 +427,11 @@
       "include_vods": true,
       "vod_period": "week",
       "clip_bonus": 3.0
+    },
+    "tour": {
+      "enabled": true,
+      "slices": 3,
+      "slice_sec": 110
     }
   },
   "quality_gate": {
@@ -443,12 +448,13 @@
     "timeout_sec": 50,
     "watch_video": true,
     "max_total_sec": 240,
-    "fallback_frames": 8
+    "fallback_frames": 8,
+    "tour_frames": 12
   },
   "voice": {
-    "engine": "edge",
-    "gemini_tts_voice": "Puck",
-    "gemini_tts_style": "Say this like a fun, hyped-up gaming YouTuber reacting live to an insane clip - energetic, casual, natural, never robotic",
+    "engine": "auto",
+    "gemini_tts_voice": "Fenrir",
+    "gemini_tts_style": "Read this like a real 25-year-old gamer showing his friends a GTA 6 clip: natural, casual, warm and genuinely excited, with real human emphasis and pacing like a popular YouTuber. Never sound like an announcer, a robot or a kid.",
     "gemini_tts_models": [],
     "voices": [
       "en-US-AndrewNeural",
@@ -461,7 +467,7 @@
   },
   "video": {
     "source_clip_sec": 52,
-    "max_duration_sec": 58,
+    "max_duration_sec": 90,
     "font": "Montserrat",
     "caption_y": 1450,
     "highlight_color_ass": "&H0000F0FF",
@@ -470,9 +476,12 @@
     "cta_text": "FOLLOW FOR DAILY GTA 6 MOMENTS",
     "preset": "veryfast",
     "crf": 20,
-    "duration_sec": 50,
+    "duration_sec": 60,
     "voice_volume": 1.25,
-    "min_clip_sec": 25
+    "min_clip_sec": 50,
+    "tour_max_sec": 90,
+    "tour_min_shots": 4,
+    "game_audio_volume_tour": 0.55
   },
   "blocked_keywords": [
     "nsfw",
