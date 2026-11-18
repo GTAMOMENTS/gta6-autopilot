@@ -253,7 +253,8 @@ TASKS
    - youtube_title: max 70 characters, curiosity-driven, no hashtags.
    - caption: 1-2 short sentences for Instagram/TikTok ending with a question, no hashtags.
    - x_text: max 200 characters punchy post for X to go with the clip, no hashtags, no links.
-   - hashtags: 4 relevant hashtags (strings starting with #), always include #GTA6.
+   - hashtags: 4 relevant hashtags (strings starting with #), always include #GTA6. Never company or brand
+     tags (no #RockstarGames, #PlayStation, #Xbox, #ad) - no sponsored-looking content.
 
 Return ONLY JSON with exactly these keys:
 {{"is_gta6_footage": bool, "has_facecam": bool, "has_narrator": bool, "is_spoiler": bool, "fits_format": bool, "hype_score": int,
@@ -326,7 +327,8 @@ TASKS
    banner: max 6 words, ALL CAPS, states the angle (e.g. "5 THINGS GTA 5 COULDN'T DO", "ROBBING STORES IS DIFFERENT NOW").
    youtube_title: max 70 characters, like the top channels: "5 CRAZY Things In GTA 6 You CAN'T Do In GTA 5",
    "Robbing Stores in GTA 6 Works Differently To GTA 5", "GTA 6 Is FINALLY Here! First Gameplay". No hashtags. caption: 1-2 sentences ending with a
-   question, no hashtags. x_text: max 200 characters, no hashtags, no links. hashtags: 4, include #GTA6.
+   question, no hashtags. x_text: max 200 characters, no hashtags, no links. hashtags: 4, include #GTA6, never
+   company or brand tags (no #RockstarGames, #PlayStation, #Xbox, #ad).
 
 Return ONLY JSON with exactly these keys:
 {{"is_gta6_footage": bool, "has_facecam": bool, "has_narrator": bool, "is_spoiler": bool, "fits_format": bool, "hype_score": int,
