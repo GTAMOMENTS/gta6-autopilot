@@ -128,7 +128,7 @@
     "queries_per_run": 5,
     "min_duration_sec": 50,
     "max_duration_sec": 21600,
-    "section_length_sec": 180,
+    "section_length_sec": 120,
     "clip_style": "auto",
     "max_attempts": 6,
     "time_budget_min": 22,
@@ -310,6 +310,26 @@
     },
     "official_trailers": [
       {
+        "title": "Grand Theft Auto VI: An Extended Look",
+        "url": "https://www.youtube.com/watch?v=tJbzMqJGH4k",
+        "duration": 1609
+      },
+      {
+        "title": "Grand Theft Auto VI Launch Trailer",
+        "url": "https://www.youtube.com/watch?v=rz1B4B2yBZY",
+        "duration": 91
+      },
+      {
+        "title": "Grand Theft Auto VI Trailer 2",
+        "url": "https://www.youtube.com/watch?v=VQRLujxTm3c",
+        "duration": 167
+      },
+      {
+        "title": "Grand Theft Auto VI Trailer 1",
+        "url": "https://www.youtube.com/watch?v=QdBZY2fkU-0",
+        "duration": 91
+      },
+      {
         "title": "Grand Theft Auto VI Official Trailer 2",
         "url": "https://www.dailymotion.com/video/x9j2dp6",
         "duration": 166
@@ -334,7 +354,8 @@
       "part 1",
       "part 2",
       "part 3"
-    ]
+    ],
+    "min_height": 720
   },
   "quality_gate": {
     "min_hype_score": 5,

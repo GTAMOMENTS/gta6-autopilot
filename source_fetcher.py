@@ -36,7 +36,15 @@ from highlight import cut_highlight
 log = logging.getLogger("autopilot")
 
 DM_API = "https://api.dailymotion.com/videos"
-YTDLP_FORMAT = "bv*[height<=1080][vcodec!*=av01]+ba/b[height<=1080]/bv*+ba/b"
+def ytdlp_format() -> str:
+    """Quality between `min_height` (default 720p) and 1080p, preferring <=30fps
+    (our videos are 30fps - 60fps sources are ~2x bigger for nothing)."""
+    h = int(load_config().get("sources", {}).get("min_height", 720))
+    q = f"[height>={h}][height<=1080]"
+    return (f"bv*{q}[fps<=?30][vcodec!*=av01]+ba/bv*{q}[fps<=?30]+ba/b{q}[fps<=?30]/"
+            f"bv*{q}+ba/b{q}")
+FULL_DOWNLOAD_MAX_SEC = 600      # only fetch whole videos (no section support) when they are short
+FULL_DOWNLOAD_MAX_SIZE = "250M"
 BOT_BLOCK_MARKERS = ("confirm you", "not a bot", "sign in to confirm", "http error 429", "precondition", "403: forbidden", "403 forbidden")
 
 
@@ -196,7 +204,9 @@ def discover_dailymotion(cfg: dict, queries: list[str], tf: TitleFilter) -> list
                     continue
                 key = f"dm:{v['id']}"
                 fmts = v.get("available_formats") or []
-                quality = 1.5 if "hd1080" in fmts else (0.8 if "hd720" in fmts else -2.0)
+                if not ({"hd720", "hd1080", "hd1440", "uhd2160"} & set(fmts)):
+                    continue  # no 720p+ version -> skip (min quality 720p)
+                quality = 1.5 if "hd1080" in fmts else 0.8
                 out[key] = Candidate(score=quality,
                     key=key, url=v.get("url") or f"https://www.dailymotion.com/video/{v['id']}",
                     title=v.get("title", ""), uploader=v.get("owner.screenname", ""),
@@ -209,7 +219,7 @@ def discover_dailymotion(cfg: dict, queries: list[str], tf: TitleFilter) -> list
 
 def _ytdlp_base() -> list[str]:
     cmd = ["yt-dlp", "--no-warnings", "--no-playlist", "--socket-timeout", "45", "--retries", "3",
-           "--extractor-retries", "3"]
+           "--extractor-retries", "3", "--concurrent-fragments", "4"]
     # YouTube (especially when logged in with cookies) needs a JavaScript engine to unlock the
     # video streams; Node.js is preinstalled on GitHub runners but yt-dlp only uses Deno by default.
     if shutil.which("node"):
@@ -296,6 +306,8 @@ def rank(cands: list[Candidate], manifest: dict, tf: TitleFilter) -> list[Candid
             age_days = (now - c.created) / 86400
             score += max(0.0, 2.0 - age_days / 7)  # fresh footage first
         score -= uses * 2.5                    # prefer never-used videos
+        if c.provider == "dailymotion" and c.duration > FULL_DOWNLOAD_MAX_SEC:
+            score -= 2.0                       # may need a full download -> slow
         score += random.uniform(0, 2.0)        # variety between runs
         c.score = score
         ranked.append(c)
@@ -360,7 +372,7 @@ def _download(c: Candidate, start: int, end: int, out: Path) -> bool:
 
     # 1) fast path: only download the section we need
     res = run(_ytdlp_base() + [
-        "-f", YTDLP_FORMAT, "--merge-output-format", "mp4",
+        "-f", ytdlp_format(), "--merge-output-format", "mp4",
         "--download-sections", f"*{start}-{end}",
         "-o", str(out), c.url,
     ], timeout=300)
@@ -375,14 +387,14 @@ def _download(c: Candidate, start: int, end: int, out: Path) -> bool:
 
     # 2) fallback: some HLS sources (Dailymotion with split audio/video) can't be
     #    section-downloaded -> fetch the whole video (if not huge) and cut locally.
-    if c.duration and c.duration > 2400:
-        log.warning("[sources] section download failed and video too long for full download: %s", err)
+    if c.duration and c.duration > FULL_DOWNLOAD_MAX_SEC:
+        log.warning("[sources] section download failed and video too long for a full download - skipping")
         return False
     full = out.with_name(out.stem + "_full.mp4")
     full.unlink(missing_ok=True)
     out.unlink(missing_ok=True)
-    res = run(_ytdlp_base() + ["-f", YTDLP_FORMAT, "--merge-output-format", "mp4",
-                               "--max-filesize", "900M", "-o", str(full), c.url], timeout=600)
+    res = run(_ytdlp_base() + ["-f", ytdlp_format(), "--merge-output-format", "mp4",
+                               "--max-filesize", FULL_DOWNLOAD_MAX_SIZE, "-o", str(full), c.url], timeout=300)
     if res.returncode != 0 or not _valid_video(full):
         log.warning("[sources] download failed (%s): %s", c.provider, res.stderr[-400:])
         full.unlink(missing_ok=True)
@@ -471,6 +483,14 @@ def iter_clips(target_sec: int, max_attempts: int = 6, skip_providers: set | Non
                             "(add a YTDLP_COOKIES secret to fix).")
             continue
 
+        min_h = int(s.get("min_height", 720))
+        sec_info = probe(sec_file)
+        if c.provider != "local" and min(sec_info["width"], sec_info["height"]) < min_h:
+            log.info("[sources] skipping %s: only %dx%d (< %dp)", c.title[:50], sec_info["width"],
+                     sec_info["height"], min_h)
+            sec_file.unlink(missing_ok=True)
+            mark_rejected(c, f"low resolution {sec_info['width']}x{sec_info['height']}")
+            continue
         clip_file = RAW_DIR / f"clip_{int(time.time())}.mp4"
         try:
             clip, segments = cut_highlight(sec_file, clip_file, target_sec, style)
