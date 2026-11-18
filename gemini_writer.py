@@ -36,7 +36,7 @@ def _client():
     if _client_obj is None:
         from google import genai
         from google.genai import types
-        timeout_ms = int(load_config().get("gemini", {}).get("timeout_sec", 75)) * 1000
+        timeout_ms = int(load_config().get("gemini", {}).get("timeout_sec", 50)) * 1000
         _client_obj = genai.Client(
             api_key=env("GEMINI_API_KEY"),
             http_options=types.HttpOptions(
@@ -81,6 +81,23 @@ def _discover_models() -> list[str]:
         except Exception as exc:  # noqa: BLE001
             log.warning("[gemini] could not list models: %.200s", exc)
     return _discovered
+
+
+_client_beta_obj = None
+
+
+def _client_beta():
+    """Same key, but the v1beta API - newer features like text-to-speech models live there."""
+    global _client_beta_obj
+    if _client_beta_obj is None:
+        from google import genai
+        from google.genai import types
+        _client_beta_obj = genai.Client(
+            api_key=env("GEMINI_API_KEY"),
+            http_options=types.HttpOptions(api_version="v1beta", timeout=60_000,
+                                           retry_options=types.HttpRetryOptions(attempts=1)),
+        )
+    return _client_beta_obj
 
 
 def _models() -> list[str]:

@@ -83,7 +83,7 @@ def _gemini_tts_models() -> list[str]:
         _gemini_tts_cache = list(load_config().get("voice", {}).get("gemini_tts_models", []))
         try:
             import gemini_writer
-            for m in gemini_writer._client().models.list():
+            for m in gemini_writer._client_beta().models.list():
                 name = (m.name or "").removeprefix("models/")
                 if "tts" in name and name not in _gemini_tts_cache:
                     _gemini_tts_cache.append(name)
@@ -101,7 +101,7 @@ def _gemini_line(text: str, out: Path, model: str) -> None:
     from google.genai import types
     vcfg = load_config().get("voice", {})
     style = vcfg.get("gemini_tts_style", "Say this like a hyped, fun gaming YouTuber reacting live to an insane clip")
-    resp = gemini_writer._client().models.generate_content(
+    resp = gemini_writer._client_beta().models.generate_content(
         model=model,
         contents=f"{style}: {text}",
         config=types.GenerateContentConfig(

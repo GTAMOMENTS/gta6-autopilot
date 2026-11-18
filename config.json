@@ -345,7 +345,7 @@
     "models": [
       "gemini-3.8-flash"
     ],
-    "timeout_sec": 75,
+    "timeout_sec": 50,
     "watch_video": true,
     "max_total_sec": 240
   },
@@ -355,8 +355,8 @@
     "gemini_tts_style": "Say this like a fun, hyped-up gaming YouTuber reacting live to an insane clip - energetic, casual, natural, never robotic",
     "gemini_tts_models": [],
     "voices": [
-      "en-US-AndrewMultilingualNeural",
       "en-US-BrianMultilingualNeural",
+      "en-US-AndrewMultilingualNeural",
       "en-US-AndrewNeural",
       "en-US-BrianNeural",
       "en-US-GuyNeural"
