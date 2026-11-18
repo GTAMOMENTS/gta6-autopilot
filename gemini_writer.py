@@ -41,10 +41,8 @@ def _client():
             api_key=env("GEMINI_API_KEY"),
             http_options=types.HttpOptions(
                 timeout=timeout_ms,
-                retry_options=types.HttpRetryOptions(
-                    attempts=2, initial_delay=3, max_delay=10,
-                    http_status_codes=[429, 500, 502, 503, 504],
-                ),
+                # attempts=1 -> never retry/wait on the same model; we move to the next model instead
+                retry_options=types.HttpRetryOptions(attempts=1),
             ),
         )
     return _client_obj
@@ -96,48 +94,38 @@ def _parse_json(text: str) -> dict | None:
 
 
 def _generate_json(contents, temperature: float = 0.9) -> dict | None:
+    """Try each Gemini model ONCE. Busy / out of quota / error -> next model immediately.
+    If every model fails, Gemini is skipped for the rest of this run (backup AIs take over)."""
     global _unavailable_until
     if not env("GEMINI_API_KEY"):
-        log.warning("[gemini] GEMINI_API_KEY not set - using fallback copy")
+        log.warning("[gemini] GEMINI_API_KEY not set - using backup AI")
         return None
     if time.time() < _unavailable_until:
         return None
     from google.genai import types
-    deadline = time.time() + int(load_config().get("gemini", {}).get("max_total_sec", 240))
-    for round_no in range(2):
-        overloaded = 0
-        for model in _models():
-            if time.time() > deadline:
-                log.warning("[gemini] time cap reached - moving on to backup AI")
-                break
-            try:
-                resp = _client().models.generate_content(
-                    model=model,
-                    contents=contents,
-                    config=types.GenerateContentConfig(
-                        temperature=temperature,
-                        response_mime_type="application/json",
-                    ),
-                )
-                data = _parse_json(resp.text or "")
-                if data:
-                    log.info("[gemini] response from %s", model)
-                    return data
-                log.warning("[gemini] %s returned unparseable output: %.200s", model, resp.text)
-            except Exception as exc:  # noqa: BLE001
-                msg = str(exc)
-                log.warning("[gemini] %s failed: %.160s", model, msg)
-                if "404" in msg or "NOT_FOUND" in msg or "not supported" in msg:
-                    _dead_models.add(model)
-                elif "exceeded your current quota" in msg or "quota" in msg.lower() and "429" in msg:
-                    _dead_models.add(model)  # daily free quota used up - retrying won't help today
-                elif any(x in msg for x in ("503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "500", "timed out")):
-                    overloaded += 1
-        if overloaded == 0 or round_no == 1 or time.time() + 60 > deadline:
-            break
-        log.info("[gemini] all models busy - waiting 25s and retrying once")
-        time.sleep(25)
-    _unavailable_until = time.time() + 900  # don't burn the run's time budget on a down API
+    for model in _models():
+        try:
+            resp = _client().models.generate_content(
+                model=model,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    temperature=temperature,
+                    response_mime_type="application/json",
+                ),
+            )
+            data = _parse_json(resp.text or "")
+            if data:
+                log.info("[gemini] response from %s", model)
+                return data
+            log.warning("[gemini] %s returned unparseable output - next model", model)
+        except Exception as exc:  # noqa: BLE001
+            msg = str(exc)
+            log.warning("[gemini] %s failed (%.120s) - next model", model, msg)
+            if any(x in msg for x in ("404", "NOT_FOUND", "not supported", "exceeded your current quota",
+                                      "RESOURCE_EXHAUSTED")):
+                _dead_models.add(model)  # gone or out of quota for today - don't try it again this run
+    log.warning("[gemini] all models busy/out of quota - skipping Gemini for the rest of this run")
+    _unavailable_until = time.time() + 3600
     return None
 
 

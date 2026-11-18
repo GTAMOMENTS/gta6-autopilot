@@ -175,41 +175,32 @@ def _call(p: str, model: str, prompt: str, frames: list[str] | None, temperature
 
 
 def chat_json(prompt: str, frames: list[str] | None = None, temperature: float = 0.9) -> dict | None:
-    """Try every configured free provider/model until one returns valid JSON."""
+    """Try every configured free provider/model ONCE until one returns valid JSON.
+    Rate-limited / busy / broken model -> next model immediately, no waiting."""
     global _down_until
     if time.time() < _down_until:
         return None
-    rate_limited: list[tuple[str, str]] = []
     deadline = time.time() + int(_cfg().get("max_total_sec", 240))
-    for round_no in range(2):
-        for p in _cfg().get("providers", list(PROVIDERS)):
-            if p not in PROVIDERS or not env(PROVIDERS[p]["key"]):
+    for p in _cfg().get("providers", list(PROVIDERS)):
+        if p not in PROVIDERS or not env(PROVIDERS[p]["key"]):
+            continue
+        for model, vision in _models(p):
+            if (p, model) in _dead or (frames and not vision):
                 continue
-            for model, vision in _models(p):
-                if (p, model) in _dead or (frames and not vision):
-                    continue
-                if round_no == 1 and (p, model) not in rate_limited:
-                    continue
-                left = deadline - time.time()
-                if left < 15:
-                    log.warning("[ai-fallback] time cap reached")
-                    break
-                try:
-                    data, status = _call(p, model, prompt, frames, temperature, timeout=min(90, left))
-                except Exception as exc:  # noqa: BLE001
-                    log.warning("[ai-fallback] %s/%s failed: %.150s", p, model, exc)
-                    continue
-                if data:
-                    log.info("[ai-fallback] response from %s/%s%s", p, model, " (with frames)" if frames else "")
-                    data["_ai_model"] = f"{p}/{model}"
-                    return data
-                if status in (400, 404):
-                    _dead.add((p, model))
-                elif status == 429 and round_no == 0:
-                    rate_limited.append((p, model))
-        if not rate_limited or round_no == 1 or time.time() + 40 > deadline:
-            break
-        log.info("[ai-fallback] %d free models rate-limited - waiting 20s and retrying them once", len(rate_limited))
-        time.sleep(20)
-    _down_until = time.time() + 600  # all free models busy: don't keep retrying this run
+            left = deadline - time.time()
+            if left < 15:
+                log.warning("[ai-fallback] time cap reached")
+                break
+            try:
+                data, status = _call(p, model, prompt, frames, temperature, timeout=min(90, left))
+            except Exception as exc:  # noqa: BLE001
+                log.warning("[ai-fallback] %s/%s failed: %.150s - next model", p, model, exc)
+                continue
+            if data:
+                log.info("[ai-fallback] response from %s/%s%s", p, model, " (with frames)" if frames else "")
+                data["_ai_model"] = f"{p}/{model}"
+                return data
+            if status in (400, 401, 402, 403, 404):
+                _dead.add((p, model))
+    _down_until = time.time() + 1800  # everything busy: don't keep retrying this run
     return None
