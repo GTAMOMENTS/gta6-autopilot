@@ -42,6 +42,7 @@ jobs:
           UPLOAD_POST_API_KEY: ${{ secrets.UPLOAD_POST_API_KEY }}
           UPLOAD_POST_PROFILE: ${{ secrets.UPLOAD_POST_PROFILE }}
           ZERNIO_API_KEY: ${{ secrets.ZERNIO_API_KEY }}
+          YT_COOKIES_TXT: ${{ secrets.YT_COOKIES_TXT }}
           TIMEZONE: Europe/Istanbul
         run: python autopilot.py
 
