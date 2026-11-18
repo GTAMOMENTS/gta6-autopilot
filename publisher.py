@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import random
 from datetime import datetime, timezone
@@ -44,7 +45,7 @@ def build_caption(platform: str, hook: str, creator: str, hashtags: list[str]) -
 def publish_tiktok_via_zernio(video_path: Path, caption: str) -> bool:
     zernio_key = os.getenv("ZERNIO_API_KEY", "").strip()
     if not zernio_key:
-        print("[publisher] Missing ZERNIO_API_KEY")
+        logging.warning("[publisher] ZERNIO_API_KEY not set — skipping TikTok.")
         return False
 
     headers = {
@@ -54,14 +55,14 @@ def publish_tiktok_via_zernio(video_path: Path, caption: str) -> bool:
 
     acc_resp = requests.get(f"{ZERNIO_BASE_URL}/accounts", headers=headers, timeout=30)
     if acc_resp.status_code != 200:
-        print(f"[publisher] Zernio accounts error: {acc_resp.status_code} {acc_resp.text}")
+        logging.error("[publisher] Zernio accounts error %s: %s", acc_resp.status_code, acc_resp.text)
         return False
 
     acc_data = acc_resp.json()
     accounts = acc_data.get("accounts", acc_data.get("data", acc_data if isinstance(acc_data, list) else []))
     tiktok_acc = next((a for a in accounts if a.get("platform") == "tiktok"), None)
     if not tiktok_acc:
-        print("[publisher] No TikTok account linked in Zernio")
+        logging.warning("[publisher] No TikTok account linked in Zernio.")
         return False
     account_id = tiktok_acc.get("_id") or tiktok_acc.get("id")
 
@@ -76,7 +77,7 @@ def publish_tiktok_via_zernio(video_path: Path, caption: str) -> bool:
         timeout=30
     )
     if presign_resp.status_code not in (200, 201):
-        print(f"[publisher] Zernio presign error: {presign_resp.status_code} {presign_resp.text}")
+        logging.error("[publisher] Zernio presign error %s: %s", presign_resp.status_code, presign_resp.text)
         return False
 
     pdata = presign_resp.json().get("data", presign_resp.json())
@@ -86,7 +87,7 @@ def publish_tiktok_via_zernio(video_path: Path, caption: str) -> bool:
     with open(video_path, "rb") as vf:
         put_resp = requests.put(upload_url, headers={"Content-Type": "video/mp4"}, data=vf, timeout=120)
         if put_resp.status_code not in (200, 201):
-            print(f"[publisher] Zernio upload error: {put_resp.status_code}")
+            logging.error("[publisher] Zernio upload error %s", put_resp.status_code)
             return False
 
     post_resp = requests.post(
@@ -101,7 +102,7 @@ def publish_tiktok_via_zernio(video_path: Path, caption: str) -> bool:
         timeout=60
     )
     if post_resp.status_code not in (200, 201):
-        print(f"[publisher] Zernio post error: {post_resp.status_code} {post_resp.text}")
+        logging.error("[publisher] Zernio post error %s: %s", post_resp.status_code, post_resp.text)
         return False
     return True
 
@@ -109,12 +110,17 @@ def publish_tiktok_via_zernio(video_path: Path, caption: str) -> bool:
 def publish_video_to_platforms(item: dict, platforms: list[str]) -> bool:
     api_key = os.getenv("UPLOAD_POST_API_KEY", "").strip()
     profile = os.getenv("UPLOAD_POST_PROFILE", "default").strip()
+    logging.info("[publisher] Upload-Post key present=%s | profile=%s", bool(api_key), profile)
 
     cfg = load_json(CONFIG_FILE, {})
     hashtags = random.choice(cfg.get("hashtags_pool", [["#GTA6", "#GTAVI"]]))
     video_path = Path(item["rendered_path"])
     if not video_path.exists():
+        logging.error("[publisher] Rendered video file missing: %s", video_path)
         return False
+
+    size_mb = round(video_path.stat().st_size / (1024 * 1024), 2)
+    logging.info("[publisher] Uploading %s (%.2f MB) to %s", video_path.name, size_mb, platforms)
 
     any_ok = False
 
@@ -123,11 +129,12 @@ def publish_video_to_platforms(item: dict, platforms: list[str]) -> bool:
 
         if plat == "tiktok":
             if publish_tiktok_via_zernio(video_path, caption):
-                print("[publisher] Published to TikTok via Zernio")
+                logging.info("[publisher] Published to TikTok via Zernio")
                 any_ok = True
             continue
 
         if not api_key:
+            logging.error("[publisher] Missing UPLOAD_POST_API_KEY secret!")
             continue
 
         headers = {"Authorization": f"Apikey {api_key}"}
@@ -139,12 +146,12 @@ def publish_video_to_platforms(item: dict, platforms: list[str]) -> bool:
                 "title": caption[:95] if plat == "youtube" else caption,
                 "description": caption
             }
-            resp = requests.post(UPLOAD_POST_VIDEO_URL, headers=headers, data=data, files=files, timeout=120)
+            resp = requests.post(UPLOAD_POST_VIDEO_URL, headers=headers, data=data, files=files, timeout=180)
             if resp.status_code in (200, 201):
-                print(f"[publisher] Published to {plat} via Upload-Post")
+                logging.info("[publisher] Published to %s: %s", plat, resp.text[:200])
                 any_ok = True
             else:
-                print(f"[publisher] Upload-Post {plat} error: {resp.status_code} {resp.text}")
+                logging.error("[publisher] Upload-Post %s error %s: %s", plat, resp.status_code, resp.text)
 
     return any_ok
 
@@ -175,5 +182,5 @@ def publish_x_text_slot() -> bool:
         })
         save_json(HISTORY_FILE, history)
         return True
-    print(f"[publisher] Upload-Post X text error: {resp.status_code} {resp.text}")
+    logging.error("[publisher] Upload-Post X text error %s: %s", resp.status_code, resp.text)
     return False
