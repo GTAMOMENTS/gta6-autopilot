@@ -139,6 +139,8 @@ def _generate_json(contents, temperature: float = 0.9) -> dict | None:
                 log.warning("[gemini] %s failed: %.160s", model, msg)
                 if "404" in msg or "NOT_FOUND" in msg or "not supported" in msg:
                     _dead_models.add(model)
+                elif "exceeded your current quota" in msg or "quota" in msg.lower() and "429" in msg:
+                    _dead_models.add(model)  # daily free quota used up - retrying won't help today
                 elif any(x in msg for x in ("503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "500", "timed out")):
                     overloaded += 1
         if overloaded == 0 or round_no == 1 or time.time() + 60 > deadline:
