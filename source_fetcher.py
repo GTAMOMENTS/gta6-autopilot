@@ -64,6 +64,7 @@ class Candidate:
     score: float = 0.0
     kind: str = "gameplay"          # "gameplay" or "stream" (streamer clips / VODs with reactions)
     heatmap: list | None = None     # YouTube "most replayed" data [{start_time, end_time, value}]
+    media_url: str | None = None    # direct video file (X posts)
 
 
 @dataclass
@@ -372,6 +373,32 @@ def discover_twitch(cfg: dict, tf: "TitleFilter") -> list[Candidate]:
     return out
 
 
+def discover_x_accounts(cfg: dict, tf: TitleFilter) -> list[Candidate]:
+    """Video posts from the X accounts in sources.x_accounts (see x_source.py)."""
+    import x_source
+    s = cfg.get("sources", {})
+    min_ts = _min_created_ts(cfg)
+    min_sec, max_sec = float(s.get("x_min_sec", 15)), float(s.get("x_max_sec", 600))
+    bonus = float(s.get("x_accounts_bonus", 3.0))
+    out = []
+    for acc, clip in x_source.account_clips(cfg):
+        text = re.sub(r"https?://\S+", "", clip.get("text", "")).strip()
+        if tf.blocked and (m := tf.blocked.search(_norm(text))):
+            log.debug("[x-source] skip %s: blocked term '%s'", clip["id"], m.group(1))
+            continue
+        if not min_sec <= clip.get("duration", 0) <= max_sec:
+            continue
+        if min_ts and clip.get("created") and clip["created"] < min_ts:
+            continue
+        out.append(Candidate(key=f"x:{clip['id']}", url=f"https://x.com/{acc}/status/{clip['id']}",
+                             title=text[:120] or f"GTA 6 clip from {acc}", uploader=f"{acc} on X",
+                             provider="x_account", duration=float(clip["duration"]), created=clip.get("created"),
+                             views=int(clip.get("views") or 0), score=bonus, kind="gameplay",
+                             media_url=clip["media_url"]))
+    log.info("[sources] X accounts: %d usable video posts", len(out))
+    return out
+
+
 def discover_trailers(cfg: dict) -> list[Candidate]:
     out = []
     for t in cfg.get("sources", {}).get("official_trailers", []):
@@ -436,6 +463,9 @@ def pick_kind(cfg: dict) -> str:
 def discover(cfg: dict, manifest: dict, kind: str | None = None, fmt: dict | None = None) -> list[Candidate]:
     s = cfg.get("sources", {})
     providers = s.get("providers", ["local", "extra_urls", "twitch", "dailymotion", "youtube"])
+    if env("SOURCE_PROVIDERS").strip():  # manual test runs: only these providers
+        providers = [p.strip() for p in env("SOURCE_PROVIDERS").split(",") if p.strip()]
+        log.info("[sources] providers limited to %s for this run", providers)
     kind = (fmt or {}).get("kind") or kind or pick_kind(cfg)
     log.info("[sources] content type this run: %s%s", kind.upper(),
              f" | format: {fmt['name']}" if fmt else "")
@@ -458,6 +488,11 @@ def discover(cfg: dict, manifest: dict, kind: str | None = None, fmt: dict | Non
         gameplay += discover_local()
     if "extra_urls" in providers:
         gameplay += discover_extra_urls(cfg)
+    if "x_accounts" in providers:
+        try:
+            gameplay += discover_x_accounts(cfg, tf)
+        except Exception as exc:  # noqa: BLE001 - a broken X page must never stop the run
+            log.warning("[sources] X accounts failed: %.200s", exc)
     if "twitch" in providers:
         stream += discover_twitch(cfg, stf)
     if "dailymotion" in providers:
@@ -509,8 +544,34 @@ def _is_blocked(err: str) -> bool:
     return any(m in e for m in BOT_BLOCK_MARKERS) or "403" in e
 
 
+def _download_media_url(c: Candidate, start: int, end: int, out: Path) -> bool:
+    """Direct video file (X posts are short): download it whole, then cut the section."""
+    import requests
+    full = out.with_name(out.stem + "_full.mp4")
+    try:
+        with requests.get(c.media_url, stream=True, timeout=60) as r:
+            r.raise_for_status()
+            with open(full, "wb") as fh:
+                for chunk in r.iter_content(1 << 20):
+                    fh.write(chunk)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[sources] X video download failed: %.200s", exc)
+        full.unlink(missing_ok=True)
+        return False
+    dur = probe(full)["duration"]
+    if start <= 0.5 and end >= dur - 0.5:
+        full.rename(out)
+    else:
+        run(["ffmpeg", "-y", "-ss", str(start), "-to", str(end), "-i", str(full), "-c:v", "libx264",
+             "-preset", "veryfast", "-crf", "17", "-c:a", "aac", "-b:a", "192k", str(out)], timeout=300)
+        full.unlink(missing_ok=True)
+    return _valid_video(out)
+
+
 def _download(c: Candidate, start: int, end: int, out: Path) -> bool:
     out.unlink(missing_ok=True)
+    if c.media_url:
+        return _download_media_url(c, start, end, out)
     if c.local_path:
         res = run(["ffmpeg", "-y", "-ss", str(start), "-to", str(end), "-i", c.local_path,
                    "-c", "copy", str(out)], timeout=300)

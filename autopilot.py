@@ -25,7 +25,7 @@ from common import (HISTORY_FILE, READY_DIR, env, load_config, load_json, now_lo
 
 log = logging.getLogger("autopilot")
 VIDEO_TYPES = ("vertical_clip", "x_video_clip", "test_all")
-SEARCH_PROVIDERS = {"dailymotion", "youtube", "twitch_clip", "twitch_vod"}
+SEARCH_PROVIDERS = {"dailymotion", "youtube", "twitch_clip", "twitch_vod", "x_account"}  # need the AI check
 
 
 # --------------------------------------------------------------------------- slot resolution
