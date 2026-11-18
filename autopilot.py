@@ -208,6 +208,8 @@ def run_video_slot(slot: dict, dry_run: bool) -> tuple[bool, dict]:
             reason = None
             if not copy["is_gta6_footage"]:
                 reason = "not GTA VI footage"
+            elif copy.get("is_spoiler") and gate.get("reject_spoilers", True):
+                reason = "story spoiler"
             elif copy.get("has_narrator") and gate.get("reject_narrator", True) and c.kind != "stream":
                 reason = "someone already talks over this footage"
             elif copy["has_facecam"] and gate.get("reject_facecam", True) and c.kind != "stream":
