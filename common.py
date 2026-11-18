@@ -81,7 +81,12 @@ def env(name: str, default: str = "") -> str:
 
 def run(cmd: list[str], timeout: int = 300, check: bool = False) -> subprocess.CompletedProcess:
     log.debug("RUN %s", " ".join(cmd))
-    res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        # never let a slow download/encode crash the whole run - report it as a normal failure
+        log.warning("%s timed out after %ss", cmd[0], timeout)
+        res = subprocess.CompletedProcess(cmd, 124, stdout="", stderr=f"TIMEOUT: {cmd[0]} took longer than {timeout}s")
     if check and res.returncode != 0:
         raise RuntimeError(f"{cmd[0]} failed ({res.returncode}): {res.stderr[-800:]}")
     return res

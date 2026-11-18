@@ -361,14 +361,17 @@ def _download(c: Candidate, start: int, end: int, out: Path) -> bool:
     # 1) fast path: only download the section we need
     res = run(_ytdlp_base() + [
         "-f", YTDLP_FORMAT, "--merge-output-format", "mp4",
-        "--download-sections", f"*{start}-{end}", "--force-keyframes-at-cuts",
+        "--download-sections", f"*{start}-{end}",
         "-o", str(out), c.url,
-    ], timeout=420)
+    ], timeout=300)
     if res.returncode == 0 and _valid_video(out):
         return True
     err = res.stderr[-400:]
     if c.provider == "youtube" and _is_blocked(err):
         raise PermissionError("youtube-blocked")
+    if res.returncode == 124:  # too slow - a full download would be even slower, skip this video
+        log.warning("[sources] section download too slow, skipping: %s", c.title[:60])
+        return False
 
     # 2) fallback: some HLS sources (Dailymotion with split audio/video) can't be
     #    section-downloaded -> fetch the whole video (if not huge) and cut locally.
@@ -469,7 +472,11 @@ def iter_clips(target_sec: int, max_attempts: int = 6, skip_providers: set | Non
             continue
 
         clip_file = RAW_DIR / f"clip_{int(time.time())}.mp4"
-        clip, segments = cut_highlight(sec_file, clip_file, target_sec, style)
+        try:
+            clip, segments = cut_highlight(sec_file, clip_file, target_sec, style)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[sources] highlight cut failed: %s", exc)
+            clip, segments = None, []
         sec_file.unlink(missing_ok=True)
         if not clip:
             _note_failure(c)
