@@ -147,39 +147,59 @@ def choose_segments(energy: list[float], target: int, style: str = "auto") -> li
     return chosen if montage_score > single_score * 1.12 else single
 
 
+def energy_hints(energy: list[float], length: int = 30, count: int = 3) -> list[tuple[int, int]]:
+    """Top non-overlapping high-energy windows - given to the AI editor as hints."""
+    out: list[tuple[int, int]] = []
+    if len(energy) <= length:
+        return [(0, len(energy))] if energy else []
+    for _ in range(count):
+        s, sc = _best_window(energy, length, [(a - 5, b + 5) for a, b in out])
+        if s < 0:
+            break
+        out.append((s, s + length))
+    return sorted(out)
+
+
+def best_window(energy: list[float], length: int) -> tuple[int, int]:
+    n = len(energy)
+    if n <= length:
+        return 0, n
+    s, _ = _best_window(energy, length, [])
+    return s, s + length
+
+
+def cut_segments(src: Path, out: Path, segments: list[tuple[float, float]]) -> Path | None:
+    """Cut [(start, end), ...] from src into one normalised <=1080p / 30fps clip with stereo audio."""
+    info = probe(src)
+    parts, labels = [], ""
+    for i, (a, b) in enumerate(segments):
+        parts.append(f"[0:v]trim=start={a}:end={b},setpts=PTS-STARTPTS,"
+                     f"scale=-2:'min(1080,ih)',fps=30,format=yuv420p,setsar=1[v{i}]")
+        if info["has_audio"]:
+            parts.append(f"[0:a]atrim=start={a}:end={b},asetpts=PTS-STARTPTS,aresample=48000,"
+                         f"aformat=channel_layouts=stereo[a{i}]")
+        else:
+            parts.append(f"anullsrc=r=48000:cl=stereo,atrim=0:{b - a}[a{i}]")
+        labels += f"[v{i}][a{i}]"
+    if len(segments) > 1:
+        parts = [p.replace("scale=-2:'min(1080,ih)'", "scale=1920:1080:force_original_aspect_ratio=decrease,"
+                           "pad=1920:1080:(ow-iw)/2:(oh-ih)/2") for p in parts]
+    fc = ";".join(parts) + f";{labels}concat=n={len(segments)}:v=1:a=1[vo][ao]"
+    res = run(["ffmpeg", "-y", "-hide_banner", "-i", str(src), "-filter_complex", fc,
+               "-map", "[vo]", "-map", "[ao]", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+               "-c:a", "aac", "-b:a", "192k", str(out)], timeout=600)
+    if res.returncode != 0 or not out.exists():
+        log.error("[highlight] cut failed: %s", res.stderr[-500:])
+        return None
+    return out
+
+
 def cut_highlight(src: Path, out: Path, target_sec: int, style: str = "auto") -> tuple[Path | None, list]:
-    """Cut the best `target_sec` seconds from `src` into a normalised 1080p/30fps clip."""
+    """Meter-only fallback: cut the best `target_sec` seconds from `src`."""
     info = probe(src)
     if info["duration"] < 15:
         return None, []
     energy = energy_curve(src)
     segments = choose_segments(energy, target_sec, style) if energy else [(0, int(info["duration"]))]
     log.info("[highlight] %s -> segments %s", src.name, segments)
-
-    # Normalise every piece to the same format and concat them in one pass.
-    parts, labels = [], ""
-    for i, (a, b) in enumerate(segments):
-        v = (f"[0:v]trim=start={a}:end={b},setpts=PTS-STARTPTS,"
-             f"scale=-2:'min(1080,ih)',fps=30,format=yuv420p,setsar=1[v{i}]")
-        if info["has_audio"]:
-            aud = f"[0:a]atrim=start={a}:end={b},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo[a{i}]"
-        else:
-            aud = f"anullsrc=r=48000:cl=stereo,atrim=0:{b - a}[a{i}]"
-        parts += [v, aud]
-        labels += f"[v{i}][a{i}]"
-    if len(segments) > 1:
-        # all pieces must share one resolution for concat
-        parts = [p.replace("scale=-2:'min(1080,ih)'", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2")
-                 for p in parts]
-    fc = ";".join(parts) + f";{labels}concat=n={len(segments)}:v=1:a=1[vo][ao]"
-
-    res = run([
-        "ffmpeg", "-y", "-hide_banner", "-i", str(src), "-filter_complex", fc,
-        "-map", "[vo]", "-map", "[ao]",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-        "-c:a", "aac", "-b:a", "192k", str(out),
-    ], timeout=600)
-    if res.returncode != 0 or not out.exists():
-        log.error("[highlight] cut failed: %s", res.stderr[-500:])
-        return None, segments
-    return out, segments
+    return cut_segments(src, out, segments), segments

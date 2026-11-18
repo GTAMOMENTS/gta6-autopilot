@@ -86,7 +86,9 @@ def slot_id(slot: dict) -> str:
 # --------------------------------------------------------------------------- video slot
 
 def run_video_slot(slot: dict, dry_run: bool) -> tuple[bool, dict]:
-    from gemini_writer import write_clip_copy
+    from common import RAW_DIR, probe
+    from gemini_writer import finalize_commentary, write_clip_copy
+    from highlight import best_window, cut_segments, energy_curve, energy_hints
     from publisher import _available, publish_video, routes_for
     from source_fetcher import iter_clips, load_manifest, mark_rejected, mark_used, save_manifest
     from video_processor import render
@@ -103,50 +105,44 @@ def run_video_slot(slot: dict, dry_run: bool) -> tuple[bool, dict]:
         platforms = usable
 
     gate = cfg.get("quality_gate", {})
-    budget_end = time.time() + int(cfg.get("sources", {}).get("time_budget_min", 22)) * 60
-    target = int(cfg.get("video", {}).get("source_clip_sec", 60))
+    vcfg = cfg.get("video", {})
+    scfg = cfg.get("sources", {})
+    min_hype = int(gate.get("min_hype_score", 7))
+    backup_hype = int(gate.get("backup_hype_score", min_hype - 1))
+    budget_end = time.time() + int(scfg.get("time_budget_min", 25)) * 60
 
-    skip: set[str] = set()
-    for src in iter_clips(target_sec=target, max_attempts=int(cfg.get("sources", {}).get("max_attempts", 6)),
-                          skip_providers=skip):
-        if time.time() > budget_end:
-            log.warning("Time budget exhausted")
-            break
-        c = src.candidate
-        copy = write_clip_copy(src.clip_path, c.title, src.credit, c.provider, c.kind)
-        if not copy["verified_by_video"] and c.provider in SEARCH_PROVIDERS and gate.get("require_ai_check_for_search", True):
-            # Can't confirm a random upload is real GTA VI without the AI watching it -> don't risk it.
-            log.warning("[gate] AI video check unavailable - skipping search results, using trusted sources only")
-            skip.update(SEARCH_PROVIDERS)
-            continue
-        if copy["verified_by_video"]:
-            reason = None
-            if not copy["is_gta6_footage"]:
-                reason = "not GTA VI footage"
-            elif copy.get("has_narrator") and gate.get("reject_narrator", True) and c.kind != "stream":
-                reason = "someone already talks over this footage"
-            elif copy["has_facecam"] and gate.get("reject_facecam", True) and c.kind != "stream":
-                reason = "facecam / overlay"
-            elif copy["hype_score"] < int(gate.get("min_hype_score", 5)):
-                reason = f"low hype ({copy['hype_score']})"
-            if reason:
-                log.info("[gate] ✋ rejected '%s': %s | %s", c.title[:60], reason, copy["scene_summary"])
-                mark_rejected(c, reason)
-                continue
-            log.info("[gate] ✅ accepted (hype %s): %s", copy["hype_score"], copy["scene_summary"])
+    def produce(src, copy, energy, sec_dur) -> tuple[bool, dict] | None:
+        """AI editor's window -> cut -> voice lines -> render -> publish -> record."""
+        c, section = src.candidate, src.clip_path
+        min_len = min(float(vcfg.get("min_clip_sec", 25)), sec_dur)
+        max_len = min(float(vcfg.get("duration_sec", 50)), sec_dur)
+        start, end = copy.get("clip_start"), copy.get("clip_end")
+        if start is None or end is None or not (0 <= start < end) or (end - start) < min_len * 0.8:
+            a, b = best_window(energy, int(min(45, max_len)))
+            start, end = float(a), float(b)
+            log.info("[editor] AI gave no usable window - using the most intense %ds", int(end - start))
+        else:
+            end = min(end, sec_dur, start + max_len)
+            log.info("[editor] AI picked %.0f-%.0fs of the slice (%.0fs)", start, end, end - start)
+        clip = cut_segments(section, RAW_DIR / f"clip_{int(time.time())}.mp4", [(start, end)])
+        section.unlink(missing_ok=True)
+        if not clip:
+            return None
+        commentary = finalize_commentary(copy, start, end)
+        copy["commentary"] = commentary
+        log.info("[editor] voice lines: %s", [f"{ln['t']:.0f}s {ln['text']}" for ln in commentary])
 
         clip_id = "gta6_" + now_local().strftime("%Y%m%d_%H%M") + "_" + hashlib.md5(c.key.encode()).hexdigest()[:6]
-        rendered = render(src.clip_path, clip_id, copy["banner"], copy["commentary"])
+        rendered = render(clip, clip_id, copy["banner"], commentary)
         if not rendered:
-            continue
+            return None
         mark_used(src)
-
         results = {} if dry_run else publish_video(Path(rendered["path"]), platforms, copy, src.credit)
         ok = dry_run or any(r.get("ok") for r in results.values())
         record = {
             "id": clip_id, "slot": slot["type"], "created_at": datetime.now(timezone.utc).isoformat(),
             "source": {"provider": c.provider, "kind": c.kind, "url": c.url, "title": c.title, "credit": src.credit,
-                       "section": list(src.section), "segments": src.segments},
+                       "section": [src.section[0] + start, src.section[0] + end], "segments": [[start, end]]},
             "copy": copy, "rendered": rendered["path"], "duration": rendered["duration"],
             "voice_lines": rendered.get("lines", []),
             "dry_run": dry_run, "results": results, "status": "published" if ok and not dry_run else
@@ -156,6 +152,63 @@ def run_video_slot(slot: dict, dry_run: bool) -> tuple[bool, dict]:
         m["items"].append(record)
         save_manifest(m)
         return ok, record
+
+    backup = None  # best "almost good enough" clip, used only if nothing reaches min_hype
+    skip: set[str] = set()
+    for src in iter_clips(target_sec=0, max_attempts=int(scfg.get("max_attempts", 8)), skip_providers=skip):
+        if time.time() > budget_end:
+            log.warning("Time budget exhausted")
+            src.clip_path.unlink(missing_ok=True)
+            break
+        c = src.candidate
+        section = src.clip_path                     # the whole downloaded slice (~2 min)
+        sec_dur = probe(section)["duration"]
+        energy = energy_curve(section)
+        copy = write_clip_copy(section, c.title, src.credit, c.provider, c.kind, energy_hints(energy, 30, 3))
+        if not copy["verified_by_video"] and c.provider in SEARCH_PROVIDERS and gate.get("require_ai_check_for_search", True):
+            # Can't confirm a random upload is real GTA VI without the AI watching it -> don't risk it.
+            log.warning("[gate] AI video check unavailable - skipping search results, using trusted sources only")
+            skip.update(SEARCH_PROVIDERS)
+            section.unlink(missing_ok=True)
+            continue
+        if copy["verified_by_video"]:
+            reason = None
+            if not copy["is_gta6_footage"]:
+                reason = "not GTA VI footage"
+            elif copy.get("has_narrator") and gate.get("reject_narrator", True) and c.kind != "stream":
+                reason = "someone already talks over this footage"
+            elif copy["has_facecam"] and gate.get("reject_facecam", True) and c.kind != "stream":
+                reason = "facecam / overlay"
+            elif copy["hype_score"] < min_hype:
+                reason = f"low hype ({copy['hype_score']})"
+            if reason:
+                log.info("[gate] ✋ rejected '%s': %s | %s", c.title[:60], reason, copy["scene_summary"])
+                mark_rejected(c, reason)
+                keep = (reason.startswith("low hype") and copy["hype_score"] >= backup_hype
+                        and (backup is None or copy["hype_score"] > backup[1]["hype_score"]))
+                if keep:
+                    if backup:
+                        backup[0].clip_path.unlink(missing_ok=True)
+                    backup = (src, copy, energy, sec_dur)
+                    log.info("[gate] kept as backup (hype %s) in case nothing better turns up", copy["hype_score"])
+                else:
+                    section.unlink(missing_ok=True)
+                continue
+            log.info("[gate] ✅ accepted (hype %s, %s): %s", copy["hype_score"], copy.get("content_type"),
+                     copy["scene_summary"])
+
+        result = produce(src, copy, energy, sec_dur)
+        if result:
+            if backup:
+                backup[0].clip_path.unlink(missing_ok=True)
+            return result
+
+    if backup:
+        log.info("[gate] nothing reached hype %d - posting the best backup (hype %s)", min_hype,
+                 backup[1]["hype_score"])
+        result = produce(*backup)
+        if result:
+            return result
     return False, {"error": "no usable clip could be produced"}
 
 
