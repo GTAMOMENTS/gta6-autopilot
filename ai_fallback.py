@@ -15,11 +15,12 @@ import base64
 import json
 import logging
 import re
+import time
 from pathlib import Path
 
 import requests
 
-from common import WORK_DIR, env, load_config, probe, run
+from common import WORK_DIR, env, load_config, parse_json_loose, probe, run
 
 log = logging.getLogger("autopilot")
 
@@ -117,15 +118,7 @@ def extract_frames(clip: Path, count: int = 6) -> list[str]:
 
 
 def _parse(text: str) -> dict | None:
-    text = re.sub(r"<think>.*?</think>", "", text or "", flags=re.S).strip()
-    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text)
-    m = re.search(r"\{.*\}", text, re.S)
-    if not m:
-        return None
-    try:
-        return json.loads(m.group(0))
-    except json.JSONDecodeError:
-        return None
+    return parse_json_loose(text)
 
 
 _down_until = 0.0
@@ -142,7 +135,13 @@ def _message_text(msg: dict) -> str:
     return msg.get("content") or msg.get("reasoning") or ""
 
 
-def _call(p: str, model: str, prompt: str, frames: list[str] | None, temperature: float) -> tuple[dict | None, int]:
+STRICT = ("\n\nIMPORTANT: reply with ONLY the JSON object, starting with { and ending with }. "
+          "Put every text value in double quotes. Do NOT describe the frames or explain anything outside the JSON.")
+
+
+def _call(p: str, model: str, prompt: str, frames: list[str] | None, temperature: float,
+          timeout: float = 90) -> tuple[dict | None, int]:
+    prompt = prompt + STRICT
     content: list | str = prompt
     if frames:
         imgs = frames[: PROVIDERS[p]["max_images"]]
@@ -152,7 +151,7 @@ def _call(p: str, model: str, prompt: str, frames: list[str] | None, temperature
             "messages": [{"role": "user", "content": content}]}
     if p == "openrouter":
         body["reasoning"] = {"effort": "low"}
-    r = requests.post(f"{PROVIDERS[p]['base']}/chat/completions", headers=_headers(p), timeout=150, json=body)
+    r = requests.post(f"{PROVIDERS[p]['base']}/chat/completions", headers=_headers(p), timeout=timeout, json=body)
     if r.status_code != 200:
         log.warning("[ai-fallback] %s/%s HTTP %s: %.140s", p, model, r.status_code, r.text)
         return None, r.status_code
@@ -171,10 +170,10 @@ def _call(p: str, model: str, prompt: str, frames: list[str] | None, temperature
 def chat_json(prompt: str, frames: list[str] | None = None, temperature: float = 0.9) -> dict | None:
     """Try every configured free provider/model until one returns valid JSON."""
     global _down_until
-    import time
     if time.time() < _down_until:
         return None
     rate_limited: list[tuple[str, str]] = []
+    deadline = time.time() + int(_cfg().get("max_total_sec", 240))
     for round_no in range(2):
         for p in _cfg().get("providers", list(PROVIDERS)):
             if p not in PROVIDERS or not env(PROVIDERS[p]["key"]):
@@ -184,8 +183,12 @@ def chat_json(prompt: str, frames: list[str] | None = None, temperature: float =
                     continue
                 if round_no == 1 and (p, model) not in rate_limited:
                     continue
+                left = deadline - time.time()
+                if left < 15:
+                    log.warning("[ai-fallback] time cap reached")
+                    break
                 try:
-                    data, status = _call(p, model, prompt, frames, temperature)
+                    data, status = _call(p, model, prompt, frames, temperature, timeout=min(90, left))
                 except Exception as exc:  # noqa: BLE001
                     log.warning("[ai-fallback] %s/%s failed: %.150s", p, model, exc)
                     continue
@@ -197,7 +200,7 @@ def chat_json(prompt: str, frames: list[str] | None = None, temperature: float =
                     _dead.add((p, model))
                 elif status == 429 and round_no == 0:
                     rate_limited.append((p, model))
-        if not rate_limited or round_no == 1:
+        if not rate_limited or round_no == 1 or time.time() + 40 > deadline:
             break
         log.info("[ai-fallback] %d free models rate-limited - waiting 20s and retrying them once", len(rate_limited))
         time.sleep(20)

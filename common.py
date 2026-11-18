@@ -108,6 +108,56 @@ def probe(path: Path) -> dict:
     return info
 
 
+def parse_json_loose(text: str) -> dict | None:
+    """Parse an AI answer into a dict, repairing the usual mistakes:
+    code fences, <think> blocks, chatter around the JSON, trailing commas,
+    and unquoted string values like  "scene_summary": A man walks ...  """
+    import re
+    if not text:
+        return None
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.S)
+    text = re.sub(r"```(?:json)?", "", text)
+    start = text.find("{")
+    if start < 0:
+        return None
+    end = text.rfind("}")
+    body = text[start:end + 1] if end > start else text[start:]
+    for candidate in (body, re.sub(r",\s*([}\]])", r"\1", body)):
+        try:
+            data = json.loads(candidate)
+            if isinstance(data, dict):
+                return data
+        except json.JSONDecodeError:
+            pass
+
+    # Key-by-key salvage: each "key": value runs until the next "key": or the closing brace.
+    keys = list(re.finditer(r'"([A-Za-z_][A-Za-z0-9_]*)"\s*:\s*', body))
+    if not keys:
+        return None
+    out: dict = {}
+    for i, m in enumerate(keys):
+        stop = keys[i + 1].start() if i + 1 < len(keys) else len(body)
+        raw = body[m.end():stop].strip().rstrip(",").strip()
+        if i + 1 == len(keys):
+            raw = raw.rstrip("}").strip().rstrip(",").strip()
+        low = raw.lower()
+        if low in ("true", "false"):
+            val = low == "true"
+        elif re.fullmatch(r"-?\d+(\.\d+)?", raw):
+            val = float(raw) if "." in raw else int(raw)
+        elif raw.startswith("["):
+            try:
+                val = json.loads(raw)
+            except json.JSONDecodeError:
+                val = re.findall(r'"([^"]+)"', raw) or re.findall(r"#\w+", raw)
+        else:
+            if raw.startswith('"') and raw.endswith('"') and len(raw) >= 2:
+                raw = raw[1:-1]
+            val = raw.strip().strip('"').replace('\\"', '"')
+        out[m.group(1)] = val
+    return out or None
+
+
 def parse_cookies(raw: str, default_domain: str) -> list[dict]:
     """Read cookies pasted in ANY common format into a list of dicts
     (name, value, domain, path, secure, expires, httpOnly).

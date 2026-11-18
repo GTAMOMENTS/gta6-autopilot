@@ -21,7 +21,7 @@ from datetime import date
 from pathlib import Path
 
 import ai_fallback
-from common import WORK_DIR, env, load_config, now_local, run
+from common import WORK_DIR, env, load_config, now_local, parse_json_loose, run
 
 log = logging.getLogger("autopilot")
 
@@ -92,17 +92,7 @@ def _models() -> list[str]:
 
 
 def _parse_json(text: str) -> dict | None:
-    if not text:
-        return None
-    text = text.strip()
-    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text)
-    m = re.search(r"\{.*\}", text, re.S)
-    if not m:
-        return None
-    try:
-        return json.loads(m.group(0))
-    except json.JSONDecodeError:
-        return None
+    return parse_json_loose(text)
 
 
 def _generate_json(contents, temperature: float = 0.9) -> dict | None:

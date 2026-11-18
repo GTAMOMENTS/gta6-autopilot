@@ -422,7 +422,8 @@
       "groq": [],
       "mistral": []
     },
-    "max_models_per_provider": 4
+    "max_models_per_provider": 4,
+    "max_total_sec": 240
   },
   "x_text_hashtags": [
     "#GTA6",
