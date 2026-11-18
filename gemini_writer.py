@@ -35,7 +35,7 @@ def _client():
     if _client_obj is None:
         from google import genai
         from google.genai import types
-        timeout_ms = int(load_config().get("gemini", {}).get("timeout_sec", 90)) * 1000
+        timeout_ms = int(load_config().get("gemini", {}).get("timeout_sec", 120)) * 1000
         _client_obj = genai.Client(
             api_key=env("GEMINI_API_KEY"),
             http_options=types.HttpOptions(
@@ -49,10 +49,45 @@ def _client():
     return _client_obj
 
 
+_dead_models: set[str] = set()
+_discovered: list[str] | None = None
+
+
+def _version_key(name: str) -> tuple:
+    nums = re.findall(r"\d+(?:\.\d+)?", name)
+    v = float(nums[0]) if nums else 0.0
+    lite = "lite" in name
+    preview = "preview" in name or "exp" in name
+    return (v, not lite, not preview)
+
+
+def _discover_models() -> list[str]:
+    """Ask the API which Flash models this key can actually call (names change often)."""
+    global _discovered
+    if _discovered is None:
+        _discovered = []
+        try:
+            names = []
+            for m in _client().models.list():
+                name = (m.name or "").removeprefix("models/")
+                actions = [a.lower() for a in (getattr(m, "supported_actions", None) or [])]
+                if actions and not any("generatecontent" in a for a in actions):
+                    continue
+                if "flash" not in name or any(x in name for x in
+                                              ("image", "tts", "audio", "live", "embedding", "native", "robotics")):
+                    continue
+                names.append(name)
+            _discovered = sorted(set(names), key=_version_key, reverse=True)[:6]
+            log.info("[gemini] models available to this key: %s", _discovered)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[gemini] could not list models: %.200s", exc)
+    return _discovered
+
+
 def _models() -> list[str]:
     cfg = load_config().get("gemini", {})
-    models = [env("GEMINI_MODEL")] + cfg.get("models", ["gemini-flash-latest"])
-    return [m for m in dict.fromkeys(models) if m]
+    models = [env("GEMINI_MODEL")] + cfg.get("models", []) + _discover_models()
+    return [m for m in dict.fromkeys(models) if m and m not in _dead_models]
 
 
 def _parse_json(text: str) -> dict | None:
@@ -77,29 +112,35 @@ def _generate_json(contents, temperature: float = 0.9) -> dict | None:
     if time.time() < _unavailable_until:
         return None
     from google.genai import types
-    overloads = 0
-    for model in _models():
-        try:
-            resp = _client().models.generate_content(
-                model=model,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    temperature=temperature,
-                    response_mime_type="application/json",
-                ),
-            )
-            data = _parse_json(resp.text or "")
-            if data:
-                log.info("[gemini] response from %s", model)
-                return data
-            log.warning("[gemini] %s returned unparseable output: %.200s", model, resp.text)
-        except Exception as exc:  # noqa: BLE001
-            msg = str(exc)
-            log.warning("[gemini] %s failed: %.250s", model, msg)
-            if "503" in msg or "UNAVAILABLE" in msg or "429" in msg or "RESOURCE_EXHAUSTED" in msg:
-                overloads += 1
-    if overloads >= 2:
-        _unavailable_until = time.time() + 600
+    for round_no in range(2):
+        overloaded = 0
+        for model in _models():
+            try:
+                resp = _client().models.generate_content(
+                    model=model,
+                    contents=contents,
+                    config=types.GenerateContentConfig(
+                        temperature=temperature,
+                        response_mime_type="application/json",
+                    ),
+                )
+                data = _parse_json(resp.text or "")
+                if data:
+                    log.info("[gemini] response from %s", model)
+                    return data
+                log.warning("[gemini] %s returned unparseable output: %.200s", model, resp.text)
+            except Exception as exc:  # noqa: BLE001
+                msg = str(exc)
+                log.warning("[gemini] %s failed: %.160s", model, msg)
+                if "404" in msg or "NOT_FOUND" in msg or "not supported" in msg:
+                    _dead_models.add(model)
+                elif any(x in msg for x in ("503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "500", "timed out")):
+                    overloaded += 1
+        if overloaded == 0 or round_no == 1:
+            break
+        log.info("[gemini] all models busy - waiting 25s and retrying once")
+        time.sleep(25)
+    _unavailable_until = time.time() + 900  # don't burn the run's time budget on a down API
     return None
 
 

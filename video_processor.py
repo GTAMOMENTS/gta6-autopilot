@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 import textwrap
 from pathlib import Path
 
@@ -57,7 +58,9 @@ def synthesize(text: str, out: Path) -> tuple[float, list[dict]]:
     voices = [env("TTS_VOICE")] + vcfg.get("voices", ["en-US-AndrewNeural", "en-US-GuyNeural"])
     rate = vcfg.get("rate", "+10%")
     words: list[dict] = []
-    for voice in [v for v in dict.fromkeys(voices) if v]:
+    attempts = [v for v in dict.fromkeys(voices) if v]
+    attempts = attempts[:1] * 2 + attempts[1:]  # main voice gets a second chance (edge-tts hiccups)
+    for voice in attempts:
         try:
             words = asyncio.run(_edge_tts(text, voice, rate, out))
             if out.exists() and out.stat().st_size > 5000:
@@ -65,6 +68,7 @@ def synthesize(text: str, out: Path) -> tuple[float, list[dict]]:
                 break
         except Exception as exc:  # noqa: BLE001
             log.warning("[voice] %s failed: %s", voice, exc)
+            time.sleep(2)
         words = []
     else:
         log.info("[voice] falling back to gTTS")
