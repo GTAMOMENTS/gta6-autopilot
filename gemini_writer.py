@@ -371,7 +371,7 @@ You are an excited, fun GTA fan talking to friends. {amount}
 Line 1 at t=0 is a hook (max 8 words) that creates curiosity about what's about to happen.
 The last line, about 4 seconds before the end, is a short question or call to action.
 Every line must be about something specific in this clip - no generic filler like "Rockstar cooked".
-Say "GTA 6". No emojis or hashtags.
+Don't repeat the game's name in every line (at most once, as "GTA 6"). No emojis or hashtags.
 Return ONLY JSON: {{"commentary": [{{"t": seconds, "line": "words"}}]}}"""
 
 

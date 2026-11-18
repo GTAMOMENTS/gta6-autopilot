@@ -139,6 +139,7 @@ def parse_json_loose(text: str) -> dict | None:
     # "commentary": [{"t": 0, "line": ...}] stay together even when the JSON is broken.
     keys = []
     depth, in_str, esc = 0, False, False
+    prev = "{"  # last significant character outside strings
     for i, ch in enumerate(body):
         if in_str:
             if esc:
@@ -147,17 +148,24 @@ def parse_json_loose(text: str) -> dict | None:
                 esc = True
             elif ch == '"':
                 in_str = False
+                prev = '"'
             continue
         if ch == '"':
-            if depth == 1:
-                m = re.match(r'"([A-Za-z_][A-Za-z0-9_]*)"\s*:\s*', body[i:])
-                if m:
-                    keys.append((m.group(1), i, i + m.end()))
-            in_str = True
-        elif ch in "{[":
+            # a quote only OPENS a string where a key/value can start; a stray closing quote after
+            # an unquoted value (e.g.  "summary": A man runs.", "next": ...) is just ignored
+            if prev in "{[,:":
+                if depth == 1 and prev in "{,":
+                    m = re.match(r'"([A-Za-z_][A-Za-z0-9_]*)"\s*:\s*', body[i:])
+                    if m:
+                        keys.append((m.group(1), i, i + m.end()))
+                in_str = True
+            continue
+        if ch in "{[":
             depth += 1
         elif ch in "}]":
             depth -= 1
+        if not ch.isspace():
+            prev = ch
     if not keys:
         return None
     out: dict = {}
