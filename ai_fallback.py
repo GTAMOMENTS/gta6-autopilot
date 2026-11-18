@@ -26,6 +26,13 @@ from common import WORK_DIR, env, load_config, parse_json_loose, probe, run
 log = logging.getLogger("autopilot")
 
 PROVIDERS = {
+    # GitHub Models: free, built into GitHub Actions (the workflow's own token, permission models: read)
+    "github": {"key": "GITHUB_MODELS_TOKEN", "base": "https://models.github.ai/inference", "max_images": 8,
+               "detail": "low", "max_tokens": 3000, "json_mode": True, "list_models": False,
+               "default_models": ["openai/gpt-4.1", "openai/gpt-4.1-mini", "openai/gpt-4o-mini"]},
+    # Gemma on the same free Gemini key (separate, much bigger free limits than Gemini Flash; sees images)
+    "gemma": {"key": "GEMINI_API_KEY", "base": "https://generativelanguage.googleapis.com/v1beta/openai",
+              "max_images": 8, "only": "gemma", "default_models": ["gemma-3-27b-it", "gemma-3-12b-it"]},
     "openrouter": {"key": "OPENROUTER_API_KEY", "base": "https://openrouter.ai/api/v1", "max_images": 12},
     "groq": {"key": "GROQ_API_KEY", "base": "https://api.groq.com/openai/v1", "max_images": 5},
     "nvidia": {"key": "NVIDIA_API_KEY", "base": "https://integrate.api.nvidia.com/v1", "max_images": 4},
@@ -70,14 +77,18 @@ def _models(p: str) -> list[tuple[str, bool]]:
     """[(model_id, supports_images)] best first."""
     if p in _model_cache:
         return _model_cache[p]
-    pinned = _cfg().get("models", {}).get(p, [])
+    pinned = _cfg().get("models", {}).get(p, []) or PROVIDERS[p].get("default_models", [])
     found: list[tuple[str, bool]] = [(m, True) for m in pinned]
     try:
+        if PROVIDERS[p].get("list_models", True) is False:
+            raise LookupError("pinned models only")
         r = requests.get(f"{PROVIDERS[p]['base']}/models", headers=_headers(p), timeout=20)
         r.raise_for_status()
         for m in r.json().get("data", []):
-            mid = m.get("id", "")
+            mid = m.get("id", "").removeprefix("models/")
             low = mid.lower()
+            if PROVIDERS[p].get("only") and PROVIDERS[p]["only"] not in low:
+                continue
             if not mid or any(s in low for s in SKIP) or m.get("active") is False:
                 continue
             if p == "openrouter":
@@ -95,6 +106,8 @@ def _models(p: str) -> list[tuple[str, bool]]:
             else:  # groq / nvidia expose no modality info -> guess from the name
                 vision = any(k in low for k in VISION_HINTS)
             found.append((mid, vision))
+    except LookupError:
+        pass
     except Exception as exc:  # noqa: BLE001
         log.warning("[ai-fallback] %s model list failed: %.150s", p, exc)
     uniq = list(dict(found).items())
@@ -152,10 +165,13 @@ def _call(p: str, model: str, prompt: str, frames: list[str] | None, temperature
     content: list | str = prompt
     if frames:
         imgs = frames[: PROVIDERS[p]["max_images"]]
+        img = {"detail": PROVIDERS[p]["detail"]} if PROVIDERS[p].get("detail") else {}
         content = [{"type": "text", "text": prompt}] + [
-            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b}"}} for b in imgs]
-    body = {"model": model, "temperature": temperature, "max_tokens": 4096,
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b}", **img}} for b in imgs]
+    body = {"model": model, "temperature": temperature, "max_tokens": PROVIDERS[p].get("max_tokens", 4096),
             "messages": [{"role": "user", "content": content}]}
+    if PROVIDERS[p].get("json_mode"):
+        body["response_format"] = {"type": "json_object"}
     if p == "openrouter":
         body["reasoning"] = {"effort": "low"}
     r = requests.post(f"{PROVIDERS[p]['base']}/chat/completions", headers=_headers(p), timeout=timeout, json=body)
