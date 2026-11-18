@@ -12,21 +12,20 @@ QUEUE_FILE = BASE_DIR / "queue" / "clips_manifest.json"
 CONFIG_FILE = BASE_DIR / "config.json"
 COOKIES_PATH = Path("/tmp/yt_cookies.txt")
 
-# Official Rockstar Games Akamai CDN MP4 streams (supports HTTP range seeking without login)
 OFFICIAL_ROCKSTAR_STREAMS = [
     {
-        "prefix": "gtavi_launch",
-        "title": "Grand Theft Auto VI Official Launch Trailer Highlight",
+        "prefix": "gtavi_trailer1",
+        "title": "Grand Theft Auto VI Official Trailer 1 Highlight",
         "creator": "@RockstarGames",
-        "url": "https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_Launch_Trailer/GTAVI_Launch_Trailer.mp4",
-        "offsets": [5, 30, 55, 80, 105]
+        "url": "https://videos-rockstargames-com.akamaized.net/v4/aro34sg4/flv/en-us-1080p.mp4",
+        "offsets": [4, 24, 44, 64]
     },
     {
         "prefix": "gtavi_extended",
         "title": "Grand Theft Auto VI Official Extended Gameplay Look Highlight",
         "creator": "@RockstarGames",
         "url": "https://media-rockstargames-com.akamaized.net/VI/downloads/videos/GTAVI_An_Extended_Look/GTAVI_An_Extended_Look.mp4",
-        "offsets": list(range(15, 1545, 30))
+        "offsets": list(range(15, 1530, 30))
     }
 ]
 
@@ -65,10 +64,14 @@ def slice_official_stream(stream_url: str, start_sec: int, clip_id: str, duratio
     if out_path.exists():
         return out_path
 
-    # HTTP range seek directly to timestamp and downscale to 1080p for fast cloud rendering
+    headers = (
+        "Referer: https://www.rockstargames.com/\r\n"
+        "Origin: https://www.rockstargames.com\r\n"
+    )
     cmd = [
         "ffmpeg", "-y",
         "-user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "-headers", headers,
         "-ss", str(start_sec),
         "-t", str(duration),
         "-i", stream_url,
@@ -83,7 +86,7 @@ def slice_official_stream(stream_url: str, start_sec: int, clip_id: str, duratio
     res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if res.returncode == 0 and out_path.exists() and out_path.stat().st_size > 50_000:
         return out_path
-    print(f"[source_fetcher] Stream slice failed ({clip_id}): {res.stderr[-300:]}")
+    print(f"[source_fetcher] Stream slice failed ({clip_id}): {res.stderr[-400:]}")
     return None
 
 
@@ -121,7 +124,6 @@ def fetch_new_sources(limit_per_run: int = 1) -> int:
     blocked = cfg["blocked_keywords"]
     added = 0
 
-    # 1. Optional YouTube RSS if YT_COOKIES_TXT is configured
     for src in cfg["rss_sources"]:
         if added >= limit_per_run:
             break
@@ -155,7 +157,6 @@ def fetch_new_sources(limit_per_run: int = 1) -> int:
                 known_ids.add(vid_id)
                 added += 1
 
-    # 2. Primary reliable source: Official Rockstar Games CDN streams
     for stream in OFFICIAL_ROCKSTAR_STREAMS:
         if added >= limit_per_run:
             break
