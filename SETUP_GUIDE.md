@@ -6,6 +6,14 @@ Everything here is done in your web browser. Each part ends with a **secret** to
 
 ## A. How to save a "secret" in GitHub
 
+A secret is like a saved password. **You first get the value from another website** (sections C–G
+tell you where), **then** paste it into GitHub. Each secret has 2 boxes:
+- **Name**: type the exact label from this guide, for example `X_COOKIES` (capital letters, underscores).
+- **Secret**: paste (Ctrl+V) the value you copied.
+
+Example: for free X posting you copy your cookies with Cookie-Editor on x.com (section E), then
+Name = `X_COOKIES`, Secret = Ctrl+V → **Add secret**.
+
 1. Open https://github.com/GTAMOMENTS/gta6-autopilot
 2. Click **Settings** (top menu of the repo) → in the left menu **Secrets and variables** → **Actions**.
 3. Click the green **New repository secret** button.
