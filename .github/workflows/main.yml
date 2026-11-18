@@ -2,7 +2,6 @@ name: GTA6 Top Moments 24/7 Autopilot
 
 on:
   schedule:
-    # Runs at 09:30, 12:00, 14:30, 17:00, 19:30, 21:00, and 22:30 Turkey Time (UTC+3)
     - cron: '30 6 * * *'
     - cron: '0 9 * * *'
     - cron: '30 11 * * *'
