@@ -3,13 +3,35 @@ import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
-import requests
 
 BASE_DIR = Path(__file__).resolve().parent
 RAW_DIR = BASE_DIR / "01_Raw_Clips"
 LOCAL_CLIPS_DIR = BASE_DIR / "clips"
 QUEUE_FILE = BASE_DIR / "queue" / "clips_manifest.json"
 CONFIG_FILE = BASE_DIR / "config.json"
+
+# Verified public Dailymotion mirrors of official Rockstar GTA VI trailers & gameplay reveals
+VERIFIED_GTA6_SOURCES = [
+    {
+        "id_prefix": "gtavi_trailer2",
+        "title": "Grand Theft Auto VI Official Trailer 2 - Jason & Lucia in Leonida",
+        "creator": "@RockstarGames",
+        "url": "https://www.dailymotion.com/video/x9j2dp6",
+        "segments": [(12, 66), (68, 122), (110, 164)]
+    },
+    {
+        "id_prefix": "gtavi_trailer1",
+        "title": "Grand Theft Auto VI Official Trailer 1 - Welcome to Vice City",
+        "creator": "@RockstarGames",
+        "url": "https://www.dailymotion.com/video/x8q8okj",
+        "segments": [(8, 62), (35, 89)]
+    }
+]
+
+SEARCH_QUERIES = [
+    "dmsearch8:Grand Theft Auto VI Official Trailer",
+    "dmsearch8:GTA 6 Gameplay Reveal 4K"
+]
 
 
 def load_config():
@@ -33,112 +55,56 @@ def save_manifest(data):
 
 def is_safe_title(title: str, blocked: list[str]) -> bool:
     lower = title.lower()
-    return not any(word in lower for word in blocked)
+    extra_blocked = ["podcast", "crigler", "episode", "interview", "emulator", "rom"]
+    return not any(word in lower for word in (blocked + extra_blocked))
 
 
 def sanitize_filename(name: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]+", "_", name).strip("_")[:60]
 
 
-def fetch_archive_gta6_clip(known_ids: set[str], blocked: list[str]) -> dict | None:
-    try:
-        search_url = (
-            "https://archive.org/advancedsearch.php"
-            "?q=(title:(%22Grand+Theft+Auto+VI%22+OR+%22GTA+6%22+OR+%22GTA+VI%22))+AND+mediatype:(movies)"
-            "&fl[]=identifier,title&rows=12&output=json"
-        )
-        resp = requests.get(search_url, timeout=20)
-        if resp.status_code != 200:
+def download_and_slice(video_url: str, clip_id: str, start_sec: int, end_sec: int) -> Path | None:
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
+    full_tmp = RAW_DIR / f"{clip_id}_full.mp4"
+    out_path = RAW_DIR / f"{clip_id}.mp4"
+    if out_path.exists() and out_path.stat().st_size > 200_000:
+        return out_path
+
+    if not full_tmp.exists():
+        cmd_dl = [
+            "yt-dlp",
+            "-f", "best[height<=1080][ext=mp4]/best[height<=1080]/best",
+            "--merge-output-format", "mp4",
+            "--no-playlist",
+            "--max-filesize", "180M",
+            "-o", str(full_tmp),
+            video_url
+        ]
+        res = subprocess.run(cmd_dl, capture_output=True, text=True, timeout=180)
+        if res.returncode != 0 or not full_tmp.exists():
+            print(f"[source_fetcher] Download failed for {video_url}: {res.stderr[-300:]}")
             return None
 
-        docs = resp.json().get("response", {}).get("docs", [])
-        for doc in docs:
-            ident = doc.get("identifier", "")
-            title = doc.get("title", "GTA VI Highlight")
-            clip_id = sanitize_filename(f"ia_{ident}")
-            if not ident or clip_id in known_ids or not is_safe_title(title, blocked):
-                continue
-
-            meta_resp = requests.get(f"https://archive.org/metadata/{ident}/files", timeout=20)
-            if meta_resp.status_code != 200:
-                continue
-            files = meta_resp.json().get("result", [])
-            mp4_file = next(
-                (f["name"] for f in files if f.get("name", "").lower().endswith(".mp4") and int(f.get("size", 0)) > 500_000),
-                None
-            )
-            if not mp4_file:
-                continue
-
-            mp4_url = f"https://archive.org/download/{ident}/{mp4_file}"
-            RAW_DIR.mkdir(parents=True, exist_ok=True)
-            out_path = RAW_DIR / f"{clip_id}.mp4"
-
-            cmd = [
-                "ffmpeg", "-y",
-                "-ss", "5",
-                "-t", "22",
-                "-i", mp4_url,
-                "-vf", "scale=1920:-2",
-                "-c:v", "libx264",
-                "-preset", "veryfast",
-                "-crf", "20",
-                "-c:a", "aac",
-                "-b:a", "128k",
-                str(out_path)
-            ]
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
-            if res.returncode == 0 and out_path.exists() and out_path.stat().st_size > 50_000:
-                return {
-                    "id": clip_id,
-                    "title": title,
-                    "url": mp4_url,
-                    "creator": "@RockstarGames",
-                    "official": True,
-                    "raw_path": str(out_path),
-                    "rendered_path": None,
-                    "status": "downloaded",
-                    "fetched_at": datetime.now(timezone.utc).isoformat()
-                }
-    except Exception as exc:
-        print(f"[source_fetcher] Archive fallback triggered: {exc}")
-    return None
-
-
-def generate_guaranteed_motion_clip() -> dict | None:
-    RAW_DIR.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    clip_id = f"gtavi_spotlight_{stamp}"
-    out_path = RAW_DIR / f"{clip_id}.mp4"
-
-    cmd = [
+    duration = max(48, end_sec - start_sec)
+    cmd_cut = [
         "ffmpeg", "-y",
-        "-f", "lavfi",
-        "-i", "color=c=#2b0938:s=1920x1080:r=30:d=22",
-        "-f", "lavfi",
-        "-i", "anullsrc=r=44100:cl=stereo",
-        "-vf", "hue=h='t*20':s=1.3,drawbox=x='mod(t*220,1920)':y=0:w=180:h=1080:color=white@0.06:t=fill",
-        "-t", "22",
+        "-ss", str(start_sec),
+        "-t", str(duration),
+        "-i", str(full_tmp),
+        "-vf", "scale=1920:-2",
         "-c:v", "libx264",
-        "-pix_fmt", "yuv420p",
         "-preset", "veryfast",
+        "-crf", "20",
         "-c:a", "aac",
-        "-shortest",
+        "-b:a", "128k",
         str(out_path)
     ]
-    res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-    if res.returncode == 0 and out_path.exists():
-        return {
-            "id": clip_id,
-            "title": "Grand Theft Auto VI Leonida & Vice City Launch Highlight",
-            "url": "https://www.rockstargames.com/VI",
-            "creator": "@RockstarGames",
-            "official": True,
-            "raw_path": str(out_path),
-            "rendered_path": None,
-            "status": "downloaded",
-            "fetched_at": datetime.now(timezone.utc).isoformat()
-        }
+    cut_res = subprocess.run(cmd_cut, capture_output=True, text=True, timeout=120)
+    if full_tmp.exists():
+        full_tmp.unlink(missing_ok=True)
+
+    if cut_res.returncode == 0 and out_path.exists() and out_path.stat().st_size > 200_000:
+        return out_path
     return None
 
 
@@ -149,6 +115,7 @@ def fetch_new_sources(limit_per_run: int = 1) -> int:
     blocked = cfg["blocked_keywords"]
     added = 0
 
+    # 1. Custom MP4 clips dropped into /clips folder
     if LOCAL_CLIPS_DIR.exists():
         for mp4 in sorted(LOCAL_CLIPS_DIR.glob("*.mp4")):
             if added >= limit_per_run:
@@ -157,7 +124,7 @@ def fetch_new_sources(limit_per_run: int = 1) -> int:
             if clip_id not in known_ids:
                 manifest["items"].append({
                     "id": clip_id,
-                    "title": f"GTA VI Highlight - {mp4.stem}",
+                    "title": f"GTA VI Top Moment - {mp4.stem}",
                     "url": "https://www.rockstargames.com/VI",
                     "creator": "@RockstarGames",
                     "official": True,
@@ -169,18 +136,70 @@ def fetch_new_sources(limit_per_run: int = 1) -> int:
                 known_ids.add(clip_id)
                 added += 1
 
-    if added < limit_per_run:
-        ia_item = fetch_archive_gta6_clip(known_ids, blocked)
-        if ia_item:
-            manifest["items"].append(ia_item)
-            known_ids.add(ia_item["id"])
-            added += 1
+    # 2. Verified GTA VI Official Trailers (54-second high-action segments)
+    for src in VERIFIED_GTA6_SOURCES:
+        if added >= limit_per_run:
+            break
+        for start_s, end_s in src["segments"]:
+            if added >= limit_per_run:
+                break
+            clip_id = f"{src['id_prefix']}_{start_s}_{end_s}"
+            if clip_id in known_ids:
+                continue
+            local_file = download_and_slice(src["url"], clip_id, start_s, end_s)
+            if local_file:
+                manifest["items"].append({
+                    "id": clip_id,
+                    "title": src["title"],
+                    "url": src["url"],
+                    "creator": src["creator"],
+                    "official": True,
+                    "raw_path": str(local_file),
+                    "rendered_path": None,
+                    "status": "downloaded",
+                    "fetched_at": datetime.now(timezone.utc).isoformat()
+                })
+                known_ids.add(clip_id)
+                added += 1
 
-    if added < limit_per_run:
-        fallback_item = generate_guaranteed_motion_clip()
-        if fallback_item:
-            manifest["items"].append(fallback_item)
-            added += 1
+    # 3. Dynamic Dailymotion GTA 6 gameplay/trailer search once trailer segments are used
+    for query in SEARCH_QUERIES:
+        if added >= limit_per_run:
+            break
+        probe = subprocess.run(
+            ["yt-dlp", "--flat-playlist", "--dump-single-json", query],
+            capture_output=True, text=True, timeout=60
+        )
+        if probe.returncode != 0:
+            continue
+        entries = json.loads(probe.stdout).get("entries", [])
+        for entry in entries:
+            if added >= limit_per_run:
+                break
+            vid_id = sanitize_filename(f"dm_{entry.get('id', '')}")
+            title = entry.get("title", "")
+            webpage = entry.get("url") or entry.get("webpage_url", "")
+            dur = entry.get("duration") or 0
+            if not vid_id or vid_id in known_ids or not webpage:
+                continue
+            if dur < 55 or dur > 1800 or not is_safe_title(title, blocked):
+                continue
+
+            local_file = download_and_slice(webpage, vid_id, 5, 59)
+            if local_file:
+                manifest["items"].append({
+                    "id": vid_id,
+                    "title": title,
+                    "url": webpage,
+                    "creator": "@RockstarGames",
+                    "official": False,
+                    "raw_path": str(local_file),
+                    "rendered_path": None,
+                    "status": "downloaded",
+                    "fetched_at": datetime.now(timezone.utc).isoformat()
+                })
+                known_ids.add(vid_id)
+                added += 1
 
     save_manifest(manifest)
     return added
