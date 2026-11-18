@@ -26,7 +26,7 @@ from common import WORK_DIR, env, load_config, parse_json_loose, probe, run
 log = logging.getLogger("autopilot")
 
 PROVIDERS = {
-    "openrouter": {"key": "OPENROUTER_API_KEY", "base": "https://openrouter.ai/api/v1", "max_images": 8},
+    "openrouter": {"key": "OPENROUTER_API_KEY", "base": "https://openrouter.ai/api/v1", "max_images": 12},
     "groq": {"key": "GROQ_API_KEY", "base": "https://api.groq.com/openai/v1", "max_images": 5},
     "nvidia": {"key": "NVIDIA_API_KEY", "base": "https://integrate.api.nvidia.com/v1", "max_images": 4},
     "mistral": {"key": "MISTRAL_API_KEY", "base": "https://api.mistral.ai/v1", "max_images": 8},

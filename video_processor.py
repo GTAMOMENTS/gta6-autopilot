@@ -92,7 +92,9 @@ def _gemini_tts_models() -> list[str]:
                 name = (m.name or "").removeprefix("models/")
                 if "tts" in name and name not in _gemini_tts_cache:
                     _gemini_tts_cache.append(name)
-            _gemini_tts_cache.sort(key=lambda n: ("flash" not in n, "lite" in n))  # flash first: bigger free quota
+            # newest flash TTS first (best quality, bigger free quota), lite/pro last
+            _gemini_tts_cache.sort(key=lambda n: ("flash" not in n, "lite" in n,
+                                                  -float((re.findall(r"(\d+(?:\.\d+)?)", n) or ["0"])[0])))
             log.info("[voice] Gemini TTS models: %s", _gemini_tts_cache)
         except Exception as exc:  # noqa: BLE001
             log.warning("[voice] could not list Gemini TTS models: %.150s", exc)
@@ -131,6 +133,134 @@ def _gemini_line(text: str, out: Path, model: str) -> None:
         raise RuntimeError("Gemini TTS returned no usable audio")
 
 
+def _speech_segments(path: Path, min_silence: float) -> list[tuple[float, float]]:
+    """[(start, end)] of speech parts, using ffmpeg silencedetect."""
+    res = run(["ffmpeg", "-hide_banner", "-i", str(path), "-af",
+               f"silencedetect=noise=-38dB:d={min_silence}", "-f", "null", "-"], timeout=60)
+    dur = probe(path)["duration"]
+    starts = [float(x) for x in re.findall(r"silence_start: ([\d.]+)", res.stderr)]
+    ends = [float(x) for x in re.findall(r"silence_end: ([\d.]+)", res.stderr)]
+    segs, cursor = [], 0.0
+    for a, b in zip(starts, ends + [dur] * (len(starts) - len(ends))):
+        if a - cursor > 0.15:
+            segs.append((cursor, a))
+        cursor = b
+    if dur - cursor > 0.15:
+        segs.append((cursor, dur))
+    return segs
+
+
+def _merge_to(segs: list[tuple[float, float]], n: int) -> list[tuple[float, float]]:
+    """Merge the closest neighbours until there are n parts (a line can contain short pauses)."""
+    segs = list(segs)
+    while len(segs) > n:
+        gaps = [segs[i + 1][0] - segs[i][1] for i in range(len(segs) - 1)]
+        i = gaps.index(min(gaps))
+        segs[i:i + 2] = [(segs[i][0], segs[i + 1][1])]
+    return segs
+
+
+def _gemini_tts_wav(prompt: str, model: str, voice: str, out_wav: Path) -> Path:
+    """One Gemini TTS request -> 48 kHz wav."""
+    import base64
+    import gemini_writer
+    from google.genai import types
+    resp = gemini_writer._client_beta().models.generate_content(
+        model=model, contents=prompt,
+        config=types.GenerateContentConfig(
+            response_modalities=["AUDIO"],
+            speech_config=types.SpeechConfig(voice_config=types.VoiceConfig(
+                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice)))),
+    )
+    part = resp.candidates[0].content.parts[0]
+    data = part.inline_data.data
+    if isinstance(data, str):
+        data = base64.b64decode(data)
+    m = re.search(r"rate=(\d+)", part.inline_data.mime_type or "")
+    raw = out_wav.with_suffix(".pcm")
+    raw.write_bytes(data)
+    run(["ffmpeg", "-y", "-f", "s16le", "-ar", m.group(1) if m else "24000", "-ac", "1", "-i", str(raw),
+         "-ar", "48000", str(out_wav)], timeout=60, check=True)
+    raw.unlink(missing_ok=True)
+    return out_wav
+
+
+SAMPLE_LINES = [
+    "GTA 6 is finally out and it's insane. Let me show you what it's really like.",
+    "One of the craziest things: cars now need gas. See this? My tank isn't even full.",
+    "Nah bro, he's not seriously trying this... wait wait wait - OH NO!",
+    "This is Jason's house. It's pretty small, but hey, it's better than nothing.",
+]
+SAMPLE_VOICES = ["Fenrir", "Zubenelgenubi", "Achird", "Umbriel", "Algenib", "Orus", "Sadachbia", "Charon"]
+
+
+def voice_samples() -> int:
+    """'voice_samples' slot: the same lines in several voices -> mp3 files in the run's Artifacts."""
+    from common import write_summary
+    READY_DIR.mkdir(parents=True, exist_ok=True)
+    vcfg = load_config().get("voice", {})
+    style = vcfg.get("gemini_tts_style", "")
+    prompt = (f"{style}\nSay these lines one after another with a short natural pause between them:\n\n"
+              + "\n\n".join(SAMPLE_LINES))
+    rows = ["## 🎙️ Voice samples", "", "Download **voice-samples** from Artifacts below, listen, then tell Claude "
+            "which one to use.", "", "| File | Voice | Result |", "|---|---|---|"]
+    models = _gemini_tts_models()
+    for i, voice in enumerate(SAMPLE_VOICES):
+        ok, err = False, ""
+        for model in (models[i % len(models):] + models[:i % len(models)]) if models else []:
+            try:
+                wav = _gemini_tts_wav(prompt, model, voice, READY_DIR / f"gemini_{voice}.wav")
+                run(["ffmpeg", "-y", "-i", str(wav), "-b:a", "128k", str(wav.with_suffix(".mp3"))], timeout=60)
+                wav.unlink(missing_ok=True)
+                ok = True
+                break
+            except Exception as exc:  # noqa: BLE001
+                err = str(exc)[:80]
+        rows.append(f"| gemini_{voice}.mp3 | Gemini {voice} | {'✅' if ok else '❌ ' + err} |")
+        log.info("[voice] sample %s: %s", voice, "ok" if ok else err)
+        time.sleep(4)
+    for edge_voice in ("en-US-AndrewNeural", "en-US-AndrewMultilingualNeural"):
+        paths = [READY_DIR / f"edge_{edge_voice}_{k}.mp3" for k in range(len(SAMPLE_LINES))]
+        try:
+            for text, path in zip(SAMPLE_LINES, paths):
+                _edge_line(text, edge_voice, vcfg.get("rate", "+23%"), path)
+            lst = READY_DIR / "concat.txt"
+            lst.write_text("".join(f"file '{p.name}'\n" for p in paths))
+            run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(lst), "-c", "copy",
+                 str(READY_DIR / f"edge_{edge_voice}.mp3")], timeout=60)
+            ok = True
+        except Exception:  # noqa: BLE001
+            ok = False
+        for p in paths:
+            p.unlink(missing_ok=True)
+        (READY_DIR / "concat.txt").unlink(missing_ok=True)
+        rows.append(f"| edge_{edge_voice}.mp3 | Microsoft {edge_voice} (current) | {'✅' if ok else '❌'} |")
+    write_summary("\n".join(rows))
+    return 0
+
+
+def _gemini_all_lines(lines: list[dict], paths: list[Path], model: str, voice: str | None = None) -> None:
+    """ONE Gemini TTS request for every line (saves free quota), then split at the long pauses."""
+    vcfg = load_config().get("voice", {})
+    voice = voice or vcfg.get("gemini_tts_voice", "Fenrir")
+    style = vcfg.get("gemini_tts_style", "Talk like a real guy reacting to a crazy clip with friends.")
+    script = "\n\n".join(ln["text"] for ln in lines)
+    prompt = (f"{style}\nSay the {len(lines)} lines below one after another, as separate parts. "
+              "After each line, stay completely silent for about two seconds. Say only the lines.\n\n" + script)
+    full = _gemini_tts_wav(prompt, model, voice, paths[0].with_name(paths[0].stem + "_all.wav"))
+    segs = []
+    for min_sil in (0.8, 0.5, 0.3):
+        segs = _speech_segments(full, min_sil)
+        if len(segs) >= len(lines):
+            break
+    if len(segs) < len(lines):
+        raise RuntimeError(f"could not split Gemini audio into {len(lines)} lines (found {len(segs)})")
+    for (a, b), path in zip(_merge_to(segs, len(lines)), paths):
+        run(["ffmpeg", "-y", "-ss", f"{max(0, a - 0.05):.2f}", "-to", f"{b + 0.12:.2f}", "-i", str(full),
+             "-ar", "48000", str(path)], timeout=60, check=True)
+    full.unlink(missing_ok=True)
+
+
 def synthesize_lines(lines: list[dict], clip_id: str) -> list[dict]:
     """Voice every commentary line with ONE consistent voice.
     Order: Gemini TTS (most human) -> edge-tts voices -> gTTS. Returns lines + path/dur/words."""
@@ -149,13 +279,12 @@ def synthesize_lines(lines: list[dict], clip_id: str) -> list[dict]:
         return out
 
     if engine in ("auto", "gemini") and env("GEMINI_API_KEY"):
-        for model in _gemini_tts_models()[:2]:
+        for model in _gemini_tts_models()[:3]:
             try:
-                for ln, path in zip(lines, paths):
-                    _gemini_line(ln["text"], path, model)
-                return finish([[] for _ in lines], f"Gemini TTS {model}/{vcfg.get('gemini_tts_voice', 'Puck')}")
+                _gemini_all_lines(lines, paths, model)
+                return finish([[] for _ in lines], f"Gemini TTS {model}/{vcfg.get('gemini_tts_voice', 'Fenrir')}")
             except Exception as exc:  # noqa: BLE001
-                log.warning("[voice] Gemini TTS %s failed (%.120s) - trying next option", model, exc)
+                log.warning("[voice] Gemini TTS %s failed (%.120s) - next option", model, exc)
 
     voices = [env("TTS_VOICE")] + vcfg.get("voices", ["en-US-AndrewMultilingualNeural", "en-US-AndrewNeural"])
     rate = vcfg.get("rate", "+12%")
@@ -266,8 +395,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 # --------------------------------------------------------------------------- render
 
-def render(clip: Path, clip_id: str, banner: str, commentary: list[dict]) -> dict | None:
-    """commentary = [{"t": seconds, "text": "short hype line"}, ...]"""
+def render(clip: Path, clip_id: str, banner: str, commentary: list[dict],
+           voiced: list[dict] | None = None) -> dict | None:
+    """commentary = [{"t": seconds, "text": "line"}, ...]. `voiced` = lines already synthesised
+    (with path/dur/words) - used by the feature-tour format where the edit follows the voice."""
     cfg = load_config()
     vcfg = cfg.get("video", {})
     VO_DIR.mkdir(parents=True, exist_ok=True)
@@ -275,9 +406,8 @@ def render(clip: Path, clip_id: str, banner: str, commentary: list[dict]) -> dic
 
     info = probe(clip)
     # never loop footage: short stream clips simply make a shorter video
-    total = round(min(float(vcfg.get("duration_sec", 48)), float(vcfg.get("max_duration_sec", 58)),
-                      info["duration"] or 48), 2)
-    lines = place_lines(synthesize_lines(commentary, clip_id), total)
+    total = round(min(float(vcfg.get("max_duration_sec", 90)), info["duration"] or 60), 2)
+    lines = place_lines(voiced if voiced is not None else synthesize_lines(commentary, clip_id), total)
     words = [{"text": w["text"], "start": w["start"] + ln["start"], "end": w["end"] + ln["start"]}
              for ln in lines for w in ln["words"]]
 
@@ -299,7 +429,7 @@ def render(clip: Path, clip_id: str, banner: str, commentary: list[dict]) -> dic
             "[bg][fg]overlay=(W-w)/2:(H-h)/2-40[base]"
         )
     ass_escaped = str(ass).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
-    game_vol = float(vcfg.get("game_audio_volume", 0.9))
+    game_vol = float(vcfg.get("game_audio_volume_tour" if voiced is not None else "game_audio_volume", 0.9))
     vo_gain = float(vcfg.get("voice_volume", 1.25))
 
     # each voice line delayed to its moment, mixed into one sparse voice track

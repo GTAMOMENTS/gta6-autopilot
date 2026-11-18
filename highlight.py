@@ -203,3 +203,26 @@ def cut_highlight(src: Path, out: Path, target_sec: int, style: str = "auto") ->
     segments = choose_segments(energy, target_sec, style) if energy else [(0, int(info["duration"]))]
     log.info("[highlight] %s -> segments %s", src.name, segments)
     return cut_segments(src, out, segments), segments
+
+
+def concat_files(files: list[Path], out: Path) -> Path | None:
+    """Join several downloaded slices into one normalised 1080p/30fps 'reel' (16:9, padded)."""
+    inputs, parts, labels = [], [], ""
+    for i, f in enumerate(files):
+        inputs += ["-i", str(f)]
+        info = probe(f)
+        parts.append(f"[{i}:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,"
+                     f"fps=30,format=yuv420p,setsar=1[v{i}]")
+        if info["has_audio"]:
+            parts.append(f"[{i}:a]aresample=48000,aformat=channel_layouts=stereo[a{i}]")
+        else:
+            parts.append(f"anullsrc=r=48000:cl=stereo,atrim=0:{info['duration']:.2f}[a{i}]")
+        labels += f"[v{i}][a{i}]"
+    fc = ";".join(parts) + f";{labels}concat=n={len(files)}:v=1:a=1[vo][ao]"
+    res = run(["ffmpeg", "-y", "-hide_banner", *inputs, "-filter_complex", fc, "-map", "[vo]", "-map", "[ao]",
+               "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-c:a", "aac", "-b:a", "192k", str(out)],
+              timeout=900)
+    if res.returncode != 0 or not out.exists():
+        log.error("[highlight] reel concat failed: %s", res.stderr[-400:])
+        return None
+    return out

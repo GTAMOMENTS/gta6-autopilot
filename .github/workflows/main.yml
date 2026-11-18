@@ -18,6 +18,7 @@ on:
         default: check_setup
         options:
           - check_setup
+          - voice_samples
           - vertical_clip
           - x_video_clip
           - test_all
@@ -155,10 +156,11 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: video-${{ github.run_id }}
+          name: ${{ (github.event_name == 'workflow_dispatch' && inputs.slot == 'voice_samples') && 'voice-samples' || 'video' }}-${{ github.run_id }}
           path: |
             work/ready/*.mp4
             work/ready/*.png
+            work/ready/*.mp3
           retention-days: 5
           if-no-files-found: ignore
 

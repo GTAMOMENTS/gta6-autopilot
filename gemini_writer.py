@@ -215,7 +215,10 @@ TASKS
    - Start 1-2 seconds BEFORE the action kicks in, so the first seconds already hook. End right after the
      payoff (crash, escape, punchline, reveal). Skip dialogue-only, walking and loading parts.
    - Motion/loudness analysis says the most intense parts are around: {hints}. Use it as a hint only.
-3. WRITE for the part you picked - an excited, fun GTA fan talking to his friends, NOT a documentary narrator.
+3. WRITE for the part you picked - sound like a REAL person: a 25-year-old gamer watching this with his friends,
+   reacting honestly and casually ("nah bro, he's not seriously trying this...", "wait wait wait - OH NO",
+   "okay that was actually so clean", "this guy has zero chill"). Natural spoken phrasing, a bit of humour,
+   NOT an announcer and NOT a documentary narrator.
    content_type (one of):
      "explainer" = a secret, easter egg, hidden detail, new mechanic or story moment that needs context
      "action"    = chase, shootout, crash, stunt, heist, chaos
@@ -248,6 +251,68 @@ Return ONLY JSON with exactly these keys:
  "x_text": str, "hashtags": [str]}}"""
 
 
+TOUR_PROMPT = """You are the editor AND narrator of "{brand}", a viral faceless channel posting Grand Theft Auto 6
+gameplay shorts. You make "feature tour" shorts like the best GTA creators: a fast montage of different shots
+with a warm, casual, human voice that keeps telling the viewer something new.
+
+CONTEXT: {context}
+Source footage title: "{title}" (credit: {credit}).
+{video_note}
+
+TASKS
+1. QUALITY GATE - judge honestly:
+   - is_gta6_footage: true ONLY for real Grand Theft Auto VI gameplay (Leonida / Vice City, Jason & Lucia,
+     GTA VI HUD). false for GTA V / Online, mods, other games, fan concepts, AI fakes, real-life video, menus.
+   - has_facecam: true if a webcam / face overlay or big channel watermark covers the video.
+   - has_narrator: true if a YouTuber talks over the footage in their own voice (not game characters).
+     Only judge this if you can hear the audio; else false.
+   - hype_score 1-10: how interesting and VARIED the footage is for a GTA fan (new mechanics, wildlife,
+     chaos, combat, NPC reactions, funny moments = high; one long cutscene, menus, walking = low).
+   - scene_summary: one sentence on what the footage shows.
+2. CHOOSE THE ANGLE that fits this footage best (like the top GTA shorts with millions of views):
+     "listicle" - "Here's 5 crazy things you can do in GTA 6 that you could never do in GTA 5. Number one..."
+                  (3 to 5 numbered items, each shown with 1-2 shots)
+     "how_it_works" - one mechanic explained step by step in "you" form, like a guide:
+                  "If you rob a store in GTA 6 the way you did in GTA 5, the police can be waiting outside..."
+     "first_look" - a personal tour of the coolest things in the footage: "Let me show you what it's really like."
+3. EDIT + NARRATE - pick 6 to 12 shots, in the order they should appear:
+   - "start" = second in THIS footage where the shot begins (just before the interesting thing happens).
+   - "line" = what the narrator says while that shot plays. The shot lasts exactly as long as its line,
+     so each line is 1-3 short spoken sentences (8 to 30 words). All lines together: 160-220 words
+     (about 60-80 seconds). The narrator talks the whole time - but EVERY sentence must tell the viewer
+     something useful, new or funny. Never filler.
+   - Every shot shows something DIFFERENT (a mechanic, vehicle, animal, fight, shop, NPC reaction, funny
+     detail). Never two shots of the same thing. The first shot is the most eye-catching one.
+   - VOICE: a real, likeable gamer talking to his viewers - casual, confident, a little funny ("I'm dead
+     serious", "trust me", "see this?", "that's literally Bonnie and Clyde"). Compare with GTA 5 when the
+     difference is obvious on screen. Read on-screen prompts, menus and HUD text to explain mechanics
+     correctly. NEVER announcer lines like "Watch this X!" and never empty hype like "Rockstar cooked"
+     without saying WHY.
+   - Line 1 is the hook that states the angle (e.g. the listicle promise, or "GTA 6 is finally out and it's
+     insane. Let me show you what it's really like.").
+   - Around the middle, a retention line ("But wait till you see what happens when you carry a gun.").
+   - The last line ends with a light joke or a question that makes people comment.
+   - Only claim what you can actually see or hear. If you're not sure how something works, say what you see
+     ("looks like...") instead of inventing facts. Say "GTA 6", never "GTA VI". No emojis, hashtags,
+     stage directions or "[Number one]" brackets.
+   Examples of the voice (top channels):
+     "Here's five crazy things you can do in GTA 6 that you could never do in GTA 5." /
+     "Number two: the wanted level goes all the way up to six stars, and the cops actually remember you." /
+     "So put a mask on first - a mask can keep your description away from the police, even on camera." /
+     "One of the craziest things: cars now need gas. See this? My tank isn't full." /
+     "This is Jason's house. It's pretty small, but it's better than nothing."
+4. angle: "listicle" | "how_it_works" | "first_look".
+   banner: max 6 words, ALL CAPS, states the angle (e.g. "5 THINGS GTA 5 COULDN'T DO", "ROBBING STORES IS DIFFERENT NOW").
+   youtube_title: max 70 characters, like the top channels: "5 CRAZY Things In GTA 6 You CAN'T Do In GTA 5",
+   "Robbing Stores in GTA 6 Works Differently To GTA 5", "GTA 6 Is FINALLY Here! First Gameplay". No hashtags. caption: 1-2 sentences ending with a
+   question, no hashtags. x_text: max 200 characters, no hashtags, no links. hashtags: 4, include #GTA6.
+
+Return ONLY JSON with exactly these keys:
+{{"is_gta6_footage": bool, "has_facecam": bool, "has_narrator": bool, "hype_score": int, "scene_summary": str,
+ "angle": str, "shots": [{{"start": number, "line": str}}], "banner": str, "youtube_title": str, "caption": str,
+ "x_text": str, "hashtags": [str]}}"""
+
+
 STREAM_NOTE = """THIS IS A STREAM CLIP: a streamer playing GTA 6 live, usually with a facecam and loud reactions.
 - The facecam is expected and fine: set has_facecam=false unless the webcam covers most of the game.
 - is_gta6_footage is about the GAME being shown (must be real GTA 6).
@@ -259,7 +324,7 @@ STREAM_NOTE = """THIS IS A STREAM CLIP: a streamer playing GTA 6 live, usually w
 
 
 def write_clip_copy(clip: Path, title: str, credit: str, provider: str, kind: str = "gameplay",
-                    hints: list | None = None) -> dict:
+                    hints: list | None = None, tour: bool = False) -> dict:
     """The AI watches the whole downloaded section, judges it, picks the best part (clip_start/clip_end)
     and writes for it. Commentary times are in SECTION time; finalize_commentary() converts them."""
     cfg = load_config()
@@ -276,6 +341,10 @@ def write_clip_copy(clip: Path, title: str, credit: str, provider: str, kind: st
         hints=", ".join(f"{a}-{b}s" for a, b in (hints or [])) or "unknown",
         kind_note=STREAM_NOTE if kind == "stream" else "",
     )
+    template = TOUR_PROMPT if tour else CLIP_PROMPT
+
+    def build(video_note: str) -> str:
+        return template.format(video_note=video_note, **prompt_kwargs)
 
     data = None
     ai_source = ""
@@ -287,8 +356,8 @@ def write_clip_copy(clip: Path, title: str, credit: str, provider: str, kind: st
         except Exception as exc:  # noqa: BLE001
             log.warning("[gemini] video upload failed: %s", exc)
     if uploaded is not None:
-        prompt = CLIP_PROMPT.format(video_note="The attached video is the raw footage. Watch ALL of it carefully "
-                                               "before choosing the best part.", **prompt_kwargs)
+        prompt = build("The attached video is the raw footage" + (" (several slices of one gameplay video joined "
+                       "together)" if tour else "") + ". Watch ALL of it carefully before choosing.")
         data = _generate_json([uploaded, prompt])
         ai_source = "gemini-video"
         try:
@@ -298,15 +367,13 @@ def write_clip_copy(clip: Path, title: str, credit: str, provider: str, kind: st
 
     # 2) Gemini busy -> free vision model looks at frames sampled from the clip
     if data is None and ai_fallback.available():
-        frames = ai_fallback.extract_frames(clip, int(gcfg.get("fallback_frames", 8)))
+        frames = ai_fallback.extract_frames(clip, int(gcfg.get("tour_frames" if tour else "fallback_frames", 8)))
         if frames:
             full = probe(clip)["duration"] or clip_dur
             times = ", ".join(f"{full * (i + 0.5) / len(frames):.0f}s" for i in range(len(frames)))
-            prompt = CLIP_PROMPT.format(
-                video_note=f"The attached {len(frames)} images are frames from the raw footage, taken in order "
-                           f"at these seconds: {times}. Study every frame carefully; use those times to choose "
-                           "clip_start/clip_end and the commentary timestamps.",
-                **prompt_kwargs)
+            prompt = build(f"The attached {len(frames)} images are frames from the raw footage, taken in order "
+                           f"at these seconds: {times}. Study every frame carefully; use those times for every "
+                           "timestamp you return.")
             data = ai_fallback.chat_json(prompt, frames=frames)
             ai_source = (data or {}).get("_ai_model", "")
 
@@ -314,8 +381,8 @@ def write_clip_copy(clip: Path, title: str, credit: str, provider: str, kind: st
         data["verified_by_video"] = True
     else:
         # 3) nobody could look at the clip -> text-only copy from the title
-        prompt = CLIP_PROMPT.format(video_note="(You cannot see the video this time - base everything on the title, "
-                                               "keep descriptions general, and set hype_score to 6.)", **prompt_kwargs)
+        prompt = build("(You cannot see the video this time - base everything on the title, keep descriptions "
+                       "general, and set hype_score to 6.)")
         data = _generate_json(prompt)
         if data is None and ai_fallback.available():
             data = ai_fallback.chat_json(prompt)
@@ -323,7 +390,7 @@ def write_clip_copy(clip: Path, title: str, credit: str, provider: str, kind: st
         if data is not None:
             data["verified_by_video"] = False
 
-    if data and not _raw_lines(data):
+    if data and not _raw_lines(data) and not _shots(data, clip_dur):
         log.warning("[ai] %s gave no usable voice lines - keeping its verdict, lines will be rescued "
                     "(keys=%s, commentary=%.200r)", ai_source, sorted(data.keys()), data.get("commentary"))
 
@@ -339,6 +406,32 @@ def write_clip_copy(clip: Path, title: str, credit: str, provider: str, kind: st
         out["commentary_raw"] = []
     log.info("[ai] copy written by: %s", ai_source)
     return out
+
+
+def _shots(d: dict, reel_dur: float) -> list[dict]:
+    """Feature-tour shots [{"start": sec, "text": line}] in story order (bad/duplicate shots dropped)."""
+    raw = d.get("shots") or d.get("segments") or d.get("scenes") or []
+    if isinstance(raw, dict):
+        raw = [raw]
+    out = []
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        text = re.sub(r"[*_#\[\]()]|\s+", " ", str(item.get("line") or item.get("text") or "")).strip()
+        try:
+            ts = str(item.get("start", item.get("t", ""))).strip().rstrip("s")
+            start = int(ts.split(":")[-2]) * 60 + float(ts.split(":")[-1]) if ":" in ts else float(ts)
+        except (TypeError, ValueError, IndexError):
+            continue
+        if not text or not 0 <= start < reel_dur - 1:
+            continue
+        if any(abs(start - o["start"]) < 2.5 for o in out):
+            continue
+        words = text.split()
+        if len(words) > 40:
+            text = " ".join(words[:40]).rstrip(",;:") + "."
+        out.append({"start": start, "text": text})
+    return out[:14]
 
 
 def _raw_lines(d: dict) -> list[dict]:
@@ -476,8 +569,10 @@ def _clean_copy(d: dict, clip_dur: float = 48) -> dict:
         "verified_by_video": bool(d.get("verified_by_video", False)),
         "banner": re.sub(r"[^A-Z0-9 !?'.,-]", "", s("banner", "INSANE GTA 6 MOMENT").upper())[:48].strip() or "INSANE GTA 6 MOMENT",
         "commentary_raw": raw,
+        "shots": _shots(d, clip_dur),
+        "angle": s("angle"),
         "clip_start": clip_start, "clip_end": clip_end,
-        "script": " ".join(ln["text"] for ln in raw),
+        "script": " ".join(ln["text"] for ln in (_shots(d, clip_dur) or raw)),
         "youtube_title": s("youtube_title", "This GTA 6 moment is unreal")[:80],
         "caption": s("caption", "This GTA 6 moment goes crazy. Would you try this?"),
         "x_text": s("x_text", "This GTA 6 moment goes crazy")[:240],
