@@ -203,32 +203,41 @@ TASKS
      Jason & Lucia, GTA VI HUD, official trailers). false for GTA V / GTA Online, mods, other games,
      fan-made "concept" trailers, AI fakes, real-life videos, news anchors, slideshows or menus.
    - has_facecam: true if a streamer webcam / face overlay or a big channel watermark covers the video.
+   - has_narrator: true if a YouTuber / commentator talks over the footage in their own voice
+     (NOT game characters, NOT the game's music). Only judge this if you can hear the audio; else false.
    - hype_score: 1-10, how exciting the visuals are for a GTA fan (chases, shootouts, stunts,
      cinematic story moments, stunning views = high; menus, walking, loading screens = low).
    - scene_summary: one sentence describing exactly what happens on screen.
-2. WRITE THE VOICEOVER - fun, simple, hyped. Think: your funniest friend watching this clip next to you
-   and losing his mind. NOT a narrator, NOT a documentary. The game audio carries the video; the voice only
-   jumps in a few times with short reactions.
-   - banner: max 6 words, ALL CAPS, curiosity hook for the top of the video, no emojis.
-   - commentary: 3 to 5 lines. Each line = {{"t": second in the clip when it is said, "line": "words"}}.
-     The clip is {duration} seconds long.
-       * line 1 at t=0: scroll-stopping hook, max 7 words. Like: "Bro, GTA 6 is actually insane!"
-       * 1-3 reactions placed EXACTLY when the craziest things happen (crash, jump, explosion, twist,
-         stunning view), max 8 words each. Like: "NO WAY he made that jump!", "Look at those physics!",
-         "Rockstar really cooked with this one."
-       * last line around t={end_t}: quick fun question or call to action, max 8 words.
-         Like: "Would you survive this? Tell me!"
-       * at least 5 seconds between lines, under 40 words in total.
-       * NEVER narrate what is on screen ("He walks into the store", "We see a red car", "The camera pans").
-         React to it instead. Everyday words, contractions, exclamation marks. No emojis, hashtags or
-         stage directions. Say "GTA 6", never "GTA VI". Don't invent facts.
+2. WRITE THE VOICEOVER - an excited, fun GTA fan talking to his friends. NOT a documentary narrator.
+   First decide content_type (one of):
+     "explainer" = a secret, easter egg, hidden detail, new mechanic or story moment that needs context
+     "action"    = chase, shootout, crash, stunt, heist, chaos
+     "scenic"    = views, cruising, sunsets, city life, mostly calm
+   Then how much the voice talks DEPENDS on content_type:
+     * explainer: 4 to 7 lines. Explain what the viewer is looking at and why it's cool, said right when it
+       appears on screen (max 20 words per line, under 80 words total). Still excited and casual, e.g.
+       "See that tattoo? It's the same symbol from the first trailer!"
+     * action: 3 or 4 short hype reactions at the craziest moments (max 8 words each, under 35 words total),
+       e.g. "NO WAY he made that jump!", "Look at those physics!"
+     * scenic: ONLY 2 lines - a hook at t=0 and a question near the end. Let the view breathe.
+   Rules for every type:
+     - banner: max 6 words, ALL CAPS, curiosity hook for the top of the video, no emojis.
+     - commentary: list of {{"t": second in the clip when it is said, "line": "words"}}. The clip is
+       {duration} seconds long. Line 1 at t=0 is a scroll-stopping hook (max 8 words). The last line,
+       around t={end_t}, is a quick fun question or call to action (max 8 words). Leave at least 3 seconds
+       between lines.
+     - NEVER describe the obvious ("He walks into the store", "We see a red car", "The camera pans").
+       Only say what adds hype or explains something. Everyday words, contractions, exclamation marks.
+       No emojis, hashtags or stage directions. Say "GTA 6", never "GTA VI". Never invent facts - if you
+       are not sure what a detail means, react to it instead of explaining it.
    - youtube_title: max 70 characters, curiosity-driven, no hashtags.
    - caption: 1-2 short sentences for Instagram/TikTok ending with a question, no hashtags.
    - x_text: max 200 characters punchy post for X to go with the clip, no hashtags, no links.
    - hashtags: 4 relevant hashtags (strings starting with #), always include #GTA6.
 
 Return ONLY JSON with exactly these keys:
-{{"is_gta6_footage": bool, "has_facecam": bool, "hype_score": int, "scene_summary": str,
+{{"is_gta6_footage": bool, "has_facecam": bool, "has_narrator": bool, "hype_score": int, "scene_summary": str,
+ "content_type": "explainer" | "action" | "scenic",
  "banner": str, "commentary": [{{"t": number, "line": str}}], "youtube_title": str, "caption": str,
  "x_text": str, "hashtags": [str]}}"""
 
@@ -237,7 +246,7 @@ STREAM_NOTE = """THIS IS A STREAM CLIP: a streamer playing GTA 6 live, usually w
 - The facecam is expected and fine: set has_facecam=false unless the webcam covers most of the game.
 - is_gta6_footage is about the GAME being shown (must be real GTA 6).
 - hype_score: rate the gameplay AND how funny/wild the streamer's reaction is.
-- The streamer is already talking, so the commentary must be ONLY 2 lines: a hook at t=0 (max 7 words,
+- Set content_type to "stream". The streamer is already talking, so the commentary must be ONLY 2 lines: a hook at t=0 (max 7 words,
   e.g. "This streamer was NOT ready!") and a short question near the end. Never talk over the middle."""
 
 
@@ -312,13 +321,22 @@ def write_clip_copy(clip: Path, title: str, credit: str, provider: str, kind: st
     return out
 
 
+LIMITS = {  # content_type -> (max lines, max words per line)
+    "explainer": (7, 22), "action": (4, 10), "scenic": (2, 10), "stream": (2, 10),
+}
+
+
 def _commentary(d: dict, clip_dur: float) -> list[dict]:
-    """Normalise the AI's commentary into [{"t": float, "text": str}], short and in order."""
+    """Normalise the AI's commentary into [{"t": float, "text": str}], in order, sized by content type."""
     raw = d.get("commentary") or []
     if isinstance(raw, str):
         raw = [raw]
+    ctype = str(d.get("content_type", "action")).lower()
+    max_lines, max_words = LIMITS.get(ctype, LIMITS["action"])
+    if len(raw) > max_lines:  # keep the hook, the outro and the first middle lines
+        raw = raw[:max_lines - 1] + raw[-1:]
     lines = []
-    for i, item in enumerate(raw[:6]):
+    for i, item in enumerate(raw):
         if isinstance(item, dict):
             text, t = item.get("line") or item.get("text") or "", item.get("t", item.get("time", 0))
         else:
@@ -327,8 +345,15 @@ def _commentary(d: dict, clip_dur: float) -> list[dict]:
         if not text:
             continue
         words = text.split()
-        if len(words) > 14:
-            text = " ".join(words[:14]).rstrip(",;:") + "!"
+        if len(words) > max_words:  # keep whole sentences when possible
+            kept, count = [], 0
+            for sent in re.findall(r"[^.!?]+[.!?]*", text):
+                n = len(sent.split())
+                if count + n > max_words:
+                    break
+                kept.append(sent.strip())
+                count += n
+            text = " ".join(kept) if kept else " ".join(words[:max_words]).rstrip(",;:") + "!"
         try:
             t = float(str(t).rstrip("s"))
         except (TypeError, ValueError):
@@ -356,6 +381,8 @@ def _clean_copy(d: dict, clip_dur: float = 48) -> dict:
     return {
         "is_gta6_footage": bool(d.get("is_gta6_footage", True)),
         "has_facecam": bool(d.get("has_facecam", False)),
+        "has_narrator": bool(d.get("has_narrator", False)),
+        "content_type": str(d.get("content_type", "action")).lower(),
         "hype_score": int(d.get("hype_score") or 6),
         "scene_summary": s("scene_summary"),
         "verified_by_video": bool(d.get("verified_by_video", False)),

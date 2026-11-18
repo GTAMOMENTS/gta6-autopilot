@@ -123,6 +123,8 @@ def run_video_slot(slot: dict, dry_run: bool) -> tuple[bool, dict]:
             reason = None
             if not copy["is_gta6_footage"]:
                 reason = "not GTA VI footage"
+            elif copy.get("has_narrator") and gate.get("reject_narrator", True) and c.kind != "stream":
+                reason = "someone already talks over this footage"
             elif copy["has_facecam"] and gate.get("reject_facecam", True) and c.kind != "stream":
                 reason = "facecam / overlay"
             elif copy["hype_score"] < int(gate.get("min_hype_score", 5)):
@@ -201,7 +203,7 @@ def summarize(slot: dict, sid: str, ok: bool, detail: dict, dry_run: bool) -> No
         cp, s = detail["copy"], detail["source"]
         lines += [f"**Banner:** {cp['banner']}  ", f"**Source:** [{s['title']}]({s['url']}) by {s['credit']} "
                   f"({s['provider']}, section {s['section']})  ",
-                  f"**AI check:** hype {cp['hype_score']}, verified={cp['verified_by_video']} by {cp.get('ai_source', '?')} — {cp['scene_summary']}  ",
+                  f"**AI check:** {cp.get('content_type', '?')}, hype {cp['hype_score']}, verified={cp['verified_by_video']} by {cp.get('ai_source', '?')} — {cp['scene_summary']}  ",
                   "**Voice lines:** " + " · ".join(f"[{ln['t']}s] {ln['text']}" for ln in
                                                    (detail.get('voice_lines') or cp.get('commentary', [])))]
     for plat, r in (detail.get("results") or {}).items():

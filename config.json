@@ -123,7 +123,10 @@
       "GTA 6 4K",
       "GTA VI gameplay walkthrough part",
       "GTA 6 boss fight",
-      "GTA 6 ending"
+      "GTA 6 ending",
+      "GTA 6 secrets no commentary",
+      "GTA 6 easter eggs gameplay",
+      "GTA 6 hidden details gameplay"
     ],
     "queries_per_run": 5,
     "min_duration_sec": 50,
@@ -417,7 +420,8 @@
   "quality_gate": {
     "min_hype_score": 5,
     "reject_facecam": true,
-    "require_ai_check_for_search": true
+    "require_ai_check_for_search": true,
+    "reject_narrator": true
   },
   "gemini": {
     "models": [
@@ -428,18 +432,18 @@
     "max_total_sec": 240
   },
   "voice": {
-    "engine": "auto",
+    "engine": "edge",
     "gemini_tts_voice": "Puck",
     "gemini_tts_style": "Say this like a fun, hyped-up gaming YouTuber reacting live to an insane clip - energetic, casual, natural, never robotic",
     "gemini_tts_models": [],
     "voices": [
-      "en-US-BrianMultilingualNeural",
-      "en-US-AndrewMultilingualNeural",
       "en-US-AndrewNeural",
-      "en-US-BrianNeural",
+      "en-US-AndrewMultilingualNeural",
       "en-US-GuyNeural"
     ],
-    "rate": "+12%"
+    "rate": "+23%",
+    "pitch": "+2Hz",
+    "volume": "+10%"
   },
   "video": {
     "source_clip_sec": 52,
