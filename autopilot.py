@@ -31,6 +31,24 @@ def save_json(path: Path, data):
         json.dump(data, f, indent=2)
 
 
+def get_next_valid_ready_item(manifest: dict) -> dict | None:
+    """Finds a ready item whose rendered MP4 actually exists on disk, cleaning up stale cache entries."""
+    changed = False
+    chosen = None
+    for item in manifest.get("items", []):
+        if item.get("status") == "ready":
+            rpath = item.get("rendered_path")
+            if rpath and Path(rpath).exists():
+                if chosen is None:
+                    chosen = item
+            else:
+                item["status"] = "expired"
+                changed = True
+    if changed:
+        save_json(QUEUE_FILE, manifest)
+    return chosen
+
+
 def run_cycle():
     load_dotenv(BASE_DIR / ".env")
     cfg = load_json(CONFIG_FILE, {})
@@ -48,11 +66,11 @@ def run_cycle():
     history = load_json(HISTORY_FILE, {"completed_slots": [], "posts": []})
 
     if is_manual_test:
-        ready_item = next((i for i in manifest["items"] if i.get("status") == "ready"), None)
+        ready_item = get_next_valid_ready_item(manifest)
         if not ready_item:
-            logging.warning("No ready clip found in manifest (total items=%d).", len(manifest["items"]))
+            logging.warning("No valid rendered MP4 found on disk.")
             return
-        logging.info("Publishing ready clip %s (%s)...", ready_item["id"], ready_item["rendered_path"])
+        logging.info("Publishing newly rendered clip %s (%s)...", ready_item["id"], ready_item["rendered_path"])
         ok = publish_video_to_platforms(ready_item, ["youtube", "instagram", "x", "tiktok"])
         if ok:
             ready_item["status"] = "published"
@@ -75,7 +93,7 @@ def run_cycle():
         if 0 <= (current_minutes - slot_minutes) <= 45:
             logging.info("Triggering scheduled slot: %s -> %s", slot_id, slot["platforms"])
             if slot["type"] in ("vertical_clip", "x_video_clip"):
-                ready_item = next((i for i in manifest["items"] if i.get("status") == "ready"), None)
+                ready_item = get_next_valid_ready_item(manifest)
                 if ready_item and publish_video_to_platforms(ready_item, slot["platforms"]):
                     ready_item["status"] = "published"
                     save_json(QUEUE_FILE, manifest)
