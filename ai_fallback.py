@@ -3,7 +3,8 @@
 All of these speak the OpenAI-compatible chat API and have free tiers:
   openrouter - OPENROUTER_API_KEY  (free ":free" models, several can SEE images)
   groq       - GROQ_API_KEY        (very fast free text models)
-  mistral    - MISTRAL_API_KEY     (free "Experiment" plan, has vision models)
+  nvidia     - NVIDIA_API_KEY      (build.nvidia.com, free, no card, 100+ models incl. vision)
+  mistral    - MISTRAL_API_KEY     (optional; its free plan may now ask for payment)
 
 Free model names change constantly, so models are auto-discovered from each
 provider's /models endpoint (pin your own in config.json -> ai_fallback.models).
@@ -27,12 +28,18 @@ log = logging.getLogger("autopilot")
 PROVIDERS = {
     "openrouter": {"key": "OPENROUTER_API_KEY", "base": "https://openrouter.ai/api/v1", "max_images": 8},
     "groq": {"key": "GROQ_API_KEY", "base": "https://api.groq.com/openai/v1", "max_images": 5},
+    "nvidia": {"key": "NVIDIA_API_KEY", "base": "https://integrate.api.nvidia.com/v1", "max_images": 4},
     "mistral": {"key": "MISTRAL_API_KEY", "base": "https://api.mistral.ai/v1", "max_images": 8},
 }
+# name hints for image-capable models on providers that don't publish modalities (groq, nvidia)
+VISION_HINTS = ("vision", "-vl", "vl-", "vila", "maverick", "scout", "gemma-3", "gemma-4", "multimodal",
+                "omni", "llava", "pixtral", "kimi-vl")
 # Families that tend to follow JSON instructions well get tried first.
 PREFERRED = ("gemma", "nemotron", "qwen", "llama", "mistral-small", "mistral-medium", "pixtral",
              "gpt-oss", "deepseek", "kimi", "glm")
-SKIP = ("lyria", "audio", "tts", "whisper", "guard", "embed", "moderation", "code", "ocr", "1.7b", "3b")
+SKIP = ("lyria", "audio", "tts", "whisper", "guard", "embed", "moderation", "code", "ocr", "1.7b", "3b",
+        "rerank", "reward", "safety", "retriever", "parse", "nvclip", "deplot", "translate", "asr", "riva",
+        "cosmos", "bge", "e5-", "math", "nemoretriever")
 
 _model_cache: dict[str, list[tuple[str, bool]]] = {}
 _dead: set[str] = set()
@@ -85,8 +92,8 @@ def _models(p: str) -> list[tuple[str, bool]]:
                 if not caps.get("completion_chat", True):
                     continue
                 vision = bool(caps.get("vision"))
-            else:  # groq exposes no modality info
-                vision = any(k in low for k in ("vision", "scout", "maverick", "-vl", "llava"))
+            else:  # groq / nvidia expose no modality info -> guess from the name
+                vision = any(k in low for k in VISION_HINTS)
             found.append((mid, vision))
     except Exception as exc:  # noqa: BLE001
         log.warning("[ai-fallback] %s model list failed: %.150s", p, exc)

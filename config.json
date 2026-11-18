@@ -412,11 +412,13 @@
   "ai_fallback": {
     "providers": [
       "openrouter",
+      "nvidia",
       "groq",
       "mistral"
     ],
     "models": {
       "openrouter": [],
+      "nvidia": [],
       "groq": [],
       "mistral": []
     },

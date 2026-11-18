@@ -44,7 +44,7 @@ Change the order in `config.json → publishing.routes`. A provider without secr
 | `GEMINI_API_KEY` | AI check + scripts (free at aistudio.google.com). Watches the whole clip |
 | `OPENROUTER_API_KEY` | **Free backup AI** when Gemini is busy (openrouter.ai → Keys). Free vision models look at 6 frames of the clip |
 | `GROQ_API_KEY` | Optional 2nd free backup (console.groq.com), text only |
-| `MISTRAL_API_KEY` | Optional 3rd free backup (console.mistral.ai, free "Experiment" plan) |
+| `NVIDIA_API_KEY` | Optional 3rd free backup (build.nvidia.com, no card) |
 | `ZERNIO_API_KEY` | Instagram + TikTok (connect exactly these 2 accounts in Zernio) |
 | `YT_CLIENT_ID`, `YT_CLIENT_SECRET`, `YT_REFRESH_TOKEN` | YouTube. See SETUP_GUIDE.md section C (browser only) or run `tools/youtube_auth.py` |
 | `X_COOKIES` | Free X posting via browser (SETUP_GUIDE.md section E) |

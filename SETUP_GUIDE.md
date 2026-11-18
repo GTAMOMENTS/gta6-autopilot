@@ -123,4 +123,4 @@ YouTube blocks GitHub's servers unless the bot looks like a logged-in viewer.
 | `GEMINI_API_KEY` | https://aistudio.google.com → Get API key | yes (main AI) |
 | `OPENROUTER_API_KEY` | https://openrouter.ai → Keys → Create key | yes (free backup when Gemini is busy) |
 | `GROQ_API_KEY` | https://console.groq.com → API Keys | optional extra backup |
-| `MISTRAL_API_KEY` | https://console.mistral.ai → API Keys | optional extra backup |
+| `NVIDIA_API_KEY` | https://build.nvidia.com → sign in (free NVIDIA account) → open any model → **Get API Key** (starts with `nvapi-`) | optional extra backup, free, no card |
