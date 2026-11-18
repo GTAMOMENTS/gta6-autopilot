@@ -40,24 +40,26 @@ def run_cycle():
 
     logging.info("Autopilot run at %s (%s) | manual_test=%s", now.strftime("%Y-%m-%d %H:%M"), tz_name, is_manual_test)
 
-    fetched = fetch_new_sources(limit_per_run=2)
-    rendered = process_pending_clips(max_to_render=2)
+    fetched = fetch_new_sources(limit_per_run=1)
+    rendered = process_pending_clips(max_to_render=1)
     logging.info("Pipeline status: fetched=%d, rendered=%d", fetched, rendered)
 
     manifest = load_json(QUEUE_FILE, {"items": []})
     history = load_json(HISTORY_FILE, {"completed_slots": [], "posts": []})
 
-    # If triggered manually via GitHub Actions "Run workflow", immediately post 1 clip to all 4 platforms
     if is_manual_test:
         ready_item = next((i for i in manifest["items"] if i.get("status") == "ready"), None)
-        if ready_item:
-            ok = publish_video_to_platforms(ready_item, ["youtube", "instagram", "x", "tiktok"])
-            if ok:
-                ready_item["status"] = "published"
-                save_json(QUEUE_FILE, manifest)
-                logging.info("Manual test run published clip %s across platforms!", ready_item["id"])
+        if not ready_item:
+            logging.warning("No ready clip found in manifest (total items=%d).", len(manifest["items"]))
+            return
+        logging.info("Publishing ready clip %s (%s)...", ready_item["id"], ready_item["rendered_path"])
+        ok = publish_video_to_platforms(ready_item, ["youtube", "instagram", "x", "tiktok"])
+        if ok:
+            ready_item["status"] = "published"
+            save_json(QUEUE_FILE, manifest)
+            logging.info("Manual test run published clip %s!", ready_item["id"])
         else:
-            logging.warning("No ready clip available for manual test run.")
+            logging.error("Publishing failed for clip %s — check API responses above.", ready_item["id"])
         return
 
     today_str = now.strftime("%Y-%m-%d")
