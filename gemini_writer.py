@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import random
 
@@ -40,7 +41,7 @@ Write:
 Return strict JSON: {{"banner": "...", "script": "..."}}
 """
         resp = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.8-flash",
             contents=prompt,
         )
         cleaned = resp.text.strip().removeprefix("```json").removesuffix("```").strip()
@@ -48,8 +49,9 @@ Return strict JSON: {{"banner": "...", "script": "..."}}
         banner = str(data.get("banner", "INSANE GTA 6 MOMENT!")).strip()[:45]
         script = str(data.get("script", "")).strip()
         if banner and len(script.split()) >= 60:
+            logging.info("Gemini generated custom script: %s", banner)
             return banner, script
     except Exception as exc:
-        print(f"[gemini_writer] Fallback used: {exc}")
+        logging.warning("Gemini fallback used: %s", exc)
 
     return random.choice(FALLBACK_SCRIPTS)
