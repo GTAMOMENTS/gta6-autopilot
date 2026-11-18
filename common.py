@@ -135,16 +135,37 @@ def parse_json_loose(text: str) -> dict | None:
         except json.JSONDecodeError:
             pass
 
-    # Key-by-key salvage: each "key": value runs until the next "key": or the closing brace.
-    keys = list(re.finditer(r'"([A-Za-z_][A-Za-z0-9_]*)"\s*:\s*', body))
+    # Key-by-key salvage: only TOP-LEVEL keys (depth 1), so nested lists like
+    # "commentary": [{"t": 0, "line": ...}] stay together even when the JSON is broken.
+    keys = []
+    depth, in_str, esc = 0, False, False
+    for i, ch in enumerate(body):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            if depth == 1:
+                m = re.match(r'"([A-Za-z_][A-Za-z0-9_]*)"\s*:\s*', body[i:])
+                if m:
+                    keys.append((m.group(1), i, i + m.end()))
+            in_str = True
+        elif ch in "{[":
+            depth += 1
+        elif ch in "}]":
+            depth -= 1
     if not keys:
         return None
     out: dict = {}
-    for i, m in enumerate(keys):
-        stop = keys[i + 1].start() if i + 1 < len(keys) else len(body)
-        raw = body[m.end():stop].strip().rstrip(",").strip()
-        if i + 1 == len(keys):
-            raw = raw.rstrip("}").strip().rstrip(",").strip()
+    for n, (name, _, vstart) in enumerate(keys):
+        stop = keys[n + 1][1] if n + 1 < len(keys) else len(body)
+        raw = body[vstart:stop].strip().rstrip(",").strip()
+        if n + 1 == len(keys):
+            raw = raw[:-1].strip().rstrip(",").strip() if raw.endswith("}") else raw
         low = raw.lower()
         if low in ("true", "false"):
             val = low == "true"
@@ -154,13 +175,27 @@ def parse_json_loose(text: str) -> dict | None:
             try:
                 val = json.loads(raw)
             except json.JSONDecodeError:
-                val = re.findall(r'"([^"]+)"', raw) or re.findall(r"#\w+", raw)
+                val = _salvage_list(raw)
         else:
             if raw.startswith('"') and raw.endswith('"') and len(raw) >= 2:
                 raw = raw[1:-1]
             val = raw.strip().strip('"').replace('\\"', '"')
-        out[m.group(1)] = val
+        out[name] = val
     return out or None
+
+
+def _salvage_list(raw: str) -> list:
+    """Repair a broken JSON list: list of {t, line} objects, or list of strings (hashtags)."""
+    import re
+    items = []
+    for obj in re.findall(r"\{(.*?)\}", raw, re.S):
+        t = re.search(r'"(?:t|time)"\s*:\s*"?([\d.:]+)"?', obj)
+        text = re.search(r'"(?:line|text)"\s*:\s*"?(.*?)"?\s*(?:,\s*"[A-Za-z_]+"\s*:|$)', obj.strip(), re.S)
+        if text and text.group(1).strip():
+            items.append({"t": t.group(1) if t else None, "line": text.group(1).strip().strip('"')})
+    if items:
+        return items
+    return re.findall(r'"([^"]+)"', raw) or re.findall(r"#\w+", raw)
 
 
 def parse_cookies(raw: str, default_domain: str) -> list[dict]:

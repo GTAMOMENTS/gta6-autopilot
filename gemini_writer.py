@@ -311,7 +311,8 @@ def write_clip_copy(clip: Path, title: str, credit: str, provider: str, kind: st
 
     # AI judged the clip but its voice lines are unusable -> keep the verdict, use built-in lines
     if data and not _commentary(data, clip_dur):
-        log.warning("[ai] %s gave no usable voice lines - keeping its verdict, using built-in lines", ai_source)
+        log.warning("[ai] %s gave no usable voice lines - keeping its verdict, using built-in lines "
+                    "(keys=%s, commentary=%.200r)", ai_source, sorted(data.keys()), data.get("commentary"))
         data["commentary"] = fallback_clip_copy(clip_dur)["commentary"]
         data.setdefault("banner", fallback_clip_copy(clip_dur)["banner"])
 
