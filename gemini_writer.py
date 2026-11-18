@@ -36,13 +36,13 @@ def _client():
     if _client_obj is None:
         from google import genai
         from google.genai import types
-        timeout_ms = int(load_config().get("gemini", {}).get("timeout_sec", 120)) * 1000
+        timeout_ms = int(load_config().get("gemini", {}).get("timeout_sec", 75)) * 1000
         _client_obj = genai.Client(
             api_key=env("GEMINI_API_KEY"),
             http_options=types.HttpOptions(
                 timeout=timeout_ms,
                 retry_options=types.HttpRetryOptions(
-                    attempts=2, initial_delay=4, max_delay=15,
+                    attempts=2, initial_delay=3, max_delay=10,
                     http_status_codes=[429, 500, 502, 503, 504],
                 ),
             ),
@@ -113,9 +113,13 @@ def _generate_json(contents, temperature: float = 0.9) -> dict | None:
     if time.time() < _unavailable_until:
         return None
     from google.genai import types
+    deadline = time.time() + int(load_config().get("gemini", {}).get("max_total_sec", 240))
     for round_no in range(2):
         overloaded = 0
         for model in _models():
+            if time.time() > deadline:
+                log.warning("[gemini] time cap reached - moving on to backup AI")
+                break
             try:
                 resp = _client().models.generate_content(
                     model=model,
@@ -137,7 +141,7 @@ def _generate_json(contents, temperature: float = 0.9) -> dict | None:
                     _dead_models.add(model)
                 elif any(x in msg for x in ("503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "500", "timed out")):
                     overloaded += 1
-        if overloaded == 0 or round_no == 1:
+        if overloaded == 0 or round_no == 1 or time.time() + 60 > deadline:
             break
         log.info("[gemini] all models busy - waiting 25s and retrying once")
         time.sleep(25)

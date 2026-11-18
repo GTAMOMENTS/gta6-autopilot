@@ -346,12 +346,13 @@
     "models": [
       "gemini-3.8-flash"
     ],
-    "timeout_sec": 120,
+    "timeout_sec": 75,
     "watch_video": true,
     "script_words": [
       145,
       165
-    ]
+    ],
+    "max_total_sec": 240
   },
   "voice": {
     "voices": [
