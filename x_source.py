@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from datetime import datetime
 
@@ -74,21 +75,18 @@ def parse_timeline(payloads: list[dict], account: str) -> list[dict]:
     return list(out.values())
 
 
-def fetch_account(account: str, scrolls: int = 4) -> list[dict]:
+def fetch_account(account: str, scrolls: int = 5) -> list[dict]:
     """Open x.com/<account>/media (logged in with X_COOKIES) and collect the timeline JSON it loads."""
     import x_browser
     from playwright.sync_api import sync_playwright
 
-    payloads: list[dict] = []
+    responses = []  # read the bodies after loading - reading inside the event handler is unreliable
 
     def on_response(resp):
-        url = resp.url
-        if "/graphql/" in url and any(k in url for k in ("UserMedia", "UserTweets")):
-            try:
-                payloads.append(resp.json())
-            except Exception:  # noqa: BLE001
-                pass
+        if "/graphql/" in resp.url or "/i/api/" in resp.url:
+            responses.append(resp)
 
+    payloads: list[dict] = []
     with sync_playwright() as p:
         browser = x_browser._launch(p)
         try:
@@ -96,14 +94,35 @@ def fetch_account(account: str, scrolls: int = 4) -> list[dict]:
             ctx.add_cookies(x_browser._browser_cookies())
             page = ctx.new_page()
             page.on("response", on_response)
-            page.goto(f"https://x.com/{account}/media", wait_until="domcontentloaded", timeout=60_000)
-            page.wait_for_timeout(6000)
-            if x_browser._needs_login(page):
-                log.warning("[x-source] X asks to log in again - X_COOKIES expired?")
-                return []
-            for _ in range(scrolls):
-                page.mouse.wheel(0, 4000)
-                page.wait_for_timeout(2500)
+            for path in ("media", ""):  # Media tab first, then the main timeline as a fallback
+                page.goto(f"https://x.com/{account}/{path}".rstrip("/"), wait_until="domcontentloaded",
+                          timeout=60_000)
+                page.wait_for_timeout(7000)
+                if x_browser._needs_login(page):
+                    log.warning("[x-source] X asks to log in again - X_COOKIES expired?")
+                    return []
+                for _ in range(scrolls):
+                    page.mouse.wheel(0, 4000)
+                    page.wait_for_timeout(2500)
+                ops = {}
+                for resp in responses:
+                    op = resp.url.split("?")[0].rstrip("/").split("/")[-1]
+                    ops[op] = ops.get(op, 0) + 1
+                    try:
+                        payloads.append(resp.json())
+                    except Exception as exc:  # noqa: BLE001
+                        log.debug("[x-source] unreadable %s: %s", op, exc)
+                responses.clear()
+                clips = parse_timeline(payloads, account)
+                n_tweets = page.locator('[data-testid="tweet"]').count()
+                n_videos = page.locator("video").count()
+                log.info("[x-source] x.com/%s/%s: api calls %s | %d posts, %d videos on page | %d own video posts parsed",
+                         account, path, ops, n_tweets, n_videos, len(clips))
+                if not n_tweets:
+                    body = re.sub(r"\s+", " ", page.inner_text("body"))[:300]
+                    log.info("[x-source] page text: %s", body)
+                if clips:
+                    return clips
         finally:
             browser.close()
     return parse_timeline(payloads, account)
