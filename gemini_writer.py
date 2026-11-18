@@ -253,7 +253,8 @@ TASKS
    - youtube_title: max 70 characters, curiosity-driven, no hashtags.
    - caption: 1-2 short sentences for Instagram/TikTok ending with a question, no hashtags.
    - x_text: max 200 characters punchy post for X to go with the clip, no hashtags, no links.
-   - hashtags: 4 relevant hashtags (strings starting with #), always include #GTA6.
+   - hashtags: 4 relevant hashtags (strings starting with #), always include #GTA6. Never company or brand
+     tags (no #RockstarGames, #PlayStation, #Xbox, #ad) - no sponsored-looking content.
 
 Return ONLY JSON with exactly these keys:
 {{"is_gta6_footage": bool, "has_facecam": bool, "has_narrator": bool, "is_spoiler": bool, "fits_format": bool, "hype_score": int,
@@ -326,7 +327,8 @@ TASKS
    banner: max 6 words, ALL CAPS, states the angle (e.g. "5 THINGS GTA 5 COULDN'T DO", "ROBBING STORES IS DIFFERENT NOW").
    youtube_title: max 70 characters, like the top channels: "5 CRAZY Things In GTA 6 You CAN'T Do In GTA 5",
    "Robbing Stores in GTA 6 Works Differently To GTA 5", "GTA 6 Is FINALLY Here! First Gameplay". No hashtags. caption: 1-2 sentences ending with a
-   question, no hashtags. x_text: max 200 characters, no hashtags, no links. hashtags: 4, include #GTA6.
+   question, no hashtags. x_text: max 200 characters, no hashtags, no links. hashtags: 4, include #GTA6, never
+   company or brand tags (no #RockstarGames, #PlayStation, #Xbox, #ad).
 
 Return ONLY JSON with exactly these keys:
 {{"is_gta6_footage": bool, "has_facecam": bool, "has_narrator": bool, "is_spoiler": bool, "fits_format": bool, "hype_score": int,
@@ -512,6 +514,21 @@ def rescue_commentary(copy: dict, length: float) -> list[dict]:
     hook = (copy.get("banner") or "Watch this").capitalize().rstrip(".!?") + "!"
     log.warning("[ai] using minimal hook + question lines")
     return [{"t": 0.0, "text": hook}, {"t": max(3.0, length - 4), "text": random.choice(_OUTROS)}]
+
+
+def script_ok(lines: list[dict], kind: str, ai_source: str) -> tuple[bool, str]:
+    """Only post videos with a real script written by an AI that actually saw the clip."""
+    g = load_config().get("quality_gate", {})
+    if ai_source in ("built-in", "text-only", ""):
+        return False, f"no AI could watch the clip and write the script ({ai_source or 'none'})"
+    n_words = sum(len(ln.get("text", "").split()) for ln in lines)
+    if kind == "stream":
+        need_lines, need_words = int(g.get("min_script_lines_stream", 2)), int(g.get("min_script_words_stream", 12))
+    else:
+        need_lines, need_words = int(g.get("min_script_lines", 4)), int(g.get("min_script_words", 35))
+    if len(lines) < need_lines or n_words < need_words:
+        return False, f"script too thin ({len(lines)} lines, {n_words} words; need {need_lines}+ / {need_words}+)"
+    return True, ""
 
 
 LIMITS = {  # content_type -> (max lines, max words per line) - a full narration script, not just reactions

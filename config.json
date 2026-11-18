@@ -503,7 +503,11 @@
     "require_ai_check_for_search": true,
     "reject_narrator": true,
     "backup_hype_score": 6,
-    "reject_spoilers": true
+    "reject_spoilers": true,
+    "min_script_lines": 4,
+    "min_script_words": 35,
+    "min_script_lines_stream": 2,
+    "min_script_words_stream": 12
   },
   "gemini": {
     "models": [
@@ -566,9 +570,9 @@
     ],
     [
       "#GTA6",
-      "#RockstarGames",
       "#ViceCity",
-      "#TopMoments"
+      "#TopMoments",
+      "#GamingClips"
     ],
     [
       "#GTA6",
