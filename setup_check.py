@@ -191,8 +191,30 @@ def _upload_post():
     return OK, "set (used only as a fallback)", ""
 
 
+def _big_text_ai(provider: str):
+    """Cerebras / SambaNova: list the models and ask one tiny JSON question with the best one."""
+    import ai_fallback
+    key = ai_fallback.PROVIDERS[provider]["key"]
+    if not env(key):
+        return OFF, "not set", f"Optional, free: big fast text models for titles/hooks. Create a key and add {key}."
+    models = ai_fallback._models(provider)
+    if not models:
+        return BAD, "key set, but no models listed (wrong key?)", "Create a new API key and update the secret."
+    for model, _ in models[:3]:
+        try:
+            data, status = ai_fallback._call(provider, model, 'Reply with this JSON only: {"ok": true}', None, 0.0,
+                                             timeout=40)
+        except Exception as exc:  # noqa: BLE001
+            data, status = None, str(exc)[:60]
+        if data:
+            return OK, f"works - answered with {model} (models: {', '.join(m for m, _ in models[:4])})", ""
+    return BAD, f"models listed but no answer (last status {status})", "Free tier busy or key limited - try again later."
+
+
 CHECKS = [
     ("Gemini AI (GEMINI_API_KEY)", _gemini),
+    ("Big text AI (CEREBRAS_API_KEY)", lambda: _big_text_ai("cerebras")),
+    ("Big text AI (SAMBANOVA_API_KEY)", lambda: _big_text_ai("sambanova")),
     ("Backup AI (OPENROUTER_API_KEY)", _openrouter),
     ("Backup AI (GROQ_API_KEY)", lambda: _simple_key("GROQ_API_KEY", "https://api.groq.com/openai/v1/models",
                                                      "Optional: console.groq.com → API Keys.")),
