@@ -106,6 +106,7 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
 
     gate = cfg.get("quality_gate", {})
     vcfg = cfg.get("video", {})
+    min_total = float(vcfg.get("min_total_sec", 0))  # every video must be at least this long
     scfg = cfg.get("sources", {})
     min_hype = int(gate.get("min_hype_score", 7))
     backup_hype = int(gate.get("backup_hype_score", min_hype - 1))
@@ -151,6 +152,22 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
             segments.append((round(a, 2), round(a + dur, 2)))
             kept.append({**v, "t": cursor + 0.15})
             cursor += dur
+        if segments and cursor < min_total:
+            # too short: let every shot run a bit longer after its line (more footage, same voice)
+            factor = min_total / cursor
+            segments2, kept2, cursor = [], [], 0.0
+            for (a, b), v in zip(segments, kept):
+                dur = min((b - a) * factor, 15.0)
+                a = min(a, max(0.0, sec_dur - dur))
+                segments2.append((round(a, 2), round(a + dur, 2)))
+                kept2.append({**v, "t": cursor + 0.15})
+                cursor += dur
+            segments, kept = segments2, kept2
+        if cursor < min_total - 0.5:
+            log.warning("[length] ✋ tour would only be %.0fs (minimum %.0fs) - not posting it", cursor, min_total)
+            reel.unlink(missing_ok=True)
+            length_problems.append(f"tour too short ({cursor:.0f}s)")
+            return None
         log.info("[tour] %d shots, %.0fs: %s", len(segments), cursor,
                  [f"{a:.0f}s '{v['text'][:40]}'" for (a, _), v in zip(segments, kept)])
         clip = cut_segments(reel, RAW_DIR / f"tour_{int(time.time())}.mp4", segments)
@@ -166,15 +183,26 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
     def produce(src, copy, energy, sec_dur) -> tuple[bool, dict] | None:
         """AI editor's window -> cut -> voice lines -> render -> publish -> record."""
         c, section = src.candidate, src.clip_path
-        min_len = min(float(vcfg.get("min_clip_sec", 25)), sec_dur)
-        max_len = min(float(vcfg.get("duration_sec", 50)), sec_dur)
+        if sec_dur < min_total - 0.5:
+            log.warning("[length] ✋ footage is only %.0fs (minimum video %.0fs) - not posting it", sec_dur, min_total)
+            section.unlink(missing_ok=True)
+            length_problems.append(f"footage too short ({sec_dur:.0f}s)")
+            return None
+        min_len = min(max(float(vcfg.get("min_clip_sec", 25)), min_total), sec_dur)
+        max_len = max(min(float(vcfg.get("duration_sec", 50)), sec_dur), min_len)
         start, end = copy.get("clip_start"), copy.get("clip_end")
-        if start is None or end is None or not (0 <= start < end) or (end - start) < min_len * 0.8:
-            a, b = best_window(energy, int(min(58, max_len)))
+        if start is None or end is None or not (0 <= start < end) or (end - start) < min_len * 0.5:
+            a, b = best_window(energy, int(max_len))
             start, end = float(a), float(b)
             log.info("[editor] AI gave no usable window - using the most intense %ds", int(end - start))
         else:
             end = min(end, sec_dur, start + max_len)
+            if end - start < min_len:
+                # stretch the AI's pick to the minimum length, keeping its moment inside
+                need = min_len - (end - start)
+                start = max(0.0, start - need * 0.4)
+                end = min(sec_dur, start + min_len)
+                start = max(0.0, end - min_len)
             log.info("[editor] AI picked %.0f-%.0fs of the slice (%.0fs)", start, end, end - start)
         clip = cut_segments(section, RAW_DIR / f"clip_{int(time.time())}.mp4", [(start, end)])
         section.unlink(missing_ok=True)
@@ -197,6 +225,7 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         return publish_and_record(src, copy, clip_id, rendered, [[start, end]])
 
     script_problems: list[str] = []  # clips skipped because no proper AI script could be written
+    length_problems: list[str] = []  # clips skipped because they'd be shorter than video.min_total_sec
     backup = None  # best "almost good enough" clip, used only if nothing reaches min_hype
     skip: set[str] = set()
     if fmt:
@@ -283,6 +312,9 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
     if script_problems:
         return False, {"error": "nothing posted - no proper AI script could be written (AI busy / out of quota?): "
                                 + "; ".join(dict.fromkeys(script_problems))}
+    if length_problems:
+        return False, {"error": f"nothing posted - no footage long enough for a {min_total:.0f}s video: "
+                                + "; ".join(dict.fromkeys(length_problems))}
     return False, {"error": "no usable clip could be produced"}
 
 

@@ -258,8 +258,8 @@ TASKS
      "action"    = chase, shootout, crash, stunt, heist, chaos
      "scenic"    = views, cruising, city life, mostly calm
    - commentary: list of {{"t": second of THIS footage, "line": "words"}}, every t between clip_start and
-     clip_end, in order. 6 to 10 lines; each line is 1-2 spoken sentences (6 to 24 words). All lines together
-     about 2.4 words per second of clip (a 50 s clip = about 120 words). The voice talks for most of the clip
+     clip_end, in order. 8 to 14 lines; each line is 1-2 spoken sentences (6 to 24 words). All lines together
+     about 2.4 words per second of clip (an 80 s clip = about 190 words). The voice talks for most of the clip
      but leaves short gaps so the big moment's sound can hit.
    - Line 1 at t=clip_start is the HOOK (max 12 words). The last line, about 4 seconds before clip_end, is
      the question. Put each line's t where the thing it talks about happens on screen. Leave enough time for
@@ -320,11 +320,11 @@ TASKS
      "how_it_works" - one mechanic explained step by step in "you" form, like a guide:
                   "If you rob a store in GTA 6 the way you did in GTA 5, the police can be waiting outside..."
      "first_look" - a personal tour of the coolest things in the footage: "Let me show you what it's really like."
-3. EDIT + NARRATE - pick 6 to 12 shots, in the order they should appear:
+3. EDIT + NARRATE - pick 8 to 14 shots, in the order they should appear:
    - "start" = second in THIS footage where the shot begins (just before the interesting thing happens).
    - "line" = what the narrator says while that shot plays. The shot lasts exactly as long as its line,
-     so each line is 1-3 short spoken sentences (8 to 30 words). All lines together: 160-220 words
-     (about 60-80 seconds). The narrator talks the whole time - but EVERY sentence must tell the viewer
+     so each line is 1-3 short spoken sentences (8 to 30 words). All lines together: 200-250 words
+     (about 80-95 seconds - the video must be at least 75 seconds long). The narrator talks the whole time - but EVERY sentence must tell the viewer
      something useful, new or funny. Never filler.
    - Every shot shows something DIFFERENT (a mechanic, vehicle, animal, fight, shop, NPC reaction, funny
      detail). Never two shots of the same thing. The first shot is the most eye-catching one.
@@ -363,7 +363,7 @@ STREAM_NOTE = """THIS IS A STREAM CLIP: a streamer playing GTA 6 live, usually w
 - The facecam is expected and fine: set has_facecam=false unless the webcam covers most of the game.
 - is_gta6_footage is about the GAME being shown (must be real GTA 6).
 - hype_score: rate the gameplay AND how funny/wild the streamer's reaction is.
-- NARRATION for streams: only 3 to 5 lines (about 40-70 words) - set the scene before the moment, then go
+- NARRATION for streams: only 4 to 7 lines (about 60-100 words) - set the scene before the moment, then go
   quiet so the streamer's own reaction is heard, then one line + the question at the end.
 - Pick the part with the best gameplay moment AND the streamer's biggest reaction (include the build-up).
 - Set content_type to "stream". The streamer is already talking, so the commentary must be ONLY 2 lines:
@@ -565,7 +565,7 @@ def rescue_commentary(copy: dict, length: float) -> list[dict]:
     ctype = copy.get("content_type", "action")
     words = int(length * 2.4)
     amount = {"stream": "Write 3-4 lines (about 50 words) and leave room for the streamer's reaction."}.get(
-        ctype, f"Write 6-9 lines of 1-2 spoken sentences each, about {words} words in total.")
+        ctype, f"Write 8-12 lines of 1-2 spoken sentences each, about {words} words in total.")
     prompt = RESCUE_PROMPT.format(length=length, summary=copy.get("scene_summary") or "an intense GTA 6 moment",
                                   banner=copy.get("banner", ""), ctype=ctype, amount=amount)
     data = _generate_json(prompt)
@@ -597,7 +597,7 @@ def script_ok(lines: list[dict], kind: str, ai_source: str) -> tuple[bool, str]:
 
 
 LIMITS = {  # content_type -> (max lines, max words per line) - a full narration script, not just reactions
-    "explainer": (10, 26), "action": (10, 26), "scenic": (8, 26), "stream": (5, 22),
+    "explainer": (14, 26), "action": (14, 26), "scenic": (12, 26), "stream": (7, 22),
 }
 
 

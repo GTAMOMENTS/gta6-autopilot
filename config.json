@@ -151,9 +151,9 @@
       "GTA 6 crazy things you can do"
     ],
     "queries_per_run": 5,
-    "min_duration_sec": 50,
+    "min_duration_sec": 80,
     "max_duration_sec": 21600,
-    "section_length_sec": 120,
+    "section_length_sec": 150,
     "clip_style": "auto",
     "max_attempts": 8,
     "time_budget_min": 25,
@@ -484,7 +484,7 @@
       "game_name": "Grand Theft Auto VI",
       "clip_days": 3,
       "min_clip_views": 300,
-      "min_clip_sec": 15,
+      "min_clip_sec": 75,
       "languages": [
         "en"
       ],
@@ -504,7 +504,7 @@
       "GtaGameClips"
     ],
     "x_accounts_bonus": 3.0,
-    "x_min_sec": 15,
+    "x_min_sec": 75,
     "x_max_sec": 600,
     "x_cache_hours": 4,
     "_x_note": "x_accounts: video posts from these X accounts join the footage pool (credited as '<account> on X'). Read with the X_COOKIES login, at most every x_cache_hours. Every clip passes the same AI checks."
@@ -549,7 +549,7 @@
   },
   "video": {
     "source_clip_sec": 52,
-    "max_duration_sec": 90,
+    "max_duration_sec": 100,
     "font": "Montserrat",
     "caption_y": 1450,
     "highlight_color_ass": "&H0000F0FF",
@@ -558,12 +558,14 @@
     "cta_text": "FOLLOW FOR DAILY GTA 6 MOMENTS",
     "preset": "veryfast",
     "crf": 20,
-    "duration_sec": 60,
+    "duration_sec": 90,
     "voice_volume": 1.25,
-    "min_clip_sec": 50,
-    "tour_max_sec": 90,
+    "min_clip_sec": 75,
+    "tour_max_sec": 100,
     "tour_min_shots": 4,
-    "game_audio_volume_tour": 0.4
+    "game_audio_volume_tour": 0.4,
+    "min_total_sec": 75,
+    "_length_note": "Every video is at least min_total_sec (75 s = 1:15) and at most max_duration_sec. Footage too short for that is skipped (never looped)."
   },
   "blocked_keywords": [
     "nsfw",
