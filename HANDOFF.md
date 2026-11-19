@@ -23,7 +23,7 @@ Written 2026-11-19 by the previous assistant. Repo: https://github.com/GTAMOMENT
 | Brands | Naming cars/brands in scripts/titles is **OK** (`quality_gate.block_brand_names=false`). Brand **hashtags** (#RockstarGames, #PS5...) stay removed (Instagram flagged "branded content" once). |
 | Length | **No minimum length** for Shorts (a 1:15 minimum was tried and rejected - it dropped good short clips). |
 | Streamers | **Only famous English-speaking streamers** (no Turkish/Spanish/etc.). |
-| Schedule | **4 Shorts + 1 long YouTube video per day** + viral stream clips + 3 X text posts. |
+| Schedule | **1 Short every 2 days + 1 long YouTube video every 3 days** (owner's choice after YouTube's upload limit, `every_days` in config) + viral stream clips (TikTok/IG/X) + 3 X text posts. |
 | Quality | Must not post junk: script gate (>=4 lines/35 words, written by an AI that saw the clip), hype gate, choppy-clip filter. |
 | Merging | Test (dry run in Actions) then merge. The assistant's permission classifier blocks `gh pr merge` unless the owner literally says "merge" in that message. The owner also merges PRs himself sometimes. |
 
@@ -34,13 +34,10 @@ Written 2026-11-19 by the previous assistant. Repo: https://github.com/GTAMOMENT
 | TRT | UTC cron | Slot | What |
 |---|---|---|---|
 | 09:50 | 50 6 | x_text_morning | X text post |
-| 13:40 | 40 10 | vertical_clip | Short -> YouTube Shorts, Instagram, TikTok, X |
 | 16:20 | 20 13 | x_question_nostalgia | X text post |
-| 17:40 | 40 14 | vertical_clip | Short |
-| 20:10 | 10 17 | **long_video** | 5-10 min 16:9 YouTube countdown of the day's best stream moments |
+| 20:10 | 10 17 | **long_video** (every 3 days) | 5-10 min 16:9 YouTube countdown of the day's best stream moments; a refused upload is kept in `queue/pending_long/` and retried on every run |
 | 22:20 | 20 19 | x_daily_recap | X text post |
-| 23:40 | 40 20 | vertical_clip | Short |
-| 02:40 | 40 23 | vertical_clip | Short |
+| 23:40 | 40 20 | vertical_clip (every 2 days) | Short -> YouTube Shorts, Instagram, TikTok, X |
 Manual runs: Actions -> Run workflow -> `slot` (check_setup, voice_samples, vertical_clip, x_video_clip, test_all, remake,
 stream_clip, long_video, text slots), `dry_run` (true = render only, artifacts), `format`, `remake_clip`, `providers`.
 **Careful:** GitHub allows 1 running + 1 pending per group; dispatching while a scheduled run is pending CANCELS the scheduled one.

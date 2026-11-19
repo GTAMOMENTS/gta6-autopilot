@@ -22,29 +22,9 @@
       ]
     },
     {
-      "time": "13:40",
-      "type": "vertical_clip",
-      "platforms": [
-        "instagram",
-        "tiktok",
-        "youtube",
-        "x"
-      ]
-    },
-    {
       "time": "16:20",
       "type": "x_question_nostalgia",
       "platforms": [
-        "x"
-      ]
-    },
-    {
-      "time": "17:40",
-      "type": "vertical_clip",
-      "platforms": [
-        "instagram",
-        "tiktok",
-        "youtube",
         "x"
       ]
     },
@@ -53,7 +33,8 @@
       "type": "long_video",
       "platforms": [
         "youtube"
-      ]
+      ],
+      "every_days": 3
     },
     {
       "time": "22:20",
@@ -70,17 +51,8 @@
         "tiktok",
         "youtube",
         "x"
-      ]
-    },
-    {
-      "time": "02:40",
-      "type": "vertical_clip",
-      "platforms": [
-        "instagram",
-        "tiktok",
-        "youtube",
-        "x"
-      ]
+      ],
+      "every_days": 2
     }
   ],
   "publishing": {
@@ -1042,5 +1014,6 @@
   "critic": {
     "enabled": true,
     "_note": "A second free AI (GPT-4.1 via GitHub Models first) rewrites titles / banners / hooks for more clicks without inventing anything; originals are kept if a rewrite breaks the rules."
-  }
+  },
+  "_schedule_note": "Owner's choice (2026-11-19, after YouTube's upload limit): 1 Short every 2 days (23:40 slot), 1 long video every 3 days (20:10 slot). every_days counts from the last successful post."
 }

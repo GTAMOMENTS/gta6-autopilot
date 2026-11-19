@@ -535,6 +535,56 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str) -> dict | None:
                                              "streamer": cd["m"]["streamer"], "hype": cd["m"]["hype"]} for cd in cards]}
 
 
+# --------------------------------------------------------------------------- pending upload (retry)
+
+PENDING_DIR = STATE_DIR / "pending_long"  # saved with the Actions state cache until YouTube accepts it
+
+
+def _keep_for_retry(rendered: dict, caps: dict, clip_id: str) -> None:
+    """YouTube refused the upload (e.g. uploadLimitExceeded): keep the finished video and retry on the next runs."""
+    PENDING_DIR.mkdir(parents=True, exist_ok=True)
+    for f in PENDING_DIR.glob("*"):
+        f.unlink(missing_ok=True)  # only the newest long video is kept
+    shutil.copy(rendered["path"], PENDING_DIR / "video.mp4")
+    if rendered.get("thumbnail"):
+        shutil.copy(rendered["thumbnail"], PENDING_DIR / "thumb.jpg")
+    save_json(PENDING_DIR / "meta.json", {"clip_id": clip_id, "caps": caps, "at": time.time(),
+                                          "moments": rendered.get("moments", []), "duration": rendered["duration"]})
+    log.info("[long] kept the finished video - the upload is retried on the next runs")
+
+
+def retry_pending(dry_run: bool) -> dict | None:
+    """Upload a long video YouTube refused earlier. Returns a history-style result, or None if nothing pending."""
+    meta_f = PENDING_DIR / "meta.json"
+    if dry_run or not meta_f.exists() or not (PENDING_DIR / "video.mp4").exists():
+        return None
+    from publisher import _available, youtube_api_upload, youtube_set_thumbnail
+    if not _available("youtube_api", "youtube"):
+        return None
+    meta = load_json(meta_f, {})
+    if time.time() - meta.get("at", 0) > 6 * 86400:  # too old to post as "today's" moments
+        shutil.rmtree(PENDING_DIR, ignore_errors=True)
+        return None
+    log.info("[long] retrying the upload of %s", meta.get("clip_id"))
+    try:
+        yt = youtube_api_upload(PENDING_DIR / "video.mp4", meta["caps"])
+        if (PENDING_DIR / "thumb.jpg").exists() and yt.get("id"):
+            yt["thumbnail"] = youtube_set_thumbnail(yt["id"], PENDING_DIR / "thumb.jpg")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[long] retry still refused: %.300s", exc)
+        return {"ok": False, "error": str(exc)[:300]}
+    from source_fetcher import load_manifest, save_manifest
+    mf = load_manifest()
+    mf["items"].append({"id": meta["clip_id"], "slot": "long_video", "format_id": "long_daily", "status": "published",
+                        "created_at": datetime.now(timezone.utc).isoformat(), "duration": meta.get("duration"),
+                        "moments": meta.get("moments", []), "copy": {"title": meta["caps"]["youtube_title"]},
+                        "results": {"youtube": {**yt, "provider": "youtube_api"}}})
+    save_manifest(mf)
+    shutil.rmtree(PENDING_DIR, ignore_errors=True)
+    log.info("[long] ✅ pending long video published: %s", yt.get("url"))
+    return {"ok": True, "id": meta["clip_id"], "results": {"youtube": {**yt, "provider": "youtube_api"}}}
+
+
 # --------------------------------------------------------------------------- 5. run
 
 def run_long(dry_run: bool) -> tuple[bool, dict]:
@@ -601,6 +651,8 @@ def run_long(dry_run: bool) -> tuple[bool, dict]:
             results["youtube"] = {**yt, "provider": "youtube_api"}
         except Exception as exc:  # noqa: BLE001
             results["youtube"] = {"ok": False, "error": str(exc)[:300], "provider": "youtube_api"}
+            log.error("[long] YouTube upload failed: %.400s", exc)
+            _keep_for_retry(rendered, caps, clip_id)
     ok = dry_run or results.get("youtube", {}).get("ok", False)
     record = {"id": clip_id, "slot": "long_video", "format_id": "long_daily",
               "created_at": datetime.now(timezone.utc).isoformat(), "copy": {**pkg, "banner": pkg["title"]},

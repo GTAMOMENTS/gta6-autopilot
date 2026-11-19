@@ -504,6 +504,27 @@ def main() -> int:
         log.info("Slot %s already completed - skipping duplicate run.", sid)
         return 0
 
+    # a long video YouTube refused earlier (upload limit) is retried first, on any run
+    try:
+        from long_video import retry_pending
+        pending = retry_pending(args.dry_run)
+        if pending and pending.get("ok"):
+            record_history(f"{sid}_pending_long", {"type": "long_video", "manual": True}, True, pending)
+            history = load_json(HISTORY_FILE, {"completed_slots": [], "posts": []})
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[long] pending upload retry failed: %.200s", exc)
+
+    # posting rhythm: e.g. a Short only every 2 days, a long video every 3 days (counted from the last success)
+    every = float(slot.get("every_days", 0) or 0)
+    if every and not slot.get("manual"):
+        done = [p.get("at", "") for p in history.get("posts", []) if p.get("type") == slot["type"] and p.get("ok")]
+        if done:
+            last = datetime.fromisoformat(max(done).replace("Z", "+00:00"))
+            gap_h = (datetime.now(timezone.utc) - last).total_seconds() / 3600
+            if gap_h < every * 24 - 4:
+                log.info("%s posted %.0f h ago - this slot runs every %g days, skipping", slot["type"], gap_h, every)
+                return 0
+
     READY_DIR.mkdir(parents=True, exist_ok=True)
     try:  # learn from views: refresh recent videos' YouTube stats (cheap, a few per run)
         import analytics
