@@ -43,6 +43,17 @@ def ytdlp_format() -> str:
     q = f"[height>={h}][height<=1080]"
     return (f"bv*{q}[fps<=?30][vcodec!*=av01]+ba/bv*{q}[fps<=?30]+ba/b{q}[fps<=?30]/"
             f"bv*{q}+ba/b{q}")
+class YouTubeFormatsLimited(Exception):
+    """YouTube served no 720p+ stream for this video, even with the other player clients."""
+
+
+# When YouTube serves only low-quality streams to one client (it does that for hours at a time),
+# other clients usually still get 720p+. Tried in order; the last one goes without the login.
+YT_FALLBACK_CLIENTS = [
+    ["--extractor-args", "youtube:player_client=tv,web_safari"],
+    ["--extractor-args", "youtube:player_client=android_vr,tv_simply", "--no-cookies"],
+]
+
 FULL_DOWNLOAD_MAX_SEC = 600      # only fetch whole videos (no section support) when they are short
 FULL_DOWNLOAD_MAX_SIZE = "250M"
 BOT_BLOCK_MARKERS = ("confirm you", "not a bot", "sign in to confirm", "http error 429", "precondition", "403: forbidden", "403 forbidden")
@@ -584,14 +595,29 @@ def _download(c: Candidate, start: int, end: int, out: Path) -> bool:
         return res.returncode == 0 and _valid_video(out)
 
     # 1) fast path: only download the section we need
-    res = run(_ytdlp_base() + [
-        "-f", ytdlp_format(), "--merge-output-format", "mp4",
-        "--download-sections", f"*{start}-{end}",
-        "-o", str(out), c.url,
-    ], timeout=300)
+    def section(extra: list[str]):
+        return run(_ytdlp_base() + extra + [
+            "-f", ytdlp_format(), "--merge-output-format", "mp4",
+            "--download-sections", f"*{start}-{end}",
+            "-o", str(out), c.url,
+        ], timeout=300)
+    res = section([])
     if res.returncode == 0 and _valid_video(out):
         return True
     err = res.stderr[-400:]
+    if c.provider == "youtube" and "format is not available" in err.lower():
+        for extra in YT_FALLBACK_CLIENTS:
+            log.info("[sources] YouTube offered no 720p+ stream - retrying with %s", " ".join(extra[1:2]))
+            out.unlink(missing_ok=True)
+            res = section(extra)
+            if res.returncode == 0 and _valid_video(out):
+                log.info("[sources] ✅ got it with %s", " ".join(extra[1:2]))
+                return True
+            err = res.stderr[-400:]
+            if "format is not available" not in err.lower():
+                break
+        if "format is not available" in err.lower():
+            raise YouTubeFormatsLimited(err)
     if c.provider == "youtube" and _is_blocked(err):
         raise PermissionError("youtube-blocked")
     if res.returncode == 124:  # too slow - a full download would be even slower, skip this video
@@ -667,6 +693,7 @@ def iter_clips(target_sec: int, max_attempts: int = 6, skip_providers: set | Non
     section_len = int(s.get("section_length_sec", 180))
     style = s.get("clip_style", "auto")
     youtube_blocked = False
+    yt_limited = 0  # YouTube videos that came back without any 720p+ stream this run
 
     cands = discover(cfg, manifest, fmt=fmt)
     log.info("[sources] %d ranked candidates; top: %s", len(cands),
@@ -739,6 +766,13 @@ def iter_clips(target_sec: int, max_attempts: int = 6, skip_providers: set | Non
                 if not _download(c, start, end, sec_file):
                     _note_failure(c)
                     continue
+        except YouTubeFormatsLimited:
+            yt_limited += 1
+            log.warning("[sources] YouTube served no 720p+ stream for '%s' (all clients)", c.title[:60])
+            if yt_limited >= 2:
+                youtube_blocked = True
+                log.warning("[sources] YouTube is limiting quality right now - using the other sources this run")
+            continue
         except PermissionError:
             youtube_blocked = True
             if env("YTDLP_COOKIES"):
