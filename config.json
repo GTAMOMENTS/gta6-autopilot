@@ -49,13 +49,10 @@
       ]
     },
     {
-      "time": "20:40",
-      "type": "vertical_clip",
+      "time": "20:10",
+      "type": "long_video",
       "platforms": [
-        "instagram",
-        "tiktok",
-        "youtube",
-        "x"
+        "youtube"
       ]
     },
     {
@@ -959,5 +956,22 @@
         "min_views_per_hour": 0
       }
     }
+  },
+  "long_video": {
+    "enabled": true,
+    "_note": "Daily 5-10 min YouTube countdown of the day's best GTA 6 stream moments (Twitch, Kick, X clip accounts). Replaces one Short so YouTube's free quota (about 6 uploads/day) still fits: 4 Shorts + 1 long video.",
+    "window_hours": 24,
+    "top_streams": 15,
+    "candidates": 24,
+    "max_per_streamer": 2,
+    "review_batch": 6,
+    "min_hype": 6,
+    "target_sec": 480,
+    "min_sec": 240,
+    "max_moments": 15,
+    "teaser_sec": 4.0,
+    "outro_sec": 7.0,
+    "preset": "veryfast",
+    "crf": 21
   }
 }

@@ -434,6 +434,9 @@ def summarize(slot: dict, sid: str, ok: bool, detail: dict, dry_run: bool) -> No
     lines = [f"## {'✅' if ok else '❌'} {slot['type']} ({sid}){' — DRY RUN' if dry_run else ''}"]
     if detail.get("format"):
         lines.append(f"**Format:** {detail['format']}  ")
+    if detail.get("moments"):
+        lines.append(f"**Long video:** {detail['copy'].get('title', '')} ({detail['duration']:.0f}s)  ")
+        lines += [f"- #{m['n']} {m['label']} ({m['streamer']}, hype {m['hype']})" for m in detail["moments"]]
     if "text" in detail:
         lines.append(f"> {detail['text']}")
     if "copy" in detail:
@@ -510,7 +513,10 @@ def main() -> int:
             log.info("[learn] format scores: %s", {k: (v["score"], v["n"]) for k, v in scores.items()})
     except Exception as exc:  # noqa: BLE001
         log.warning("[learn] stats refresh skipped: %.150s", exc, exc_info=True)
-    if slot["type"] in VIDEO_TYPES:
+    if slot["type"] == "long_video":  # daily 5-10 min YouTube countdown of the day's best stream moments
+        from long_video import run_long
+        ok, detail = run_long(args.dry_run)
+    elif slot["type"] in VIDEO_TYPES:
         from formats import advance_format, current_format
         fmt = current_format(cfg)
         ok, detail = run_video_slot(slot, args.dry_run, fmt)

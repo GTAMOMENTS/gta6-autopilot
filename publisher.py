@@ -184,6 +184,23 @@ def youtube_api_upload(video: Path, caps: dict) -> dict:
     return {"ok": True, "url": f"https://youtube.com/shorts/{vid}", "id": vid}
 
 
+def youtube_set_thumbnail(video_id: str, image: Path) -> str:
+    """Custom thumbnail (YouTube allows it once the channel is phone-verified)."""
+    try:
+        r = requests.post(f"https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId={video_id}",
+                          headers={"Authorization": f"Bearer {_yt_token()}", "Content-Type": "image/jpeg"},
+                          data=image.read_bytes(), timeout=60)
+        if r.status_code in (200, 201):
+            log.info("[youtube] custom thumbnail set")
+            return "set"
+        hint = " - verify the channel with your phone at youtube.com/verify" if r.status_code == 403 else ""
+        log.warning("[youtube] thumbnail not set (%s)%s: %.200s", r.status_code, hint, r.text)
+        return f"failed {r.status_code}"
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[youtube] thumbnail upload failed: %.200s", exc)
+        return "failed"
+
+
 _comment_scope_missing = False
 
 
