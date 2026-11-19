@@ -101,6 +101,10 @@ def download(cands: list[dict]) -> list[dict]:
             why[r] = why.get(r, 0) + 1
             path.unlink(missing_ok=True)
             continue
+        if not _has_audio(path):
+            why["no sound"] = why.get("no sound", 0) + 1
+            path.unlink(missing_ok=True)
+            continue
         rep = sc.smoothness(path)
         if rep > float(_cfg().get("max_repeated_frames", 0.2)):
             why["choppy"] = why.get("choppy", 0) + 1
@@ -273,17 +277,55 @@ FIT = ("split=2[a][b];[a]scale=1920:1080:force_original_aspect_ratio=increase,cr
 ENC = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2"]
 
 
-def _segment(src: Path, a: float, b: float, out: Path) -> bool:
-    """One piece of the video: 1920x1080/30fps, even loudness, always with an audio track."""
-    for with_audio in (True, False):
-        audio = "[0:a]aresample=48000,aformat=channel_layouts=stereo,loudnorm=I=-16:TP=-1.5:LRA=11[a]" if with_audio \
-            else "anullsrc=r=48000:cl=stereo[a]"
-        res = run(["ffmpeg", "-y", "-ss", f"{a:.2f}", "-to", f"{b:.2f}", "-i", str(src), "-filter_complex",
-                   f"[0:v]{FIT}[v];{audio}", "-map", "[v]", "-map", "[a]", "-t", f"{b - a:.2f}", *ENC, str(out)],
-                  timeout=600)
-        if res.returncode == 0 and out.exists() and probe(out)["duration"] > 1:
-            return True
-    return False
+def _has_audio(path: Path) -> bool:
+    res = run(["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0",
+               str(path)], timeout=30)
+    return bool(res.stdout.strip())
+
+
+def _segment(src: Path, a: float, b: float, out: Path, silent_ok: bool = False) -> bool:
+    """One piece of the video: 1920x1080/30fps, even loudness. Audio and video are cut to EXACTLY the same
+    length (whole frames) - otherwise tiny differences add up over 15 clips and the sound drifts out of sync."""
+    d = round((b - a) * 30) / 30
+    vchain = f"[0:v]{FIT},trim=duration={d:.4f},setpts=PTS-STARTPTS[v]"
+    if _has_audio(src):
+        achain = (f"[0:a]aresample=48000,aformat=channel_layouts=stereo,loudnorm=I=-16:TP=-1.5:LRA=11,"
+                  f"aresample=48000,apad,atrim=duration={d:.4f},asetpts=PTS-STARTPTS[a]")
+    elif silent_ok:
+        achain = f"anullsrc=r=48000:cl=stereo,atrim=duration={d:.4f}[a]"
+    else:
+        log.info("[long] %s has no sound - not used", src.name)
+        return False
+    res = run(["ffmpeg", "-y", "-ss", f"{a:.3f}", "-t", f"{d + 0.5:.3f}", "-i", str(src), "-filter_complex",
+               f"{vchain};{achain}", "-map", "[v]", "-map", "[a]", *ENC, str(out)], timeout=600)
+    if res.returncode != 0 or not out.exists() or probe(out)["duration"] < 1:
+        log.warning("[long] could not prepare %s: %.300s", src.name, res.stderr[-300:])
+        return False
+    return True
+
+
+def _join(segs: list[Path], out: Path) -> bool:
+    """Join with the concat FILTER (decodes + re-encodes): timestamps line up exactly, no drift between clips."""
+    inputs = []
+    for sg in segs:
+        inputs += ["-i", str(sg)]
+    pads = "".join(f"[{i}:v][{i}:a]" for i in range(len(segs)))
+    res = run(["ffmpeg", "-y", *inputs, "-filter_complex", f"{pads}concat=n={len(segs)}:v=1:a=1[v][a]",
+               "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+               "-c:a", "aac", "-b:a", "256k", "-ar", "48000", str(out)], timeout=2400)
+    if res.returncode != 0:
+        log.error("[long] join failed: %s", res.stderr[-500:])
+    return res.returncode == 0 and out.exists()
+
+
+def _vdur(path: Path) -> float:
+    """Duration of the VIDEO stream (the container duration can include a longer audio tail)."""
+    res = run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=duration", "-of",
+               "csv=p=0", str(path)], timeout=30)
+    try:
+        return float(res.stdout.strip())
+    except ValueError:
+        return probe(path)["duration"]
 
 
 def _ass_text(s: str) -> str:
@@ -399,7 +441,7 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str) -> dict | None:
     ta = max(0.0, min(top["best_t"] - t_len / 2, top["dur"] - t_len))
     if _segment(top["path"], ta, ta + t_len, teaser):
         segs.append(teaser)
-    cursor = sum(probe(s)["duration"] for s in segs)
+    cursor = sum(_vdur(s) for s in segs)
     if intro_v and segs:
         voiced.append({**intro_v, "t": 0.3})
     n = len(moments)
@@ -408,7 +450,7 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str) -> dict | None:
         if not _segment(m["path"], m["a"], m["b"], out):
             log.warning("[long] could not prepare %s - dropped", m["key"])
             continue
-        d = probe(out)["duration"]
+        d = _vdur(out)
         num = n - i
         cards.append({"start": cursor, "n": num, "label": m["label"],
                       "who": f"{m['streamer']} on {m['platform'].title()}", "m": m})
@@ -429,22 +471,19 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str) -> dict | None:
     outro_len = float(c.get("outro_sec", 7.0))
     if frame.exists():
         run(["ffmpeg", "-y", "-loop", "1", "-i", str(frame), "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
-             "-t", f"{outro_len}", "-vf", "scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,"
-             "boxblur=25:2,eq=brightness=-0.3,fps=30,format=yuv420p", *ENC, str(outro)], timeout=120)
+             "-filter_complex", "[0:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,"
+             f"boxblur=25:2,eq=brightness=-0.3,fps=30,format=yuv420p,trim=duration={outro_len}[v];"
+             f"[1:a]atrim=duration={outro_len}[a]", "-map", "[v]", "-map", "[a]", *ENC, str(outro)], timeout=120)
         if outro.exists():
             segs.append(outro)
             ov = voice_by_text.get(pkg["outro_line"])
             if ov and ov["dur"] < outro_len - 0.5:
                 voiced.append({**ov, "t": outro_at + 0.3})
     total = outro_at + (outro_len if outro.exists() else 0)
-    lst = LONG_DIR / "segments.txt"
-    lst.write_text("".join(f"file '{s.name}'\n" for s in segs))
     body = LONG_DIR / "body.mp4"
-    res = run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(lst), "-c", "copy", str(body)], timeout=300)
-    if res.returncode != 0:
-        log.error("[long] concat failed: %s", res.stderr[-500:])
+    if not _join(segs, body):
         return None
-    total = probe(body)["duration"] or total
+    total = _vdur(body) or total
 
     ass = LONG_DIR / f"{clip_id}.ass"
     handle = load_config().get("brand", {}).get("handles", {}).get("youtube", "")
