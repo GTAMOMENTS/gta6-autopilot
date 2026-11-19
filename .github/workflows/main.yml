@@ -3,16 +3,13 @@ name: GTA6 Top Moments 24/7 Autopilot
 on:
   schedule:
     # UTC times = TRT (Europe/Istanbul, UTC+3) minus 3h. Must match config.json "schedule".
-    # 4 Shorts a day to YouTube Shorts + Instagram + TikTok + X (started ~20 min before each peak hour)
-    # + 1 long YouTube video a day (the day's best stream moments, 5-10 min).
+    # 1 Short every 2 days (23:40 slot) to YouTube Shorts + Instagram + TikTok + X, 1 long YouTube video every 3 days
+    # (20:10 slot). The cron fires daily; config.json "every_days" makes the bot skip the in-between days.
     - cron: '50 6 * * *'    # 09:50 TRT  x_text_morning
-    - cron: '40 10 * * *'   # 13:40 TRT  vertical_clip  (live ~14:00 TRT = 12:00 CET)
     - cron: '20 13 * * *'   # 16:20 TRT  x_question_nostalgia
-    - cron: '40 14 * * *'   # 17:40 TRT  vertical_clip  (live ~18:00 TRT = 11:00 New York)
     - cron: '10 17 * * *'   # 20:10 TRT  long_video     (5-10 min YouTube countdown, live ~21:00 TRT = 14:00 New York)
     - cron: '20 19 * * *'   # 22:20 TRT  x_daily_recap
     - cron: '40 20 * * *'   # 23:40 TRT  vertical_clip  (live ~00:00 TRT = 17:00 New York)
-    - cron: '40 23 * * *'   # 02:40 TRT  vertical_clip  (live ~03:00 TRT = 20:00 New York, US prime time)
   workflow_dispatch:
     inputs:
       slot:
@@ -199,6 +196,8 @@ jobs:
           path: |
             work/ready/*.mp4
             work/ready/*.png
+            work/ready/*.jpg
+            work/ready/*.txt
             work/ready/*.mp3
           retention-days: 5
           if-no-files-found: ignore

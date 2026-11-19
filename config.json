@@ -22,29 +22,9 @@
       ]
     },
     {
-      "time": "13:40",
-      "type": "vertical_clip",
-      "platforms": [
-        "instagram",
-        "tiktok",
-        "youtube",
-        "x"
-      ]
-    },
-    {
       "time": "16:20",
       "type": "x_question_nostalgia",
       "platforms": [
-        "x"
-      ]
-    },
-    {
-      "time": "17:40",
-      "type": "vertical_clip",
-      "platforms": [
-        "instagram",
-        "tiktok",
-        "youtube",
         "x"
       ]
     },
@@ -53,7 +33,10 @@
       "type": "long_video",
       "platforms": [
         "youtube"
-      ]
+      ],
+      "every_days": 3,
+      "not_before": "2026-11-22T16:00:00Z",
+      "_note": "First long video published by hand on 2026-11-19; automatic ones start 2026-11-22 20:10 TRT, then every 3 days."
     },
     {
       "time": "22:20",
@@ -70,17 +53,8 @@
         "tiktok",
         "youtube",
         "x"
-      ]
-    },
-    {
-      "time": "02:40",
-      "type": "vertical_clip",
-      "platforms": [
-        "instagram",
-        "tiktok",
-        "youtube",
-        "x"
-      ]
+      ],
+      "every_days": 2
     }
   ],
   "publishing": {
@@ -773,12 +747,12 @@
         "banner_example": "GTA 6 SECRETS YOU MISSED",
         "title_example": "GTA 6 Secrets You Probably MISSED",
         "queries": [
-          "GTA 6 secrets",
-          "GTA 6 hidden details",
-          "GTA 6 easter eggs gameplay",
-          "GTA 6 things you missed",
-          "GTA 6 small details",
-          "GTA 6 hidden features"
+          "GTA 6 secrets no commentary",
+          "GTA 6 hidden details no commentary",
+          "GTA 6 easter eggs no commentary",
+          "GTA 6 small details gameplay no commentary",
+          "GTA 6 free roam details 4K no commentary",
+          "GTA 6 easter egg gameplay"
         ],
         "title_terms": [
           "secret",
@@ -787,7 +761,8 @@
           "easter egg",
           "easter eggs",
           "details",
-          "missed"
+          "missed",
+          "no commentary"
         ],
         "series": "GTA 6 Secrets",
         "keywords": "GTA 6 secrets hidden details easter eggs",
@@ -1041,5 +1016,6 @@
   "critic": {
     "enabled": true,
     "_note": "A second free AI (GPT-4.1 via GitHub Models first) rewrites titles / banners / hooks for more clicks without inventing anything; originals are kept if a rewrite breaks the rules."
-  }
+  },
+  "_schedule_note": "Owner's choice (2026-11-19, after YouTube's upload limit): 1 Short every 2 days (23:40 slot), 1 long video every 3 days (20:10 slot). every_days counts from the last successful post."
 }
