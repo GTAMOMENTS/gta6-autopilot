@@ -3,13 +3,13 @@ name: GTA6 Top Moments 24/7 Autopilot
 on:
   schedule:
     # UTC times = TRT (Europe/Istanbul, UTC+3) minus 3h. Must match config.json "schedule".
-    # 5 videos a day to YouTube Shorts + Instagram + TikTok + X, started ~20 min before each peak
-    # hour so the post is live on time: EU lunch, US morning, EU prime time, US afternoon, US prime time.
+    # 4 Shorts a day to YouTube Shorts + Instagram + TikTok + X (started ~20 min before each peak hour)
+    # + 1 long YouTube video a day (the day's best stream moments, 5-10 min).
     - cron: '50 6 * * *'    # 09:50 TRT  x_text_morning
     - cron: '40 10 * * *'   # 13:40 TRT  vertical_clip  (live ~14:00 TRT = 12:00 CET)
     - cron: '20 13 * * *'   # 16:20 TRT  x_question_nostalgia
     - cron: '40 14 * * *'   # 17:40 TRT  vertical_clip  (live ~18:00 TRT = 11:00 New York)
-    - cron: '40 17 * * *'   # 20:40 TRT  vertical_clip  (live ~21:00 TRT = 19:00 CET / 14:00 New York)
+    - cron: '10 17 * * *'   # 20:10 TRT  long_video     (5-10 min YouTube countdown, live ~21:00 TRT = 14:00 New York)
     - cron: '20 19 * * *'   # 22:20 TRT  x_daily_recap
     - cron: '40 20 * * *'   # 23:40 TRT  vertical_clip  (live ~00:00 TRT = 17:00 New York)
     - cron: '40 23 * * *'   # 02:40 TRT  vertical_clip  (live ~03:00 TRT = 20:00 New York, US prime time)
@@ -24,6 +24,7 @@ on:
           - voice_samples
           - remake
           - stream_clip
+          - long_video
           - vertical_clip
           - x_video_clip
           - test_all
@@ -65,7 +66,7 @@ jobs:
     permissions:
       contents: read
       models: read   # free GitHub Models AI (backup script writer), no key needed
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

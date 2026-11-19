@@ -40,7 +40,7 @@ def refresh_stats(max_videos: int | None = None) -> int:
     max_videos = max_videos or int(cfg.get("max_fetch_per_run", 6))
     every = float(cfg.get("refresh_hours", 6)) * 3600
     m = load_manifest()
-    todo = [i for i in _items(m) if i.get("status") == "published" and _yt_url(i)
+    todo = [i for i in _items(m) if i.get("status") == "published" and _yt_url(i) and not i.get("removed")
             and 3 <= _age_h(i) <= float(cfg.get("track_days", 10)) * 24
             and time.time() - (i.get("stats") or {}).get("at", 0) > every]
     todo.sort(key=lambda i: (i.get("stats") or {}).get("at", 0))
@@ -52,8 +52,11 @@ def refresh_stats(max_videos: int | None = None) -> int:
         except (json.JSONDecodeError, TypeError):
             meta = None
         if not isinstance(meta, dict):
-            log.info("[learn] could not read stats for %s (%.120s)", _yt_url(item),
-                     (res.stderr or "").strip().splitlines()[-1:] or "")
+            err = (res.stderr or "").strip().splitlines()[-1:] or [""]
+            if "unavailable" in err[0].lower() or "removed" in err[0].lower():
+                item["removed"] = True  # deleted video: stop checking it, keep it out of the scores
+                done += 1
+            log.info("[learn] could not read stats for %s (%.120s)", _yt_url(item), err)
             continue
         item["stats"] = {"views": int(meta.get("view_count") or 0), "likes": int(meta.get("like_count") or 0),
                          "comments": int(meta.get("comment_count") or 0), "age_h": round(_age_h(item), 1),
@@ -74,7 +77,7 @@ def format_scores() -> dict[str, dict]:
     out: dict[str, dict] = {}
     for item in _items(load_manifest()):
         st, fmt = item.get("stats"), item.get("format_id")
-        if not isinstance(st, dict) or not fmt or st.get("age_h", 0) < min_age:
+        if item.get("removed") or not isinstance(st, dict) or not fmt or st.get("age_h", 0) < min_age:
             continue
         v = st["views"]
         val = math.log10(v + 10) + 0.5 * math.log10(1 + 20 * (st["likes"] + 3 * st["comments"]) / max(v, 50))

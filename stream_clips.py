@@ -68,10 +68,14 @@ def twitch_clips(c: dict) -> list[dict]:
     since = start.strftime("%Y-%m-%dT%H:%M:%SZ")
     out, seen = [], set()
 
+    gid_box = {}
+
     def add(items):
         for x in items:
             if x.get("id") in seen:
                 continue
+            if gid_box.get("id") and x.get("game_id") and str(x["game_id"]) != str(gid_box["id"]):
+                continue  # clipped while the streamer was playing something else
             seen.add(x.get("id"))
             out.append(_clip("twitch", x["id"], x["url"], x.get("title", ""), x.get("broadcaster_name", ""),
                              int(x.get("view_count") or 0), _ts(x.get("created_at", "")),
@@ -83,6 +87,7 @@ def twitch_clips(c: dict) -> list[dict]:
             log.warning("[streams] Twitch: game not found")
             return []
         gid = games[0]["id"]
+        gid_box["id"] = gid
         streams = requests.get(f"{api}/streams", headers=headers, timeout=20,
                                params={"game_id": gid, "first": 100, "type": "live"}).json().get("data", [])
         langs = set(c.get("languages", ["en"]))
@@ -187,8 +192,10 @@ def kick_clips(c: dict) -> list[dict]:
             slug = ch.get("slug") or ch.get("username") or ""
             out.append(_clip("kick", x["id"], f"https://kick.com/{slug}/clips/{x['id']}", x.get("title", ""),
                              ch.get("username") or slug, int(x.get("views") or x.get("view_count") or 0), created,
-                             float(x.get("duration") or 0), "", x.get("video_url") or ""))
+                             float(x.get("duration") or 0), "", x.get("video_url") or x.get("clip_url") or ""))
             kept += 1
+            if kept == 1 and not out[-1]["media_url"]:
+                log.info("[streams] Kick clip has no video URL - fields: %s", sorted(x.keys())[:25])
         notes.append(f"{url.split('kick.com')[1][:50]}: {len(items)} clips, {kept} GTA 6 + recent")
     log.info("[streams] Kick: %d recent GTA 6 clips (%s)", len(out), "; ".join(notes[:6]))
     return out
@@ -349,7 +356,8 @@ The attached video is the clip. Watch AND listen to all of it.
 1. GATE - judge honestly:
    - is_gta6_footage: true only if the game shown is real Grand Theft Auto VI (Leonida / Vice City, GTA VI HUD).
    - is_spoiler: true if it shows story spoilers (story cutscenes, plot reveals, endings, character deaths).
-   - unsafe: true for nudity, hate speech, slurs, real violence, doxxing or anything a platform would remove.
+   - unsafe: true ONLY for nudity, hate speech / slurs, real-world violence or doxxing. In-game violence, crime,
+     police chases and swearing are normal GTA content and are NOT unsafe.
    - hype_score 1-10: how funny / wild / shareable the moment AND the reaction are (9-10 = everyone would send
      this to a friend; 5-6 = meh). Be strict.
 2. transcript: what people SAY, as short phrases in order: {{"start": s, "end": e, "text": "..."}} - seconds of
