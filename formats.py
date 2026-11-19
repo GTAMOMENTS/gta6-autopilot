@@ -7,6 +7,7 @@ The position is kept in queue/format_rotation.json (saved between runs by the Ac
 from __future__ import annotations
 
 import logging
+import random
 
 from common import STATE_DIR, env, load_config, load_json, save_json
 
@@ -33,7 +34,52 @@ def current_format(cfg: dict | None = None) -> dict | None:
             return match
         log.warning("[format] unknown FORMAT '%s' - using the rotation", wanted)
     state = load_json(ROTATION_FILE, {"next": 0, "history": []})
-    return rot[int(state.get("next", 0)) % len(rot)]
+    in_turn = rot[int(state.get("next", 0)) % len(rot)]
+    return _learned_choice(cfg or load_config(), rot, state, in_turn)
+
+
+def _learned_choice(cfg: dict, rot: list[dict], state: dict, in_turn: dict) -> dict:
+    """Favour the formats the audience watches most (YouTube views/likes/comments), but keep exploring:
+    plain rotation until every format has enough data, then mostly the best recent performers."""
+    lcfg = cfg.get("learning", {})
+    if not lcfg.get("enabled", True):
+        return in_turn
+    try:
+        import analytics
+        scores = analytics.format_scores()
+    except Exception as exc:  # noqa: BLE001
+        log.info("[learn] no scores yet (%s)", exc)
+        return in_turn
+    need = int(lcfg.get("min_samples", 2))
+    if any(scores.get(f["id"], {}).get("n", 0) < need for f in rot):
+        log.info("[learn] still collecting data (%s) - normal rotation",
+                 {f["id"]: scores.get(f["id"], {}).get("n", 0) for f in rot})
+        return in_turn
+    if random.random() < float(lcfg.get("explore", 0.25)):
+        log.info("[learn] exploring - format in turn: %s", in_turn["id"])
+        return in_turn
+    recent = [h.get("format") for h in state.get("history", [])[-int(lcfg.get("no_repeat", 2)):]]
+    ranked = sorted((f for f in rot if f["id"] not in recent), key=lambda f: scores[f["id"]]["score"], reverse=True)
+    pick = ranked[0] if ranked else in_turn
+    log.info("[learn] best performers: %s -> %s",
+             [(f["id"], scores[f["id"]]["score"]) for f in ranked[:3]], pick["id"])
+    return pick
+
+
+def series_label(fmt: dict | None) -> str:
+    """e.g. "GTA 6 Car Chases #4" - numbered series make people binge the channel."""
+    if not fmt or not fmt.get("series"):
+        return ""
+    state = load_json(ROTATION_FILE, {"next": 0, "history": []})
+    return f'{fmt["series"]} #{int(state.get("series", {}).get(fmt["id"], 0)) + 1}'
+
+
+def bump_series(fmt: dict | None) -> None:
+    if not fmt or not fmt.get("series"):
+        return
+    state = load_json(ROTATION_FILE, {"next": 0, "history": []})
+    state.setdefault("series", {})[fmt["id"]] = int(state.get("series", {}).get(fmt["id"], 0)) + 1
+    save_json(ROTATION_FILE, state)
 
 
 def advance_format(fmt: dict | None, ok: bool) -> None:

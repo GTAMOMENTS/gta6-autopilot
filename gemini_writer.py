@@ -245,6 +245,8 @@ TASKS
    - Start 1-2 seconds BEFORE the action kicks in, so the first seconds already hook. End right after the
      payoff (crash, escape, punchline, reveal). Skip dialogue-only, walking and loading parts.
    - Motion/loudness analysis says the most intense parts are around: {hints}. Use it as a hint only.
+   - payoff_t: the second of THIS footage where the single biggest moment happens (the crash, the jump
+     landing, the punchline). The video opens with a 1-second flash of it, and it gets a zoom + sound effect.
 3. WRITE THE NARRATION SCRIPT for the part you picked. A voice actor reads it over the clip, so it must be a
    GREAT script like the top GTA Shorts channels (millions of views): a likeable 25-year-old gamer talking
    straight to the viewer, casual and confident, a bit funny, genuinely hyped - NOT an announcer, NOT a
@@ -281,7 +283,8 @@ TASKS
 
 Return ONLY JSON with exactly these keys:
 {{"is_gta6_footage": bool, "has_facecam": bool, "has_narrator": bool, "is_spoiler": bool, "fits_format": bool, "hype_score": int,
- "scene_summary": str, "clip_start": number, "clip_end": number, "content_type": "explainer" | "action" | "scenic",
+ "scene_summary": str, "clip_start": number, "clip_end": number, "payoff_t": number,
+ "content_type": "explainer" | "action" | "scenic",
  "banner": str, "commentary": [{{"t": number, "line": str}}], "youtube_title": str, "caption": str,
  "x_text": str, "hashtags": [str]}}"""
 
@@ -668,6 +671,10 @@ def _clean_copy(d: dict, clip_dur: float = 48) -> dict:
         clip_end = float(d.get("clip_end")) if d.get("clip_end") is not None else None
     except (TypeError, ValueError):
         clip_start = clip_end = None
+    try:
+        payoff_t = float(d.get("payoff_t")) if d.get("payoff_t") is not None else None
+    except (TypeError, ValueError):
+        payoff_t = None
     return {
         "is_gta6_footage": bool(d.get("is_gta6_footage", True)),
         "has_facecam": bool(d.get("has_facecam", False)),
@@ -682,7 +689,7 @@ def _clean_copy(d: dict, clip_dur: float = 48) -> dict:
         "commentary_raw": raw,
         "shots": _shots(d, clip_dur),
         "angle": s("angle"),
-        "clip_start": clip_start, "clip_end": clip_end,
+        "clip_start": clip_start, "clip_end": clip_end, "payoff_t": payoff_t,
         "script": " ".join(ln["text"] for ln in (_shots(d, clip_dur) or raw)),
         "youtube_title": _strip_brands(s("youtube_title", "This GTA 6 moment is unreal"), "This GTA 6 moment is unreal")[:80],
         "caption": _strip_brands(s("caption", "This GTA 6 moment goes crazy. Would you try this?"), "This GTA 6 moment goes crazy. Would you try this?"),

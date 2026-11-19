@@ -15,6 +15,7 @@ If a provider is not configured or fails, the next one in the list is tried.
 from __future__ import annotations
 
 import logging
+import re
 import time
 import uuid
 from pathlib import Path
@@ -63,26 +64,51 @@ def clean_hashtags(tags: list[str]) -> list[str]:
     return list(dict.fromkeys(out)) or ["#GTA6"]
 
 
+def _closing_question(copy: dict) -> str:
+    """The video's ending question - used as the first comment to get people talking."""
+    lines = [ln.get("text", "") for ln in copy.get("commentary") or []]
+    for text in reversed(lines):
+        if text.strip().endswith("?"):
+            return text.strip()
+    qs = [x.strip() for x in re.findall(r"[^.!?]+\?", copy.get("caption", ""))]
+    return qs[-1] if qs else ""
+
+
 def build_captions(copy: dict, credit: str) -> dict:
-    tags = clean_hashtags(copy.get("hashtags") or ["#GTA6"])
-    tag_str = " ".join(tags)
+    mx = _pcfg().get("max_hashtags", {})
+    # 3-5 targeted tags beat 30 generic ones (YouTube ignores ALL tags above 15): #GTA6 + format + AI tags
+    tags = clean_hashtags(["#GTA6"] + list(copy.get("format_tags") or []) + list(copy.get("hashtags") or []))
+
+    def tags_for(platform: str, default: int) -> str:
+        return " ".join(tags[: int(mx.get(platform, default))])
+
     credit_line = f"🎥 Gameplay by {credit}" if credit else ""
-    yt_title = copy.get("youtube_title") or copy.get("banner", "GTA 6 moment").title()
+    keywords = (copy.get("keywords") or "").strip()  # plain search words (TikTok / YouTube search)
+    series = (copy.get("series") or "").strip()
+    base = (copy.get("youtube_title") or copy.get("banner", "GTA 6 moment").title()).strip()
+    if "gta 6" not in base.lower() and "gta vi" not in base.lower():
+        base = f"GTA 6: {base}"
+    yt_title = f"{base} | {series}" if series and len(base) + len(series) + 3 <= 88 else base
     x_text = copy.get("x_text") or copy.get("caption", "")
     x_full = f"{x_text}\n\n{credit_line}".strip()
     x_tags = ""
-    for t in tags[:3]:
+    for t in tags[: int(mx.get("x", 3))]:
         if len(x_full) + len(x_tags) + len(t) + 2 <= 280:
             x_tags += " " + t
     if x_tags:
         x_full += "\n" + x_tags.strip()
+    caption = copy.get("caption", "")
     return {
-        "youtube_title": f"{yt_title} #GTA6 #Shorts"[:100],
-        "youtube_description": f"{copy.get('caption', '')}\n\n{credit_line}\n\n{tag_str} #Shorts".strip(),
-        "instagram": f"{copy.get('caption', '')}\n.\n{credit_line}\n.\n{tag_str} #reels #gaming".strip(),
-        "tiktok": f"{copy.get('caption', '')} {tag_str} #fyp\n{credit_line}".strip()[:2200],
+        "youtube_title": (f"{yt_title} #Shorts" if len(yt_title) <= 91 else yt_title)[:100],
+        "youtube_description": "\n\n".join(x for x in (caption, f"{series} · {keywords}".strip(" ·"), credit_line,
+                                                         f"{tags_for('youtube', 5)} #Shorts") if x).strip(),
+        "instagram": "\n.\n".join(x for x in (caption, credit_line, tags_for("instagram", 5)) if x).strip(),
+        "tiktok": "\n".join(x for x in (f"{caption} {keywords}".strip(), tags_for("tiktok", 5), credit_line)
+                            if x).strip()[:2200],
         "x": x_full[:280],
-        "tags": [t.lstrip("#") for t in tags] + ["GTA 6", "GTA VI", "Grand Theft Auto 6"],
+        "tags": [t.lstrip("#") for t in tags] + ["GTA 6", "GTA VI", "Grand Theft Auto 6"]
+                + ([keywords] if keywords else []),
+        "first_comment": _closing_question(copy),
     }
 
 
@@ -153,7 +179,34 @@ def youtube_api_upload(video: Path, caps: dict) -> dict:
     if privacy and privacy != meta["status"]["privacyStatus"]:
         log.warning("[youtube] video %s is '%s' (requested %s) - check YouTube Studio / API project status",
                     vid, privacy, meta["status"]["privacyStatus"])
+    if vid and p.get("first_comment", True) and caps.get("first_comment"):
+        _youtube_first_comment(token, vid, caps["first_comment"])
     return {"ok": True, "url": f"https://youtube.com/shorts/{vid}", "id": vid}
+
+
+_comment_scope_missing = False
+
+
+def _youtube_first_comment(token: str, video_id: str, text: str) -> None:
+    """Post the ending question as the first comment (needs the youtube.force-ssl permission)."""
+    global _comment_scope_missing
+    if _comment_scope_missing:
+        return
+    try:
+        r = requests.post("https://www.googleapis.com/youtube/v3/commentThreads?part=snippet",
+                          headers={"Authorization": f"Bearer {token}"}, timeout=30,
+                          json={"snippet": {"videoId": video_id,
+                                            "topLevelComment": {"snippet": {"textOriginal": text[:500]}}}})
+        if r.status_code in (200, 201):
+            log.info("[youtube] first comment posted: %s", text)
+        elif r.status_code == 403 and ("insufficient" in r.text.lower() or "scope" in r.text.lower()):
+            _comment_scope_missing = True
+            log.warning("[youtube] first comment skipped: the YouTube login has no comment permission. "
+                        "Re-run tools/youtube_auth.py once (it now asks for it) and update YT_REFRESH_TOKEN.")
+        else:
+            log.warning("[youtube] first comment failed %s: %.200s", r.status_code, r.text)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[youtube] first comment failed: %.200s", exc)
 
 
 # --------------------------------------------------------------------------- Zernio

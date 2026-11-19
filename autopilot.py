@@ -112,10 +112,17 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
     budget_end = time.time() + int(scfg.get("time_budget_min", 25)) * 60
 
     def publish_and_record(src, copy, clip_id, rendered, ranges) -> tuple[bool, dict]:
+        from formats import bump_series, series_label
         c = src.candidate
         mark_used(src)
+        if fmt:
+            copy["format_tags"] = list(fmt.get("hashtags", []))
+            copy["keywords"] = fmt.get("keywords", "")
+            copy["series"] = series_label(fmt)
         results = {} if dry_run else publish_video(Path(rendered["path"]), platforms, copy, src.credit)
         ok = dry_run or any(r.get("ok") for r in results.values())
+        if ok and not dry_run:
+            bump_series(fmt)
         record = {
             "id": clip_id, "slot": slot["type"], "created_at": datetime.now(timezone.utc).isoformat(),
             "source": {"provider": c.provider, "kind": c.kind, "url": c.url, "title": c.title, "credit": src.credit,
@@ -158,7 +165,16 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         if not clip:
             return None
         copy["commentary"] = [{"t": round(v["t"], 1), "text": v["text"]} for v in kept]
-        rendered = render(clip, clip_id, copy["banner"], copy["commentary"], voiced=kept)
+        # effects: zoom punch on the opening shot, whoosh on every cut, boom when the last item starts
+        cuts, acc = [], 0.0
+        for a, b in segments[:-1]:
+            acc += b - a
+            cuts.append(acc)
+        fx = {"zoom": [(0.0, 0.9)], "sfx": [{"t": max(0.0, t - 0.2), "kind": "whoosh"} for t in cuts]}
+        if cuts:
+            fx["sfx"].append({"t": cuts[-1], "kind": "boom"})
+            fx["zoom"].append((cuts[-1], cuts[-1] + 1.0))
+        rendered = render(clip, clip_id, copy["banner"], copy["commentary"], voiced=kept, fx=fx)
         if not rendered:
             return None
         return publish_and_record(src, copy, clip_id, rendered, segments)
@@ -176,11 +192,30 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         else:
             end = min(end, sec_dur, start + max_len)
             log.info("[editor] AI picked %.0f-%.0fs of the slice (%.0fs)", start, end, end - start)
-        clip = cut_segments(section, RAW_DIR / f"clip_{int(time.time())}.mp4", [(start, end)])
+        # the big moment: AI's payoff_t, else the most intense second of the picked part
+        payoff = copy.get("payoff_t")
+        if payoff is None or not start <= payoff <= end:
+            part = energy[int(start):int(end)] or [0]
+            payoff = start + part.index(max(part)) + 0.5
+        teaser = float(vcfg.get("fx", {}).get("teaser_sec", 0))
+        segs = [(start, end)]
+        if teaser > 0:  # cold open: 1.2 s flash of the payoff, then the clip from the start
+            ta = max(0.0, min(payoff - teaser * 0.4, sec_dur - teaser))
+            segs = [(ta, ta + teaser), (start, end)]
+        clip = cut_segments(section, RAW_DIR / f"clip_{int(time.time())}.mp4", segs)
         section.unlink(missing_ok=True)
         if not clip:
             return None
+        lead = teaser if teaser > 0 else 0.0
+        hit = lead + payoff - start
+        fx = {"zoom": [(0.0, lead)] if lead else [], "sfx": []}
+        if lead:
+            fx["sfx"] += [{"t": max(0.0, payoff - segs[0][0] - 0.05), "kind": "boom"},
+                          {"t": max(0.0, lead - 0.25), "kind": "whoosh"}]
+        fx["zoom"].append((max(lead, hit - 0.1), hit + 1.1))
+        fx["sfx"].append({"t": max(lead, hit - 0.05), "kind": "boom"})
         commentary = finalize_commentary(copy, start, end)
+        commentary = [{**ln, "t": round(ln["t"] + lead, 2)} for ln in commentary]
         copy["commentary"] = commentary
         log.info("[editor] voice lines: %s", [f"{ln['t']:.0f}s {ln['text']}" for ln in commentary])
         good, why = script_ok(commentary, c.kind, copy.get("ai_source", ""))
@@ -191,10 +226,10 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
             return None
 
         clip_id = "gta6_" + now_local().strftime("%Y%m%d_%H%M") + "_" + hashlib.md5(c.key.encode()).hexdigest()[:6]
-        rendered = render(clip, clip_id, copy["banner"], commentary)
+        rendered = render(clip, clip_id, copy["banner"], commentary, fx=fx)
         if not rendered:
             return None
-        return publish_and_record(src, copy, clip_id, rendered, [[start, end]])
+        return publish_and_record(src, copy, clip_id, rendered, [list(x) for x in segs])
 
     script_problems: list[str] = []  # clips skipped because no proper AI script could be written
     backup = None  # best "almost good enough" clip, used only if nothing reaches min_hype
@@ -464,6 +499,14 @@ def main() -> int:
         return 0
 
     READY_DIR.mkdir(parents=True, exist_ok=True)
+    try:  # learn from views: refresh recent videos' YouTube stats (cheap, a few per run)
+        import analytics
+        analytics.refresh_stats()
+        scores = analytics.format_scores()
+        if scores:
+            log.info("[learn] format scores: %s", {k: (v["score"], v["n"]) for k, v in scores.items()})
+    except Exception as exc:  # noqa: BLE001
+        log.info("[learn] stats refresh skipped: %.150s", exc)
     if slot["type"] in VIDEO_TYPES:
         from formats import advance_format, current_format
         fmt = current_format(cfg)
