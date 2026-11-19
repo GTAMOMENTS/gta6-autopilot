@@ -120,9 +120,26 @@ def _ytdlp_cookies():
     if shutil.which("node"):
         cmd += ["--js-runtimes", "node"]
     res = run(cmd + ["https://www.youtube.com/watch?v=QdBZY2fkU-0"], timeout=150)
-    path.unlink(missing_ok=True)
     if res.returncode == 0:
-        return OK, f"works - {len(cookies)} cookies, YouTube accepted them", ""
+        # the login works - but which qualities does YouTube actually serve? (the bot needs 720p+)
+        import json as _json
+        best = {}
+        for vid in ("QdBZY2fkU-0", "RuZUqpDuzfo"):
+            r2 = res if vid == "QdBZY2fkU-0" else run(cmd + [f"https://www.youtube.com/watch?v={vid}"], timeout=150)
+            try:
+                fmts = _json.loads(r2.stdout).get("formats", [])
+                best[vid] = max([f.get("height") or 0 for f in fmts if f.get("vcodec") not in (None, "none")] or [0])
+            except Exception:  # noqa: BLE001
+                best[vid] = f"error: {(r2.stderr.strip().splitlines() or ['?'])[-1][:120]}"
+        ver = run(["yt-dlp", "--version"], timeout=30).stdout.strip()
+        path.unlink(missing_ok=True)
+        log.info("[check] yt-dlp %s - best video height per test video: %s", ver, best)
+        heights = [h for h in best.values() if isinstance(h, int)]
+        if heights and max(heights) < 720:
+            return BAD, f"login accepted, but YouTube only serves up to {max(heights)}p (bot needs 720p+), yt-dlp {ver}", \
+                "Usually a YouTube player change - needs a newer yt-dlp. Tell Claude."
+        return OK, f"works - {len(cookies)} cookies, up to {max(heights or [0])}p available (yt-dlp {ver})", ""
+    path.unlink(missing_ok=True)
     err = res.stderr.strip().splitlines()[-1][:180] if res.stderr.strip() else "unknown error"
     if "format is not available" in err:
         return BAD, "login accepted, but YouTube's video streams could not be unlocked", \
