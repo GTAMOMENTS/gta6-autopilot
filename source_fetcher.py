@@ -266,6 +266,13 @@ def _ytdlp_base() -> list[str]:
     return cmd
 
 
+def blocked_channel(name: str, cfg: dict | None = None) -> bool:
+    """News sites / official accounts: their footage gets copyright-claimed fast - never use it."""
+    blocked = (cfg or load_config()).get("sources", {}).get("blocked_channels", [])
+    low = (name or "").lower().strip()
+    return bool(low) and any(b.lower() == low or (len(b) > 4 and b.lower() in low) for b in blocked)
+
+
 def discover_youtube(cfg: dict, queries: list[str], tf: TitleFilter, kind: str = "gameplay") -> list[Candidate]:
     s = cfg.get("sources", {})
     out: dict[str, Candidate] = {}
@@ -290,6 +297,8 @@ def discover_youtube(cfg: dict, queries: list[str], tf: TitleFilter, kind: str =
             if not ok or not (s.get("min_duration_sec", 50) <= dur <= s.get("max_duration_sec", 14400)):
                 continue
             if e.get("live_status") in ("is_live", "is_upcoming"):
+                continue
+            if blocked_channel(e.get("channel") or e.get("uploader") or "", cfg):
                 continue
             key = f"yt:{e['id']}"
             out[key] = Candidate(

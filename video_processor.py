@@ -440,7 +440,8 @@ def _group_words(words: list[dict], max_words: int = 3, max_chars: int = 16) -> 
         if not txt:
             continue
         candidate = " ".join(x["text"] for x in cur + [w])
-        if cur and (len(cur) >= max_words or len(candidate) > max_chars):
+        pause = cur and w["start"] - cur[-1]["end"] > 0.6  # a pause starts a new subtitle (no stale words)
+        if cur and (pause or len(cur) >= max_words or len(candidate) > max_chars):
             groups.append(cur)
             cur = []
         cur.append(w)
@@ -543,7 +544,8 @@ def _zoom_filter(windows: list[tuple[float, float]], amount: float) -> str:
 # --------------------------------------------------------------------------- render
 
 def render(clip: Path, clip_id: str, banner: str, commentary: list[dict],
-           voiced: list[dict] | None = None, fx: dict | None = None) -> dict | None:
+           voiced: list[dict] | None = None, fx: dict | None = None, caption_words: list[dict] | None = None,
+           game_volume: float | None = None, fg_zoom: float | None = None) -> dict | None:
     """commentary = [{"t": seconds, "text": "line"}, ...]. `voiced` = lines already synthesised
     (with path/dur/words) - used by the feature-tour format where the edit follows the voice."""
     cfg = load_config()
@@ -557,6 +559,8 @@ def render(clip: Path, clip_id: str, banner: str, commentary: list[dict],
     lines = place_lines(voiced if voiced is not None else synthesize_lines(commentary, clip_id), total)
     words = [{"text": w["text"], "start": w["start"] + ln["start"], "end": w["end"] + ln["start"]}
              for ln in lines for w in ln["words"]]
+    if caption_words is not None:  # stream clips: subtitles of what the streamer says, no voice-over
+        words = caption_words
 
     ass = VO_DIR / f"{clip_id}.ass"
     build_ass(ass, banner, words, total, vcfg.get("cta_text", "FOLLOW FOR DAILY GTA 6 MOMENTS"))
@@ -566,7 +570,7 @@ def render(clip: Path, clip_id: str, banner: str, commentary: list[dict],
     if vertical_src:
         video_chain = "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1[base]"
     else:
-        zoom = float(vcfg.get("foreground_zoom", 1.3))
+        zoom = float(fg_zoom or vcfg.get("foreground_zoom", 1.3))
         fg_w = int(1080 * zoom) // 2 * 2
         video_chain = (
             "[0:v]split=2[a][b];"
@@ -576,7 +580,8 @@ def render(clip: Path, clip_id: str, banner: str, commentary: list[dict],
             "[bg][fg]overlay=(W-w)/2:(H-h)/2-40[base]"
         )
     ass_escaped = str(ass).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
-    game_vol = float(vcfg.get("game_audio_volume_tour" if voiced is not None else "game_audio_volume", 0.9))
+    game_vol = float(game_volume if game_volume is not None else
+                     vcfg.get("game_audio_volume_tour" if voiced else "game_audio_volume", 0.9))
     vo_gain = float(vcfg.get("voice_volume", 1.25))
 
     # each voice line delayed to its moment, mixed into one sparse voice track

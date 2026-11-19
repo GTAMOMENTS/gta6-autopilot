@@ -42,13 +42,20 @@ def _screen_name(tweet: dict) -> str:
 def parse_timeline(payloads: list[dict], account: str) -> list[dict]:
     """Video posts made by `account` in X timeline JSON (any layout: UserMedia / UserTweets)."""
     out: dict[str, dict] = {}
+    why: dict[str, int] = {}
     for payload in payloads:
         for d in _walk(payload):
             legacy = d.get("legacy")
-            if not (isinstance(legacy, dict) and d.get("rest_id") and legacy.get("extended_entities")):
+            if not (isinstance(legacy, dict) and d.get("rest_id") and "full_text" in legacy):
                 continue
-            if (_screen_name(d).lower() != account.lower() or "retweeted_status_result" in legacy
-                    or str(legacy.get("full_text", "")).startswith("RT @")):
+            if not legacy.get("extended_entities"):
+                why["no media"] = why.get("no media", 0) + 1
+                continue
+            if _screen_name(d).lower() != account.lower():
+                why[f"other account ({_screen_name(d) or '?'})"] = why.get(f"other account ({_screen_name(d) or '?'})", 0) + 1
+                continue
+            if "retweeted_status_result" in legacy or str(legacy.get("full_text", "")).startswith("RT @"):
+                why["retweet"] = why.get("retweet", 0) + 1
                 continue  # only the account's own posts, no retweets
             for media in legacy["extended_entities"].get("media", []):
                 if media.get("type") != "video":
@@ -72,6 +79,11 @@ def parse_timeline(payloads: list[dict], account: str) -> list[dict]:
                     "likes": legacy.get("favorite_count", 0),
                 }
                 break
+            else:
+                why["no video"] = why.get("no video", 0) + 1
+    if why:
+        log.info("[x-source] @%s: %d video posts kept, skipped: %s", account, len(out),
+                 dict(sorted(why.items(), key=lambda kv: -kv[1])[:6]))
     return list(out.values())
 
 
@@ -94,7 +106,7 @@ def fetch_account(account: str, scrolls: int = 5) -> list[dict]:
             ctx.add_cookies(x_browser._browser_cookies())
             page = ctx.new_page()
             page.on("response", on_response)
-            for path in ("media", ""):  # Media tab first, then the main timeline as a fallback
+            for path in ("media",):  # one page only - more page loads trigger X's bot check
                 page.goto(f"https://x.com/{account}/{path}".rstrip("/"), wait_until="domcontentloaded",
                           timeout=60_000)
                 page.wait_for_timeout(7000)
@@ -104,16 +116,20 @@ def fetch_account(account: str, scrolls: int = 5) -> list[dict]:
                 for _ in range(scrolls):
                     page.mouse.wheel(0, 4000)
                     page.wait_for_timeout(2500)
-                ops = {}
+                ops, unreadable = {}, {}
                 for resp in responses:
                     op = resp.url.split("?")[0].rstrip("/").split("/")[-1]
                     ops[op] = ops.get(op, 0) + 1
                     try:
                         payloads.append(resp.json())
                     except Exception as exc:  # noqa: BLE001
-                        log.debug("[x-source] unreadable %s: %s", op, exc)
+                        unreadable[op] = str(exc)[:60]
                 responses.clear()
+                if unreadable:
+                    log.info("[x-source] unreadable answers: %s", unreadable)
                 clips = parse_timeline(payloads, account)
+                if not clips:  # data format not understood -> take the video posts straight from the page
+                    clips = _clips_from_page(page, account)
                 n_tweets = page.locator('[data-testid="tweet"]').count()
                 n_videos = page.locator("video").count()
                 log.info("[x-source] x.com/%s/%s: api calls %s | %d posts, %d videos on page | %d own video posts parsed",
@@ -128,17 +144,68 @@ def fetch_account(account: str, scrolls: int = 5) -> list[dict]:
     return parse_timeline(payloads, account)
 
 
-def account_clips(cfg: dict) -> list[tuple[str, dict]]:
+def _clips_from_page(page, account: str, limit: int = 10) -> list[dict]:
+    """Fallback: status links of the video posts visible on the page; yt-dlp then reads each post
+    (length, date, views, direct video) with the same X login."""
+    hrefs = page.eval_on_selector_all(
+        'article[data-testid="tweet"]',
+        r"""els => els.filter(e => e.querySelector('video, [data-testid="videoPlayer"]'))
+                   .map(e => { const a = [...e.querySelectorAll('a[href*="/status/"]')]
+                                 .map(x => x.getAttribute('href')).find(h => /\/status\/\d+$/.test(h));
+                               const t = e.querySelector('[data-testid="tweetText"]');
+                               return [a || '', t ? t.innerText : '']; })""")
+    out, why = [], {}
+    import json as _json
+    from common import WORK_DIR, cookies_to_netscape, parse_cookies, run
+    jar = WORK_DIR / "x_cookies.txt"
+    jar.parent.mkdir(parents=True, exist_ok=True)
+    jar.write_text(cookies_to_netscape(parse_cookies(env("X_COOKIES"), ".x.com")), encoding="utf-8")
+    for href, text in hrefs:
+        m = re.search(r"^/([^/]+)/status/(\d+)$", href or "")
+        if not m:
+            why["no link"] = why.get("no link", 0) + 1
+            continue
+        if m.group(1).lower() != account.lower():
+            why["other account"] = why.get("other account", 0) + 1
+            continue
+        if any(c["id"] == m.group(2) for c in out) or len(out) >= limit:
+            continue
+        res = run(["yt-dlp", "--no-warnings", "--cookies", str(jar), "-J", "--skip-download",
+                   f"https://x.com{href}"], timeout=60)
+        try:
+            meta = _json.loads(res.stdout)
+        except (ValueError, TypeError):
+            why["yt-dlp failed"] = why.get("yt-dlp failed", 0) + 1
+            log.debug("[x-source] yt-dlp: %s", (res.stderr or "").strip()[-200:])
+            continue
+        if isinstance(meta, dict) and meta.get("_type") == "playlist":
+            meta = (meta.get("entries") or [{}])[0] or {}
+        fmts = [f for f in (meta.get("formats") or []) if f.get("ext") == "mp4" and f.get("vcodec") not in (None, "none")
+                and str(f.get("url", "")).startswith("http") and ".m3u8" not in str(f.get("url", ""))]
+        best = max(fmts, key=lambda f: (f.get("height") or 0, f.get("tbr") or 0)) if fmts else None
+        out.append({"id": m.group(2), "text": text or meta.get("description") or meta.get("title") or "",
+                    "created": float(meta.get("timestamp") or 0) or None, "duration": float(meta.get("duration") or 0),
+                    "media_url": (best or {}).get("url") or "", "width": (best or {}).get("width") or 0,
+                    "height": (best or {}).get("height") or 0, "views": int(meta.get("view_count") or 0),
+                    "likes": int(meta.get("like_count") or 0), "page_url": f"https://x.com{href}"})
+    jar.unlink(missing_ok=True)
+    log.info("[x-source] @%s from the page: %d video posts read with yt-dlp (skipped: %s)", account, len(out), why)
+    return out
+
+
+def account_clips(cfg: dict, accounts: list[str] | None = None, cache_file=None,
+                  cache_hours: float | None = None) -> list[tuple[str, dict]]:
     """[(account, clip)] for every configured X account, from cache when it is fresh."""
     s = cfg.get("sources", {})
-    accounts = [a.lstrip("@") for a in s.get("x_accounts", []) if a.strip()]
+    accounts = [a.lstrip("@") for a in (accounts if accounts is not None else s.get("x_accounts", [])) if a.strip()]
     if not accounts:
         return []
     if not x_browser_ready():
         log.info("[x-source] X_COOKIES not set - skipping X accounts")
         return []
-    cache = load_json(CACHE_FILE, {})
-    max_age = float(s.get("x_cache_hours", 4)) * 3600
+    cache_file = cache_file or CACHE_FILE
+    cache = load_json(cache_file, {})
+    max_age = float(cache_hours if cache_hours is not None else s.get("x_cache_hours", 4)) * 3600
     out = []
     for acc in accounts:
         entry = cache.get(acc.lower(), {})
@@ -152,7 +219,7 @@ def account_clips(cfg: dict) -> list[tuple[str, dict]]:
             except Exception as exc:  # noqa: BLE001
                 log.warning("[x-source] could not read @%s: %.200s", acc, exc)
         out += [(acc, c) for c in entry.get("clips", [])]
-    save_json(CACHE_FILE, cache)
+    save_json(cache_file, cache)
     return out
 
 

@@ -23,6 +23,7 @@ on:
           - check_setup
           - voice_samples
           - remake
+          - stream_clip
           - vertical_clip
           - x_video_clip
           - test_all

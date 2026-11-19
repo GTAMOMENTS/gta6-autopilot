@@ -6,3 +6,4 @@ yt_client_secret*.json
 01_Raw_Clips/
 02_Voiceovers/
 03_Ready_To_Post/
+queue_streams/
