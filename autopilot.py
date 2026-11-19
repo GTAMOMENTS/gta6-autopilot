@@ -506,7 +506,7 @@ def main() -> int:
         if scores:
             log.info("[learn] format scores: %s", {k: (v["score"], v["n"]) for k, v in scores.items()})
     except Exception as exc:  # noqa: BLE001
-        log.info("[learn] stats refresh skipped: %.150s", exc)
+        log.warning("[learn] stats refresh skipped: %.150s", exc, exc_info=True)
     if slot["type"] in VIDEO_TYPES:
         from formats import advance_format, current_format
         fmt = current_format(cfg)

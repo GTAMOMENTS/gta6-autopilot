@@ -13,16 +13,22 @@ from common import load_config, run
 log = logging.getLogger("autopilot")
 
 
+def _items(m: dict) -> list[dict]:
+    return [i for i in (m.get("items") or []) if isinstance(i, dict)]  # old/odd entries are skipped
+
+
 def _age_h(item: dict) -> float:
     try:
-        created = datetime.fromisoformat(item["created_at"].replace("Z", "+00:00"))
-    except (KeyError, ValueError):
+        created = datetime.fromisoformat(str(item["created_at"]).replace("Z", "+00:00"))
+    except (KeyError, ValueError, TypeError):
         return 0.0
     return (datetime.now(timezone.utc) - created).total_seconds() / 3600
 
 
 def _yt_url(item: dict) -> str:
-    return ((item.get("results") or {}).get("youtube") or {}).get("url", "") or ""
+    results = item.get("results")
+    yt = results.get("youtube") if isinstance(results, dict) else None
+    return (yt.get("url") or "") if isinstance(yt, dict) else ""
 
 
 def refresh_stats(max_videos: int | None = None) -> int:
@@ -34,7 +40,7 @@ def refresh_stats(max_videos: int | None = None) -> int:
     max_videos = max_videos or int(cfg.get("max_fetch_per_run", 6))
     every = float(cfg.get("refresh_hours", 6)) * 3600
     m = load_manifest()
-    todo = [i for i in m["items"] if i.get("status") == "published" and _yt_url(i)
+    todo = [i for i in _items(m) if i.get("status") == "published" and _yt_url(i)
             and 3 <= _age_h(i) <= float(cfg.get("track_days", 10)) * 24
             and time.time() - (i.get("stats") or {}).get("at", 0) > every]
     todo.sort(key=lambda i: (i.get("stats") or {}).get("at", 0))
@@ -44,7 +50,10 @@ def refresh_stats(max_videos: int | None = None) -> int:
         try:
             meta = json.loads(res.stdout)
         except (json.JSONDecodeError, TypeError):
-            log.info("[learn] could not read stats for %s", _yt_url(item))
+            meta = None
+        if not isinstance(meta, dict):
+            log.info("[learn] could not read stats for %s (%.120s)", _yt_url(item),
+                     (res.stderr or "").strip().splitlines()[-1:] or "")
             continue
         item["stats"] = {"views": int(meta.get("view_count") or 0), "likes": int(meta.get("like_count") or 0),
                          "comments": int(meta.get("comment_count") or 0), "age_h": round(_age_h(item), 1),
@@ -63,9 +72,9 @@ def format_scores() -> dict[str, dict]:
     cfg = load_config().get("learning", {})
     min_age = float(cfg.get("min_age_hours", 12))
     out: dict[str, dict] = {}
-    for item in load_manifest()["items"]:
+    for item in _items(load_manifest()):
         st, fmt = item.get("stats"), item.get("format_id")
-        if not st or not fmt or st.get("age_h", 0) < min_age:
+        if not isinstance(st, dict) or not fmt or st.get("age_h", 0) < min_age:
             continue
         v = st["views"]
         val = math.log10(v + 10) + 0.5 * math.log10(1 + 20 * (st["likes"] + 3 * st["comments"]) / max(v, 50))
