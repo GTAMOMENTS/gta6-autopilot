@@ -347,9 +347,17 @@ def thumbnail(src: Path, t: float, text: str, out: Path) -> Path | None:
                     f":borderw={max(8, size // 12)}:bordercolor=black:x=(w-text_w)/2:y={y}")
     vf = "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,eq=saturation=1.4:contrast=1.12," \
          "drawbox=x=0:y=ih*0.45:w=iw:h=ih*0.55:color=black@0.35:t=fill," + ",".join(draw)
-    res = run(["ffmpeg", "-y", "-ss", f"{max(0.0, t):.2f}", "-i", str(src), "-frames:v", "1", "-vf", vf,
-               "-q:v", "3", str(out)], timeout=60)
-    return out if res.returncode == 0 and out.exists() else None
+    dur = probe(src)["duration"] or 0
+    t = min(max(0.0, t), max(0.0, dur - 0.5))  # the AI's "best frame" can point past the end of the clip
+    plain = "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,eq=saturation=1.4:contrast=1.12"
+    for filt in (vf, plain):  # with the big text; else at least the punchy frame
+        out.unlink(missing_ok=True)
+        res = run(["ffmpeg", "-y", "-ss", f"{t:.2f}", "-i", str(src), "-frames:v", "1", "-vf", filt,
+                   "-q:v", "3", str(out)], timeout=60)
+        if res.returncode == 0 and out.exists() and out.stat().st_size > 1000:
+            return out
+        log.warning("[long] thumbnail attempt failed (t=%.1f of %.1fs): %.200s", t, dur, res.stderr[-200:])
+    return None
 
 
 def render_long(moments: list[dict], pkg: dict, clip_id: str) -> dict | None:
