@@ -887,7 +887,7 @@
     "min_views": 1000,
     "min_views_per_hour": 500,
     "min_sec": 8,
-    "max_sec": 90,
+    "max_sec": 180,
     "languages": [
       "en"
     ],
@@ -938,6 +938,26 @@
     "kick_languages": [
       "english",
       "en"
-    ]
+    ],
+    "max_output_sec": 90,
+    "viral_bar": {
+      "_note": "A clip is 'viral' when it has at least min_views AND min_views_per_hour. Views differ a lot per platform.",
+      "x": {
+        "min_views": 50000,
+        "min_views_per_hour": 5000
+      },
+      "twitch": {
+        "min_views": 1000,
+        "min_views_per_hour": 400
+      },
+      "kick": {
+        "min_views": 300,
+        "min_views_per_hour": 150
+      },
+      "youtube": {
+        "min_views": 10000,
+        "min_views_per_hour": 0
+      }
+    }
   }
 }

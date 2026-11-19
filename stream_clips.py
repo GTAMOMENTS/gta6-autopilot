@@ -283,6 +283,11 @@ def x_account_clips(c: dict) -> list[dict]:
     return out
 
 
+def _bar(c: dict, clip: dict, key: str, default: float) -> float:
+    """Per-platform viral bar: X counts millions of views, Kick clips hundreds."""
+    return float((c.get("viral_bar", {}).get(clip["platform"]) or {}).get(key, c.get(key, default)))
+
+
 def find_viral(c: dict, state: dict) -> list[dict]:
     clips = []
     try:
@@ -307,8 +312,8 @@ def find_viral(c: dict, state: dict) -> list[dict]:
             why = "language"
         elif not float(c.get("min_sec", 8)) <= x["duration"] <= float(c.get("max_sec", 90)):
             why = "length"
-        elif x["views"] < int(c.get("min_views", 1000)) or x["velocity"] < float(c.get("min_views_per_hour", 500)):
-            why = "not viral (yet)"
+        elif x["views"] < _bar(c, x, "min_views", 1000) or x["velocity"] < _bar(c, x, "min_views_per_hour", 500):
+            why = f"not viral (yet) on {x['platform']}"
         else:
             # same streamer, same moment (clips made within 10 min of a posted one) or posted too recently
             from source_fetcher import blocked_channel
@@ -349,7 +354,8 @@ The attached video is the clip. Watch AND listen to all of it.
      this to a friend; 5-6 = meh). Be strict.
 2. transcript: what people SAY, as short phrases in order: {{"start": s, "end": e, "text": "..."}} - seconds of
    this clip, max 7 words per phrase, the exact words (censor swear words like f*** and s***). [] if nobody talks.
-3. trim_start / trim_end: the part worth keeping (cut dead air or a slow start/end); the whole clip if it's tight.
+3. trim_start / trim_end: the part worth keeping - cut dead air and slow starts/ends, and keep AT MOST 90 seconds
+   (pick the best 90 s if the clip is longer); the whole clip if it's already tight.
 4. banner: max 6 words, ALL CAPS, a hook that makes people stay (e.g. "HE WAS NOT READY FOR THIS").
 5. youtube_title (max 70 chars, mention GTA 6 and the streamer), caption (1-2 sentences ending with a question),
    x_text (max 200 chars), hashtags (4, include #GTA6). No emojis in the banner.
@@ -449,6 +455,8 @@ def produce(clip: dict, dry_run: bool, state: dict) -> dict | None:
         a, b = 0.0, dur
     if b - a < 6:
         a, b = 0.0, dur
+    if b - a > float(c.get("max_output_sec", 90)):  # AI ignored the limit: keep the first 90 s of its pick
+        b = a + float(c.get("max_output_sec", 90))
     cut = cut_segments(raw, RAW_DIR / f"{raw.stem}_cut.mp4", [(a, b)])
     raw.unlink(missing_ok=True)
     if not cut:
