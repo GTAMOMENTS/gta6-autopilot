@@ -107,11 +107,15 @@ Merged to main: PRs #9-#25 (schedule, formats, voice fixes, script gate, free AI
 charm pack, learning, stream clips, long video, English-only + choppy filter, Gemini Pro/Whisper/smart cuts/critic).
 
 **Open / next steps (in order):**
-1. **PR #26 - long video audio sync fix** (+ excludes `deep-research-pro` from Pro discovery, + this HANDOFF.md):
+1. **PR #26 - long video audio sync fix** (dry run 44525111317 PASSED: 7:50, 15 moments, Whisper cuts, critic, thumbnail;
+   owner should download the run's artifact and confirm the sound is in sync) (+ excludes `deep-research-pro` from Pro discovery, + this HANDOFF.md):
    https://github.com/GTAMOMENTS/gta6-autopilot/pull/26 -> run a `long_video` **dry run** on the branch, check the log
    (`[long]`, `[cut]`, `[whisper]`, `[critic]`), ask the owner to download the artifact and confirm sound is in sync, then merge.
-2. **First live long video (run 44515332047) rendered (5:46, 11 moments) but YouTube rejected the upload** ("out of quota" path -
-   most likely `uploadLimitExceeded`). `run_long` does not log YouTube's error text -> add logging, and consider keeping a
+2. **YouTube `uploadLimitExceeded` (CONFIRMED)**: "The user has exceeded the number of videos they may upload." First seen
+   2026-11-19 07:24 UTC after many test uploads, still active at 15:40 UTC (17:40 Short). Shorts still post to IG/TikTok/X;
+   the long video is YouTube-only, so it is lost while the limit lasts. Don't do live test uploads. Consider: keep a failed
+   long video (Actions cache/artifact) and retry the upload at the next run.
+   The first live long video (run 44515332047) rendered (5:46, 11 moments) but was rejected for this reason. `run_long` does not log YouTube's error text -> add logging, and consider keeping a
    failed long video to retry at the next run. Also include the thumbnail `.jpg` in the uploaded artifacts (workflow only uploads mp4/png/mp3).
 3. AI review rejected many Twitch clips as "not GTA 6" (17 of ~40) with Flash-Lite - check if those are false rejections
    (maybe ask Flash/Pro when available, or show more context in the prompt).
