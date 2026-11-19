@@ -117,7 +117,10 @@ charm pack, learning, stream clips, long video, English-only + choppy filter, Ge
    (maybe ask Flash/Pro when available, or show more context in the prompt).
 4. YouTube stream-recording source finds 0 (recent streams have no "most replayed" data yet) - low priority.
 5. First-comment permission: owner must re-create YT_REFRESH_TOKEN with scope `youtube.force-ssl` (OAuth Playground steps were given).
-6. Watch learning data (`[learn] format scores`) after a few days; the rotation starts favouring the best formats automatically.
+6. The "secrets" Short format kept failing: "GTA 6 secrets/details" videos almost always have a YouTuber narrating (gate
+   rejects narration). Queries now ask for "no commentary" footage (PR #26) - check it finds usable clips; if not, consider
+   dropping "secrets" from the rotation or letting the AI find details in plain free-roam footage.
+7. Watch learning data (`[learn] format scores`) after a few days; the rotation starts favouring the best formats automatically.
 
 ## 6. How to work on this repo
 - Branch per change -> PR -> dry run in Actions (`gh api -X POST repos/GTAMOMENTS/gta6-autopilot/actions/workflows/main.yml/dispatches -f ref=<branch> -f 'inputs[slot]=long_video' -f 'inputs[dry_run]=true'`)

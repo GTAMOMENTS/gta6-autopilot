@@ -773,12 +773,12 @@
         "banner_example": "GTA 6 SECRETS YOU MISSED",
         "title_example": "GTA 6 Secrets You Probably MISSED",
         "queries": [
-          "GTA 6 secrets",
-          "GTA 6 hidden details",
-          "GTA 6 easter eggs gameplay",
-          "GTA 6 things you missed",
-          "GTA 6 small details",
-          "GTA 6 hidden features"
+          "GTA 6 secrets no commentary",
+          "GTA 6 hidden details no commentary",
+          "GTA 6 easter eggs no commentary",
+          "GTA 6 small details gameplay no commentary",
+          "GTA 6 free roam details 4K no commentary",
+          "GTA 6 easter egg gameplay"
         ],
         "title_terms": [
           "secret",
@@ -787,7 +787,8 @@
           "easter egg",
           "easter eggs",
           "details",
-          "missed"
+          "missed",
+          "no commentary"
         ],
         "series": "GTA 6 Secrets",
         "keywords": "GTA 6 secrets hidden details easter eggs",
