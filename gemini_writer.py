@@ -132,8 +132,9 @@ def _pro_models() -> list[str]:
                 actions = [a.lower() for a in (getattr(m, "supported_actions", None) or [])]
                 if actions and not any("generatecontent" in a for a in actions):
                     continue
-                if "pro" in name and not any(x in name for x in ("image", "tts", "audio", "live", "embedding",
-                                                                   "vision", "robotics", "computer")):
+                if "pro" in name and name.startswith("gemini") and not any(
+                        x in name for x in ("image", "tts", "audio", "live", "embedding", "vision", "robotics",
+                                            "computer", "research")):
                     names.append(name)
             _pro_cache = sorted(set(names), key=_version_key, reverse=True)[:2]
             log.info("[gemini] Pro models for the important jobs: %s", _pro_cache)
