@@ -51,7 +51,8 @@ def _clip(platform: str, cid: str, url: str, title: str, streamer: str, views: i
 # --------------------------------------------------------------------------- discovery
 
 def twitch_clips(c: dict) -> list[dict]:
-    """GTA 6 clips from the last few hours via Twitch's official API (free: TWITCH_CLIENT_ID / SECRET)."""
+    """Twitch (official API, free TWITCH_CLIENT_ID / SECRET): the most-watched GTA 6 streams LIVE right now ->
+    each of those streamers' top clips of the last hours, plus the game's top recent clips overall."""
     import requests
     from source_fetcher import _twitch_headers
     try:
@@ -63,24 +64,39 @@ def twitch_clips(c: dict) -> list[dict]:
         log.info("[streams] Twitch: TWITCH_CLIENT_ID / TWITCH_CLIENT_SECRET not set - skipping Twitch")
         return []
     api = "https://api.twitch.tv/helix"
-    out = []
+    start = datetime.fromtimestamp(time.time() - float(c.get("window_hours", 6)) * 3600, timezone.utc)
+    since = start.strftime("%Y-%m-%dT%H:%M:%SZ")
+    out, seen = [], set()
+
+    def add(items):
+        for x in items:
+            if x.get("id") in seen:
+                continue
+            seen.add(x.get("id"))
+            out.append(_clip("twitch", x["id"], x["url"], x.get("title", ""), x.get("broadcaster_name", ""),
+                             int(x.get("view_count") or 0), _ts(x.get("created_at", "")),
+                             float(x.get("duration") or 0), x.get("language", "")))
     try:
         games = requests.get(f"{api}/games", headers=headers, timeout=20,
                              params={"name": c.get("twitch_game", "Grand Theft Auto VI")}).json().get("data", [])
         if not games:
             log.warning("[streams] Twitch: game not found")
             return []
-        start = datetime.fromtimestamp(time.time() - float(c.get("window_hours", 6)) * 3600, timezone.utc)
-        data = requests.get(f"{api}/clips", headers=headers, timeout=20, params={
-            "game_id": games[0]["id"], "first": 100,
-            "started_at": start.strftime("%Y-%m-%dT%H:%M:%SZ")}).json().get("data", [])
-        for x in data:
-            out.append(_clip("twitch", x["id"], x["url"], x.get("title", ""), x.get("broadcaster_name", ""),
-                             int(x.get("view_count") or 0), _ts(x.get("created_at", "")),
-                             float(x.get("duration") or 0), x.get("language", "")))
+        gid = games[0]["id"]
+        streams = requests.get(f"{api}/streams", headers=headers, timeout=20,
+                               params={"game_id": gid, "first": 100, "type": "live"}).json().get("data", [])
+        langs = set(c.get("languages", ["en"]))
+        top = [st for st in streams if not langs or st.get("language") in langs][: int(c.get("top_streams", 10))]
+        log.info("[streams] Twitch top live GTA 6 streams: %s",
+                 [f"{st['user_name']} ({st['viewer_count']})" for st in top])
+        for st in top:
+            add(requests.get(f"{api}/clips", headers=headers, timeout=20, params={
+                "broadcaster_id": st["user_id"], "first": 20, "started_at": since}).json().get("data", []))
+        add(requests.get(f"{api}/clips", headers=headers, timeout=20, params={
+            "game_id": gid, "first": 100, "started_at": since}).json().get("data", []))
     except Exception as exc:  # noqa: BLE001
         log.warning("[streams] Twitch API error: %.200s", exc)
-    log.info("[streams] Twitch: %d recent GTA 6 clips", len(out))
+    log.info("[streams] Twitch: %d recent clips from the top GTA 6 streams", len(out))
     return out
 
 
@@ -93,24 +109,63 @@ def _kick_get(url: str):
     return r.json()
 
 
+def _items(data) -> list:
+    """Kick answers come as a list, {"data": [...]}, {"clips": [...]} or {"clips": {"data": [...]}}."""
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for k in ("clips", "data", "livestreams"):
+            v = data.get(k)
+            if isinstance(v, list):
+                return v
+            if isinstance(v, dict) and isinstance(v.get("data"), list):
+                return v["data"]
+    return []
+
+
+def kick_top_channels(c: dict) -> list[str]:
+    """Channels streaming GTA 6 on Kick right now, most viewers first (+ the channels listed in config)."""
+    slugs, tried = [], []
+    for slug in c.get("kick_category_slugs", ["grand-theft-auto-vi"]):
+        for url in (f"https://kick.com/stream/livestreams/en?page=1&limit=24&subcategory={slug}&sort=desc",
+                    f"https://kick.com/api/v1/subcategories/{slug}/livestreams?limit=24&page=1"):
+            try:
+                items = _items(_kick_get(url))
+            except Exception as exc:  # noqa: BLE001
+                tried.append(f"{url.split('kick.com')[1][:55]}: {str(exc)[:40]}")
+                continue
+            live = []
+            for it in items:
+                ch = it.get("channel") or {}
+                slug_ch = ch.get("slug") or (ch.get("user") or {}).get("username") or it.get("slug") or ""
+                live.append((int(it.get("viewer_count") or it.get("viewers") or 0), slug_ch))
+            live = [x for x in sorted(live, reverse=True) if x[1]]
+            if live:
+                log.info("[streams] Kick top live GTA 6 streams: %s", [f"{s_} ({v})" for v, s_ in live[:10]])
+                slugs += [s_ for _, s_ in live[: int(c.get("top_streams", 10))]]
+                break
+        if slugs:
+            break
+    if not slugs and tried:
+        log.info("[streams] Kick live list unavailable (%s)", "; ".join(tried[:3]))
+    return list(dict.fromkeys(slugs + [x.lower() for x in c.get("kick_channels", [])]))
+
+
 def kick_clips(c: dict) -> list[dict]:
-    """Recent GTA 6 clips on Kick (public web API, no key)."""
-    out, errors = [], []
-    urls = [f"https://kick.com/api/v2/categories/{slug}/clips?sort=view&time=day"
-            for slug in c.get("kick_category_slugs", ["grand-theft-auto-vi"])]
-    urls.append("https://kick.com/api/v2/clips?sort=view&time=day")
+    """Top clips of the last day from the most-watched GTA 6 channels on Kick (public web API, no key)."""
+    out, seen, notes = [], set(), []
     max_age = float(c.get("window_hours", 6)) * 3600
-    seen = set()
+    urls = [f"https://kick.com/api/v2/channels/{ch}/clips?sort=view&time=day" for ch in kick_top_channels(c)]
+    urls += [f"https://kick.com/api/v2/categories/{slug}/clips?sort=view&time=day"
+             for slug in c.get("kick_category_slugs", ["grand-theft-auto-vi"])[:1]]
     for url in urls:
         try:
-            data = _kick_get(url)
+            items = _items(_kick_get(url))
         except Exception as exc:  # noqa: BLE001
-            errors.append(f"{url.split('kick.com')[1][:60]}: {str(exc)[:60]}")
+            notes.append(f"{url.split('kick.com')[1][:50]}: {str(exc)[:30]}")
             continue
-        items = data.get("clips") if isinstance(data, dict) else data
-        if isinstance(items, dict):
-            items = items.get("data")
-        for x in items or []:
+        kept = 0
+        for x in items:
             if not isinstance(x, dict) or x.get("id") in seen:
                 continue
             seen.add(x.get("id"))
@@ -126,36 +181,52 @@ def kick_clips(c: dict) -> list[dict]:
             out.append(_clip("kick", x["id"], f"https://kick.com/{slug}/clips/{x['id']}", x.get("title", ""),
                              ch.get("username") or slug, int(x.get("views") or x.get("view_count") or 0), created,
                              float(x.get("duration") or 0), "", x.get("video_url") or ""))
-    if errors and not out:
-        log.warning("[streams] Kick: no clips (%s)", "; ".join(errors))
-    log.info("[streams] Kick: %d recent GTA 6 clips", len(out))
+            kept += 1
+        notes.append(f"{url.split('kick.com')[1][:50]}: {len(items)} clips, {kept} GTA 6 + recent")
+    log.info("[streams] Kick: %d recent GTA 6 clips (%s)", len(out), "; ".join(notes[:6]))
     return out
 
 
 def youtube_vod_peaks(c: dict) -> list[dict]:
-    """Recent GTA 6 stream recordings on YouTube: YouTube's own "most replayed" graph marks the moment
-    everyone rewound to - the viral moment - so we cut ~40 s around that peak."""
+    """Recent GTA 6 stream recordings on YouTube - from the big streamers' channels (e.g. IShowSpeed streams on
+    YouTube) and from search. YouTube's own "most replayed" graph marks the moment everyone rewound to - the
+    viral moment - so we cut ~40 s around that peak."""
     from source_fetcher import _ytdlp_base, blocked_channel
-    out = []
-    for q in c.get("youtube_queries", ["GTA 6 stream", "GTA 6 livestream highlights"]):
-        url = "https://www.youtube.com/results?search_query=" + q.replace(" ", "+") + "&sp=CAI%253D"
+    lists = [f"https://www.youtube.com/{ch.strip('/')}/streams" for ch in c.get("youtube_channels", [])]
+    lists += ["https://www.youtube.com/results?search_query=" + q.replace(" ", "+") + "&sp=CAI%253D"
+              for q in c.get("youtube_queries", ["GTA 6 stream"])]
+    cands, why = [], {}
+    for url in lists:
         res = run(_ytdlp_base() + ["--flat-playlist", "-J", "--playlist-end", "15", url], timeout=90)
         try:
             entries = json.loads(res.stdout).get("entries", []) or []
         except (json.JSONDecodeError, AttributeError):
+            why["list failed"] = why.get("list failed", 0) + 1
             continue
+        from_channel = "/streams" in url
         for e in entries:
-            title, ch = e.get("title", "") if e else "", (e or {}).get("channel") or (e or {}).get("uploader") or ""
-            if not e or not GTA6_RE.search(title) or blocked_channel(ch):
+            if not e:
                 continue
-            if not 600 <= float(e.get("duration") or 0) <= 43200 or int(e.get("view_count") or 0) < int(
-                    c.get("youtube_min_views", 10000)):
+            title = e.get("title", "")
+            ch = e.get("channel") or e.get("uploader") or ""
+            dur = float(e.get("duration") or 0)
+            if e.get("live_status") in ("is_live", "is_upcoming"):
+                r = "still live"
+            elif not GTA6_RE.search(title):
+                r = "no GTA 6 in title"
+            elif blocked_channel(ch):
+                r = "blocked channel"
+            elif dur and not 600 <= dur <= 43200:
+                r = "length"
+            elif not from_channel and int(e.get("view_count") or 0) < int(c.get("youtube_min_views", 10000)):
+                r = "few views"
+            else:
+                cands.append(e)
                 continue
-            out.append(e)
-    # most viewed first; only the top few get the (slower) full metadata with the heatmap
-    out.sort(key=lambda e: int(e.get("view_count") or 0), reverse=True)
+            why[r] = why.get(r, 0) + 1
+    cands.sort(key=lambda e: int(e.get("view_count") or 0), reverse=True)
     clips, seen = [], set()
-    for e in out:
+    for e in cands:
         if e["id"] in seen or len(clips) >= int(c.get("youtube_max_videos", 3)):
             continue
         seen.add(e["id"])
@@ -163,13 +234,16 @@ def youtube_vod_peaks(c: dict) -> list[dict]:
         try:
             meta = json.loads(res.stdout)
         except (json.JSONDecodeError, TypeError):
+            why["metadata failed"] = why.get("metadata failed", 0) + 1
+            continue
+        created = float(meta.get("timestamp") or meta.get("release_timestamp") or 0)
+        if created and time.time() - created > float(c.get("youtube_max_age_hours", 72)) * 3600:
+            why["too old"] = why.get("too old", 0) + 1
             continue
         peaks = sorted((p for p in (meta.get("heatmap") or []) if p.get("start_time", 0) > 60),
                        key=lambda p: p.get("value", 0), reverse=True)
         if not peaks:
-            continue
-        created = float(meta.get("timestamp") or 0)
-        if created and time.time() - created > float(c.get("youtube_max_age_hours", 72)) * 3600:
+            why["no most-replayed data"] = why.get("no most-replayed data", 0) + 1
             continue
         mid = (float(peaks[0]["start_time"]) + float(peaks[0].get("end_time", peaks[0]["start_time"]))) / 2
         length = float(c.get("youtube_clip_sec", 40))
@@ -178,9 +252,9 @@ def youtube_vod_peaks(c: dict) -> list[dict]:
                   meta.get("title", ""), meta.get("channel") or meta.get("uploader") or "",
                   int(meta.get("view_count") or 0), created, length, meta.get("language") or "")
         x["section"] = (int(start), int(start + length))
-        x["velocity"] = round(x["velocity"] * float(c.get("youtube_velocity_factor", 0.2)), 1)  # long videos rack up views slower per moment
+        x["velocity"] = round(x["velocity"] * float(c.get("youtube_velocity_factor", 0.2)), 1)
         clips.append(x)
-    log.info("[streams] YouTube stream recordings with a most-replayed peak: %d", len(clips))
+    log.info("[streams] YouTube stream recordings: %d with a most-replayed peak (skipped: %s)", len(clips), why)
     return clips
 
 

@@ -42,13 +42,20 @@ def _screen_name(tweet: dict) -> str:
 def parse_timeline(payloads: list[dict], account: str) -> list[dict]:
     """Video posts made by `account` in X timeline JSON (any layout: UserMedia / UserTweets)."""
     out: dict[str, dict] = {}
+    why: dict[str, int] = {}
     for payload in payloads:
         for d in _walk(payload):
             legacy = d.get("legacy")
-            if not (isinstance(legacy, dict) and d.get("rest_id") and legacy.get("extended_entities")):
+            if not (isinstance(legacy, dict) and d.get("rest_id") and "full_text" in legacy):
                 continue
-            if (_screen_name(d).lower() != account.lower() or "retweeted_status_result" in legacy
-                    or str(legacy.get("full_text", "")).startswith("RT @")):
+            if not legacy.get("extended_entities"):
+                why["no media"] = why.get("no media", 0) + 1
+                continue
+            if _screen_name(d).lower() != account.lower():
+                why[f"other account ({_screen_name(d) or '?'})"] = why.get(f"other account ({_screen_name(d) or '?'})", 0) + 1
+                continue
+            if "retweeted_status_result" in legacy or str(legacy.get("full_text", "")).startswith("RT @"):
+                why["retweet"] = why.get("retweet", 0) + 1
                 continue  # only the account's own posts, no retweets
             for media in legacy["extended_entities"].get("media", []):
                 if media.get("type") != "video":
@@ -72,6 +79,11 @@ def parse_timeline(payloads: list[dict], account: str) -> list[dict]:
                     "likes": legacy.get("favorite_count", 0),
                 }
                 break
+            else:
+                why["no video"] = why.get("no video", 0) + 1
+    if why:
+        log.info("[x-source] @%s: %d video posts kept, skipped: %s", account, len(out),
+                 dict(sorted(why.items(), key=lambda kv: -kv[1])[:6]))
     return list(out.values())
 
 
@@ -94,7 +106,7 @@ def fetch_account(account: str, scrolls: int = 5) -> list[dict]:
             ctx.add_cookies(x_browser._browser_cookies())
             page = ctx.new_page()
             page.on("response", on_response)
-            for path in ("media", ""):  # Media tab first, then the main timeline as a fallback
+            for path in ("media",):  # one page only - more page loads trigger X's bot check
                 page.goto(f"https://x.com/{account}/{path}".rstrip("/"), wait_until="domcontentloaded",
                           timeout=60_000)
                 page.wait_for_timeout(7000)

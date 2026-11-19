@@ -873,7 +873,7 @@
   },
   "stream_clips": {
     "enabled": true,
-    "_note": "Viral GTA 6 stream clips (Twitch, Kick, YouTube stream recordings' most-replayed moment) posted with the streamer's real voice + subtitles, no AI voice. Runs every 30 min from .github/workflows/streams.yml.",
+    "_note": "Viral GTA 6 stream clips (Twitch, Kick, YouTube stream recordings' most-replayed moment) posted with the streamer's real voice + subtitles, no AI voice. Runs every 30 min from .github/workflows/streams.yml. Finds the most-watched GTA 6 streams first (Twitch/Kick live lists, big streamers' YouTube channels), then clips their best moments.",
     "platforms": [
       "tiktok",
       "instagram",
@@ -897,9 +897,7 @@
     "twitch_game": "Grand Theft Auto VI",
     "kick": true,
     "kick_category_slugs": [
-      "grand-theft-auto-vi",
-      "grand-theft-auto-6",
-      "gta-vi"
+      "grand-theft-auto-vi"
     ],
     "youtube_vods": true,
     "youtube_queries": [
@@ -921,6 +919,21 @@
     "x_accounts": [
       "IShowSpeedHQ"
     ],
-    "x_cache_hours": 2
+    "x_cache_hours": 2,
+    "top_streams": 10,
+    "kick_channels": [
+      "adinross",
+      "xqc",
+      "amouranth",
+      "iceposeidon",
+      "n3on",
+      "sneako"
+    ],
+    "youtube_channels": [
+      "@IShowSpeed",
+      "@KaiCenatLive",
+      "@xQcOW",
+      "@FaZeRug"
+    ]
   }
 }
