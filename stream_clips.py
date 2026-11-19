@@ -134,11 +134,18 @@ def kick_top_channels(c: dict) -> list[str]:
             except Exception as exc:  # noqa: BLE001
                 tried.append(f"{url.split('kick.com')[1][:55]}: {str(exc)[:40]}")
                 continue
-            live = []
+            live, other_lang = [], 0
+            langs = {x.lower() for x in c.get("kick_languages", ["english", "en"])}
             for it in items:
                 ch = it.get("channel") or {}
                 slug_ch = ch.get("slug") or (ch.get("user") or {}).get("username") or it.get("slug") or ""
+                lang = str(it.get("language") or (it.get("metadata") or {}).get("language") or "").lower()
+                if langs and lang and lang not in langs:
+                    other_lang += 1
+                    continue
                 live.append((int(it.get("viewer_count") or it.get("viewers") or 0), slug_ch))
+            if other_lang:
+                log.info("[streams] Kick: skipped %d non-English live streams", other_lang)
             live = [x for x in sorted(live, reverse=True) if x[1]]
             if live:
                 log.info("[streams] Kick top live GTA 6 streams: %s", [f"{s_} ({v})" for v, s_ in live[:10]])
@@ -269,8 +276,9 @@ def x_account_clips(c: dict) -> list[dict]:
     for acc, x in x_source.account_clips(load_config(), accounts=accounts, cache_file=STATE_FILE.with_name("x_cache.json"),
                                          cache_hours=float(c.get("x_cache_hours", 2))):
         text = re.sub(r"https?://\S+", "", x.get("text", "")).strip()
-        out.append(_clip("x", x["id"], f"https://x.com/{acc}/status/{x['id']}", text, acc, int(x.get("views") or 0),
-                         x.get("created") or 0, float(x.get("duration") or 0), media_url=x.get("media_url", "")))
+        out.append(_clip("x", x["id"], x.get("page_url") or f"https://x.com/{acc}/status/{x['id']}", text, acc,
+                         int(x.get("views") or 0), x.get("created") or 0, float(x.get("duration") or 0),
+                         media_url=x.get("media_url", "")))
     log.info("[streams] X accounts: %d recent video posts", len(out))
     return out
 
@@ -290,7 +298,7 @@ def find_viral(c: dict, state: dict) -> list[dict]:
     posted = state.get("posted", [])
     posted_keys = {p["key"] for p in posted}
     langs = set(c.get("languages", ["en"]))
-    good = []
+    good, reasons = [], {}
     for x in clips:
         why = None
         if x["key"] in posted_keys:
@@ -314,6 +322,13 @@ def find_viral(c: dict, state: dict) -> list[dict]:
                     break
         if why is None:
             good.append(x)
+        else:
+            reasons[why] = reasons.get(why, 0) + 1
+    if reasons:
+        top = sorted(clips, key=lambda x: x["velocity"], reverse=True)[:5]
+        log.info("[streams] not picked: %s | fastest clips: %s", reasons,
+                 [f"{x['platform']}:{x['streamer']} {x['views']}v/{x['age_h']}h={x['velocity']:.0f}/h {x['duration']:.0f}s"
+                  for x in top])
     good.sort(key=lambda x: x["velocity"], reverse=True)
     log.info("[streams] %d clips found, %d viral candidates: %s", len(clips), len(good),
              [f"{x['streamer']} {x['views']}v {x['velocity']:.0f}/h" for x in good[:5]])
