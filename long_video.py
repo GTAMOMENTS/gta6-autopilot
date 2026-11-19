@@ -111,7 +111,8 @@ clips joined one after another. Clip time ranges in this video:
 For EACH clip judge honestly and write:
 - is_gta6_footage: true only if the game shown is real Grand Theft Auto VI.
 - is_spoiler: true for story spoilers (story cutscenes, plot reveals, endings, character deaths).
-- unsafe: true for nudity, slurs / hate speech, real violence, doxxing - anything YouTube would remove.
+- unsafe: true ONLY for nudity, slurs / hate speech, real-world violence, doxxing - things YouTube removes.
+  In-game violence, crime, police chases and the streamer swearing are normal GTA content and are NOT unsafe.
 - hype_score 1-10: how funny / wild / shareable the moment and the streamer's reaction are (strict).
 - label: max 6 words, Title Case, what happens ("Kai Cenat Vs The Yacht"). No spoilers of the punchline.
 - line: what our narrator says right before it plays: 8-20 words, casual YouTuber voice, names the streamer,

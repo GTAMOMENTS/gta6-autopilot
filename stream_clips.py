@@ -356,7 +356,8 @@ The attached video is the clip. Watch AND listen to all of it.
 1. GATE - judge honestly:
    - is_gta6_footage: true only if the game shown is real Grand Theft Auto VI (Leonida / Vice City, GTA VI HUD).
    - is_spoiler: true if it shows story spoilers (story cutscenes, plot reveals, endings, character deaths).
-   - unsafe: true for nudity, hate speech, slurs, real violence, doxxing or anything a platform would remove.
+   - unsafe: true ONLY for nudity, hate speech / slurs, real-world violence or doxxing. In-game violence, crime,
+     police chases and swearing are normal GTA content and are NOT unsafe.
    - hype_score 1-10: how funny / wild / shareable the moment AND the reaction are (9-10 = everyone would send
      this to a friend; 5-6 = meh). Be strict.
 2. transcript: what people SAY, as short phrases in order: {{"start": s, "end": e, "text": "..."}} - seconds of

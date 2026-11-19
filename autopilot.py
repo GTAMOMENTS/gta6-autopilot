@@ -439,7 +439,7 @@ def summarize(slot: dict, sid: str, ok: bool, detail: dict, dry_run: bool) -> No
         lines += [f"- #{m['n']} {m['label']} ({m['streamer']}, hype {m['hype']})" for m in detail["moments"]]
     if "text" in detail:
         lines.append(f"> {detail['text']}")
-    if "copy" in detail:
+    if "copy" in detail and not detail.get("moments"):  # Shorts (long videos are summarised above)
         cp, s = detail["copy"], detail["source"]
         lines += [f"**Banner:** {cp['banner']}  ", f"**Source:** [{s['title']}]({s['url']}) by {s['credit']} "
                   f"({s['provider']}, section {s['section']})  ",
