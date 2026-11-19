@@ -25,6 +25,32 @@ from common import BASE_DIR, RAW_DIR, READY_DIR, env, load_config, load_json, pr
 
 log = logging.getLogger("autopilot")
 STATE_FILE = BASE_DIR / "queue_streams" / "stream_clips.json"
+FAMOUS_LIVE: set[str] = set()  # big English streams live right now (filled by the Twitch / Kick top lists)
+
+
+def is_famous(streamer: str, c: dict | None = None) -> bool:
+    """Only famous English-speaking streamers: the configured list, X clip accounts, or a top English live
+    stream with enough viewers right now."""
+    c = c if c is not None else _cfg()
+    name = (streamer or "").lower().replace(" ", "")
+    known = {x.lower().replace(" ", "") for x in c.get("famous_streamers", []) + c.get("x_accounts", [])}
+    return bool(name) and (name in known or name in FAMOUS_LIVE)
+
+
+def smoothness(path: Path) -> float:
+    """Share of repeated frames when played at 30 fps - laggy streams / clips that skip frames look choppy."""
+    tot = run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-count_frames", "-show_entries",
+               "stream=nb_read_frames", "-of", "csv=p=0", "-read_intervals", "%+60", str(path)], timeout=120)
+    res = run(["ffmpeg", "-hide_banner", "-t", "60", "-i", str(path), "-vf",
+               "fps=30,scale=320:-2,mpdecimate=hi=200:lo=64:frac=0.33", "-f", "null", "-"], timeout=180)
+    seen = re.findall(r"frame=\s*(\d+)", res.stderr)
+    dur = min(60.0, probe(path)["duration"] or 0)
+    total30 = dur * 30
+    if not seen or total30 < 30:
+        return 0.0
+    return round(max(0.0, 1 - int(seen[-1]) / total30), 3)
+
+
 GTA6_RE = re.compile(r"grand theft auto v?i\b|grand theft auto 6|gta ?(vi|6)\b", re.I)
 
 
@@ -92,6 +118,10 @@ def twitch_clips(c: dict) -> list[dict]:
                                params={"game_id": gid, "first": 100, "type": "live"}).json().get("data", [])
         langs = set(c.get("languages", ["en"]))
         top = [st for st in streams if not langs or st.get("language") in langs][: int(c.get("top_streams", 10))]
+        FAMOUS_LIVE.update(st["user_name"].lower() for st in top
+                           if int(st.get("viewer_count") or 0) >= int(c.get("famous_min_viewers", 5000)))
+        FAMOUS_LIVE.update(st.get("user_login", "").lower() for st in top
+                           if int(st.get("viewer_count") or 0) >= int(c.get("famous_min_viewers", 5000)))
         log.info("[streams] Twitch top live GTA 6 streams: %s",
                  [f"{st['user_name']} ({st['viewer_count']})" for st in top])
         for st in top:
@@ -152,6 +182,7 @@ def kick_top_channels(c: dict) -> list[str]:
             if other_lang:
                 log.info("[streams] Kick: skipped %d non-English live streams", other_lang)
             live = [x for x in sorted(live, reverse=True) if x[1]]
+            FAMOUS_LIVE.update(s_.lower() for v, s_ in live if v >= int(c.get("famous_min_viewers", 5000)))
             if live:
                 log.info("[streams] Kick top live GTA 6 streams: %s", [f"{s_} ({v})" for v, s_ in live[:10]])
                 slugs += [s_ for _, s_ in live[: int(c.get("top_streams", 10))]]
@@ -168,8 +199,6 @@ def kick_clips(c: dict) -> list[dict]:
     out, seen, notes = [], set(), []
     max_age = float(c.get("window_hours", 6)) * 3600
     urls = [f"https://kick.com/api/v2/channels/{ch}/clips?sort=view&time=day" for ch in kick_top_channels(c)]
-    urls += [f"https://kick.com/api/v2/categories/{slug}/clips?sort=view&time=day"
-             for slug in c.get("kick_category_slugs", ["grand-theft-auto-vi"])[:1]]
     for url in urls:
         try:
             items = _items(_kick_get(url))
@@ -315,6 +344,8 @@ def find_viral(c: dict, state: dict) -> list[dict]:
         why = None
         if x["key"] in posted_keys:
             why = "already posted"
+        elif not is_famous(x["streamer"], c):
+            why = "not a famous English streamer"
         elif x["platform"] == "twitch" and langs and x["language"] and x["language"] not in langs:
             why = "language"
         elif not float(c.get("min_sec", 8)) <= x["duration"] <= float(c.get("max_sec", 90)):
@@ -356,6 +387,7 @@ The attached video is the clip. Watch AND listen to all of it.
 1. GATE - judge honestly:
    - is_gta6_footage: true only if the game shown is real Grand Theft Auto VI (Leonida / Vice City, GTA VI HUD).
    - is_spoiler: true if it shows story spoilers (story cutscenes, plot reveals, endings, character deaths).
+   - is_english: true if the streamer speaks English (or nobody talks). false for any other language.
    - unsafe: true ONLY for nudity, hate speech / slurs, real-world violence or doxxing. In-game violence, crime,
      police chases and swearing are normal GTA content and are NOT unsafe.
    - hype_score 1-10: how funny / wild / shareable the moment AND the reaction are (9-10 = everyone would send
@@ -368,7 +400,7 @@ The attached video is the clip. Watch AND listen to all of it.
 5. youtube_title (max 70 chars, mention GTA 6 and the streamer), caption (1-2 sentences ending with a question),
    x_text (max 200 chars), hashtags (4, include #GTA6). No emojis in the banner.
 
-Return ONLY JSON: {{"is_gta6_footage": bool, "is_spoiler": bool, "unsafe": bool, "hype_score": int,
+Return ONLY JSON: {{"is_gta6_footage": bool, "is_spoiler": bool, "is_english": bool, "unsafe": bool, "hype_score": int,
  "scene_summary": str, "transcript": [{{"start": number, "end": number, "text": str}}], "trim_start": number,
  "trim_end": number, "banner": str, "youtube_title": str, "caption": str, "x_text": str, "hashtags": [str]}}"""
 
@@ -437,6 +469,13 @@ def produce(clip: dict, dry_run: bool, state: dict) -> dict | None:
     if min(info["width"], info["height"]) < int(c.get("min_height", 720)):
         log.info("[streams] skipping: only %dx%d", info["width"], info["height"])
         return None
+    rep_frames = smoothness(raw)
+    if rep_frames > float(c.get("max_repeated_frames", 0.2)):
+        log.info("[streams] ✋ %s by %s is choppy (%.0f%% repeated frames) - skipped", clip["key"], clip["streamer"],
+                 rep_frames * 100)
+        state.setdefault("rejected", {})[clip["key"]] = time.time()
+        raw.unlink(missing_ok=True)
+        return None
     ai = ai_review(raw, clip)
     if not ai:
         log.warning("[streams] no AI could watch + hear the clip - not posting it")
@@ -446,6 +485,8 @@ def produce(clip: dict, dry_run: bool, state: dict) -> dict | None:
         reason = "not GTA 6"
     elif ai.get("is_spoiler"):
         reason = "story spoiler"
+    elif ai.get("is_english") is False:
+        reason = "not English"
     elif ai.get("unsafe"):
         reason = "unsafe content"
     elif int(ai.get("hype_score") or 0) < int(c.get("min_hype", 7)):
