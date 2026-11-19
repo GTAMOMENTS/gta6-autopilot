@@ -494,10 +494,56 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     path.write_text(header + "\n".join(lines) + "\n", encoding="utf-8")
 
 
+# --------------------------------------------------------------------------- effects
+
+SFX_RECIPES = {  # generated with FFmpeg - no samples, no copyright
+    "whoosh": (["-f", "lavfi", "-i", "anoisesrc=color=pink:duration=0.55:amplitude=0.9"],
+               "highpass=f=350,lowpass=f=5500,afade=t=in:st=0:d=0.3:curve=exp,"
+               "afade=t=out:st=0.3:d=0.25:curve=exp,volume=1.4"),
+    "boom": (["-f", "lavfi", "-i", "aevalsrc='0.95*sin(2*PI*(42+55*exp(-9*t))*t)*exp(-3.2*t)':s=48000:d=1.2",
+              "-f", "lavfi", "-i", "anoisesrc=color=brown:duration=0.14:amplitude=0.7"],
+             None),
+}
+
+
+def _sfx(kind: str) -> Path | None:
+    out = VO_DIR.parent / "sfx" / f"{kind}.wav"
+    if out.exists():
+        return out
+    out.parent.mkdir(parents=True, exist_ok=True)
+    inputs, af = SFX_RECIPES[kind]
+    if kind == "boom":
+        cmd = ["ffmpeg", "-y", *inputs, "-filter_complex",
+               "[1:a]lowpass=f=400,afade=t=out:st=0.04:d=0.1[n];[0:a][n]amix=inputs=2:normalize=0,"
+               "lowpass=f=220,volume=1.8", "-ar", "48000", "-ac", "2", str(out)]
+    else:
+        cmd = ["ffmpeg", "-y", *inputs, "-af", af, "-ar", "48000", "-ac", "2", str(out)]
+    res = run(cmd, timeout=60)
+    return out if res.returncode == 0 and out.exists() else None
+
+
+def _music_track() -> Path | None:
+    """A random track from the music/ folder (your own royalty-free music), if there is one."""
+    import random
+    from common import BASE_DIR
+    folder = BASE_DIR / load_config().get("video", {}).get("fx", {}).get("music_dir", "music")
+    tracks = [p for p in folder.glob("*") if p.suffix.lower() in (".mp3", ".m4a", ".wav", ".ogg")] if folder.exists() else []
+    return random.choice(tracks) if tracks else None
+
+
+def _zoom_filter(windows: list[tuple[float, float]], amount: float) -> str:
+    """Punch-in zoom during the given [start, end] windows (output keeps 1080x1920 / 30 fps)."""
+    if not windows:
+        return ""
+    terms = "+".join(f"between(it,{a:.2f},{b:.2f})*min(1,(it-{a:.2f})/0.12)" for a, b in windows)
+    return (f",zoompan=z='1+{amount}*({terms})':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+            f":d=1:s=1080x1920:fps=30")
+
+
 # --------------------------------------------------------------------------- render
 
 def render(clip: Path, clip_id: str, banner: str, commentary: list[dict],
-           voiced: list[dict] | None = None) -> dict | None:
+           voiced: list[dict] | None = None, fx: dict | None = None) -> dict | None:
     """commentary = [{"t": seconds, "text": "line"}, ...]. `voiced` = lines already synthesised
     (with path/dur/words) - used by the feature-tour format where the edit follows the voice."""
     cfg = load_config()
@@ -543,18 +589,45 @@ def render(clip: Path, clip_id: str, banner: str, commentary: list[dict],
         voice = ";".join(delayed) + f";{vo_mix}amix=inputs={len(lines)}:normalize=0:duration=longest,apad[vo];"
     else:
         voice = "anullsrc=r=48000:cl=stereo[vo];"
+    # sound effects (whoosh on cuts, boom on the payoff) and optional background music
+    fx = fx or {}
+    fxcfg = vcfg.get("fx", {})
+    extra_inputs, extra_chains, extra_labels = [], [], []
+    idx = len(lines) + 1
+    if fxcfg.get("sfx", True):
+        sfx_vol = float(fxcfg.get("sfx_volume", 0.55))
+        for ev in fx.get("sfx", []):
+            path = _sfx(ev["kind"]) if 0 <= ev["t"] < total - 0.2 else None
+            if not path:
+                continue
+            ms = int(max(0.0, ev["t"]) * 1000)
+            extra_inputs += ["-i", str(path)]
+            extra_chains.append(f"[{idx}:a]aresample=48000,aformat=channel_layouts=stereo,volume={sfx_vol},"
+                                f"adelay={ms}|{ms}[x{idx}]")
+            extra_labels.append(f"[x{idx}]")
+            idx += 1
+    music = _music_track()
+    if music:
+        extra_inputs += ["-stream_loop", "-1", "-i", str(music)]
+        extra_chains.append(f"[{idx}:a]aresample=48000,aformat=channel_layouts=stereo,"
+                            f"volume={float(fxcfg.get('music_volume', 0.09))}[x{idx}]")
+        extra_labels.append(f"[x{idx}]")
+        log.info("[render] background music: %s", music.name)
+    extras = (";".join(extra_chains) + ";") if extra_chains else ""
+
     # --- pass 1: build the audio mix (fast, audio only)
     mix_wav = VO_DIR / f"{clip_id}_mix.wav"
     afc = (
-        f"{voice}[vo]asplit=2[vo1][vo2];"
+        f"{voice}{extras}[vo]asplit=2[vo1][vo2];"
         f"[0:a]aresample=48000,aformat=channel_layouts=stereo,volume={game_vol}[game];"
         # game audio stays loud between lines and dips only while the voice talks
         "[game][vo1]sidechaincompress=threshold=0.02:ratio=6:attack=15:release=450[ducked];"
-        "[ducked][vo2]amix=inputs=2:duration=first:normalize=0[aout]"
+        f"[ducked][vo2]{''.join(extra_labels)}amix=inputs={2 + len(extra_labels)}:duration=first:normalize=0[aout]"
     )
     inputs = ["-stream_loop", "-1", "-i", str(clip)] if info["duration"] < total else ["-i", str(clip)]
     for ln in lines:
         inputs += ["-i", str(ln["path"])]
+    inputs += extra_inputs
     res = run(["ffmpeg", "-y", "-hide_banner", *inputs, "-filter_complex", afc, "-map", "[aout]",
                "-t", str(total), "-ar", "48000", str(mix_wav)], timeout=300)
     if res.returncode != 0:
@@ -574,7 +647,9 @@ def render(clip: Path, clip_id: str, banner: str, commentary: list[dict],
 
     # --- pass 3: video + levelled audio
     vin = ["-stream_loop", "-1", "-i", str(clip)] if info["duration"] < total else ["-i", str(clip)]
-    fc = (f"{video_chain};[base]ass='{ass_escaped}',fps=30,format=yuv420p[vout];"
+    zoom = _zoom_filter([w for w in fx.get("zoom", []) if w[0] < total], float(fxcfg.get("zoom_amount", 0.22))) \
+        if fxcfg.get("zoom", True) else ""
+    fc = (f"{video_chain};[base]fps=30{zoom},ass='{ass_escaped}',format=yuv420p[vout];"
           f"[1:a]{norm},aresample=48000[aout]")
     cmd = ["ffmpeg", "-y", "-hide_banner", *vin, "-i", str(mix_wav),
            "-filter_complex", fc, "-map", "[vout]", "-map", "[aout]",

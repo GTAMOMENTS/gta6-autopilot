@@ -108,7 +108,14 @@
     },
     "youtube_privacy": "public",
     "youtube_category_id": "20",
-    "tiktok_privacy": "PUBLIC_TO_EVERYONE"
+    "tiktok_privacy": "PUBLIC_TO_EVERYONE",
+    "first_comment": true,
+    "max_hashtags": {
+      "youtube": 5,
+      "instagram": 5,
+      "tiktok": 5,
+      "x": 3
+    }
   },
   "sources": {
     "providers": [
@@ -563,7 +570,17 @@
     "min_clip_sec": 50,
     "tour_max_sec": 90,
     "tour_min_shots": 4,
-    "game_audio_volume_tour": 0.4
+    "game_audio_volume_tour": 0.4,
+    "fx": {
+      "teaser_sec": 1.2,
+      "zoom": true,
+      "zoom_amount": 0.22,
+      "sfx": true,
+      "sfx_volume": 0.55,
+      "music_dir": "music",
+      "music_volume": 0.09,
+      "_note": "Cold open: a 1.2 s flash of the payoff moment. Zoom punch-in + boom on the payoff, whoosh on cuts (sound effects are generated, no copyright). Background music only if you add your own royalty-free tracks to the music/ folder."
+    }
   },
   "blocked_keywords": [
     "nsfw",
@@ -654,6 +671,12 @@
           "ragdoll",
           "npc",
           "moments"
+        ],
+        "series": "GTA 6 Funniest Moments",
+        "keywords": "GTA 6 funny moments fails",
+        "hashtags": [
+          "#GTA6Funny",
+          "#GTA6Fails"
         ]
       },
       {
@@ -680,6 +703,12 @@
           "wanted",
           "getaway",
           "escape"
+        ],
+        "series": "GTA 6 Car Chases",
+        "keywords": "GTA 6 police chase car chase",
+        "hashtags": [
+          "#GTA6PoliceChase",
+          "#GTA6Cars"
         ]
       },
       {
@@ -705,6 +734,12 @@
           "free roam",
           "open world",
           "activities"
+        ],
+        "series": "GTA 6 Things To Do",
+        "keywords": "GTA 6 things to do free roam",
+        "hashtags": [
+          "#GTA6Tips",
+          "#GTA6Gameplay"
         ]
       },
       {
@@ -730,6 +765,12 @@
           "easter eggs",
           "details",
           "missed"
+        ],
+        "series": "GTA 6 Secrets",
+        "keywords": "GTA 6 secrets hidden details easter eggs",
+        "hashtags": [
+          "#GTA6Secrets",
+          "#GTA6EasterEggs"
         ]
       },
       {
@@ -755,6 +796,12 @@
           "jump",
           "jumps",
           "physics"
+        ],
+        "series": "GTA 6 Stunts",
+        "keywords": "GTA 6 stunts crashes physics",
+        "hashtags": [
+          "#GTA6Stunts",
+          "#GTA6Physics"
         ]
       },
       {
@@ -778,8 +825,25 @@
           "rage",
           "fails",
           "highlights"
+        ],
+        "series": "GTA 6 Streamer Moments",
+        "keywords": "GTA 6 streamer funny reactions",
+        "hashtags": [
+          "#GTA6Stream",
+          "#GTA6Funny"
         ]
       }
     ]
+  },
+  "learning": {
+    "enabled": true,
+    "min_samples": 2,
+    "explore": 0.25,
+    "no_repeat": 2,
+    "min_age_hours": 12,
+    "refresh_hours": 6,
+    "track_days": 10,
+    "max_fetch_per_run": 6,
+    "_note": "Pulls each video's YouTube views/likes/comments (free, via yt-dlp) and favours the formats that perform best, while still exploring the others."
   }
 }
