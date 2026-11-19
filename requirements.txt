@@ -5,3 +5,4 @@ requests-oauthlib>=2.0.0
 python-dotenv>=1.0.1
 yt-dlp[default,curl-cffi]>=2025.1.1
 google-genai>=1.0.0
+faster-whisper>=1.1.0

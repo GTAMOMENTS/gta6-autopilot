@@ -506,15 +506,32 @@ def produce(clip: dict, dry_run: bool, state: dict) -> dict | None:
         a, b = 0.0, dur
     if b - a > float(c.get("max_output_sec", 90)):  # AI ignored the limit: keep the first 90 s of its pick
         b = a + float(c.get("max_output_sec", 90))
+    # Whisper: exact word times (subtitles), clean cut points, spoken-language double check
+    import transcribe
+    heard, meta = transcribe.words(raw)
+    if meta.get("language") and meta["language"] != "en" and meta.get("language_probability", 0) >= 0.7 and len(heard) > 5:
+        log.info("[streams] ✋ %s by %s: Whisper hears %s, not English", clip["key"], clip["streamer"], meta["language"])
+        state.setdefault("rejected", {})[clip["key"]] = time.time()
+        raw.unlink(missing_ok=True)
+        return None
+    if heard:
+        a, b = transcribe.smart_cut(raw, a, b, heard, max_len=float(c.get("max_output_sec", 90)))
     cut = cut_segments(raw, RAW_DIR / f"{raw.stem}_cut.mp4", [(a, b)])
     raw.unlink(missing_ok=True)
     if not cut:
         return None
     copy = _clean_copy({**ai, "commentary": []}, b - a)
+    from gemini_writer import polish_packaging
+    copy.update(polish_packaging(copy, f"{clip['streamer']} on {clip['platform']}: {ai.get('scene_summary', '')} | "
+                                       + " ".join(str(p.get("text", "")) for p in ai.get("transcript") or [])[:600]))
     copy["format_tags"] = list(c.get("hashtags", ["#GTA6Stream", "#GTA6Funny"]))
     copy["keywords"] = f"GTA 6 {clip['streamer']} stream funny moment"
     copy["series"] = ""
-    words = subtitle_words(ai.get("transcript"), a, b - a)
+    if heard:  # word-exact subtitles from Whisper
+        words = transcribe.subtitle_words([{**w, "start": w["start"] - a, "end": w["end"] - a}
+                                           for w in heard if a - 0.05 <= w["start"] < b])
+    else:
+        words = subtitle_words(ai.get("transcript"), a, b - a)
     clip_id = "stream_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M") + "_" + \
         hashlib.md5(clip["key"].encode()).hexdigest()[:6]
     rendered = render(cut, clip_id, copy["banner"], [], voiced=[], caption_words=words,

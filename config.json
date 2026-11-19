@@ -559,7 +559,8 @@
     "watch_video": true,
     "max_total_sec": 240,
     "fallback_frames": 8,
-    "tour_frames": 12
+    "tour_frames": 12,
+    "use_pro": true
   },
   "voice": {
     "engine": "gemini",
@@ -1030,5 +1031,15 @@
     "preset": "veryfast",
     "crf": 21,
     "max_repeated_frames": 0.2
+  },
+  "whisper": {
+    "enabled": true,
+    "model": "small",
+    "threads": 4,
+    "_note": "Open-source speech-to-text running on the GitHub runner (free, no key). 'small' also detects the spoken language (non-English clips are dropped); 'small.en' is English-only and a bit more accurate."
+  },
+  "critic": {
+    "enabled": true,
+    "_note": "A second free AI (GPT-4.1 via GitHub Models first) rewrites titles / banners / hooks for more clicks without inventing anything; originals are kept if a rewrite breaks the rules."
   }
 }
