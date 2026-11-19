@@ -177,7 +177,7 @@ def review(moments: list[dict], brand: str) -> list[dict]:
                 up = gemini_writer._upload_video(reel)
                 if up is not None:
                     data = gemini_writer._generate_json([up, REVIEW_PROMPT.format(
-                        brand=brand, k=len(parts), ranges="\n".join(ranges))], temperature=0.6)
+                        brand=brand, k=len(parts), ranges="\n".join(ranges))], temperature=0.6, prefer_pro=True)
                     try:
                         gemini_writer._client().files.delete(name=up.name)
                     except Exception:  # noqa: BLE001
@@ -244,10 +244,14 @@ def package(moments: list[dict], brand: str) -> dict:
     n = len(moments)
     listing = "\n".join(f"#{n - i}: {m['label']} ({m['streamer']})" for i, m in enumerate(moments))
     prompt = PACKAGE_PROMPT.format(brand=brand, n=n, moments=listing)
-    data = gemini_writer._generate_json(prompt, temperature=0.8)
+    data = gemini_writer._generate_json(prompt, temperature=0.8, prefer_pro=True)
     if not data and ai_fallback.available():
         data = ai_fallback.chat_json(prompt)
     data = data or {}
+    if data:  # critic AI: second opinion on title / thumbnail text / intro
+        import critic
+        fields = {k: str(data[k]) for k in ("title", "thumbnail_text", "intro_line") if data.get(k)}
+        data.update(critic.polish(fields, {"title": 90, "thumbnail_text": 28, "intro_line": 160}, listing))
     names = list(dict.fromkeys(m["streamer"] for m in reversed(moments)))[:3]
     title = str(data.get("title") or f"Top {n} CRAZIEST GTA 6 Stream Moments Today ({', '.join(names)})")
     return {
@@ -520,6 +524,22 @@ def run_long(dry_run: bool) -> tuple[bool, dict]:
     if total < float(c.get("min_sec", 240)) or len(chosen) < 4:
         return False, {"error": f"not enough good moments today ({len(chosen)} moments, {total:.0f}s; "
                                 f"{len(moments)} passed the AI check)"}
+    # Whisper + scene changes: every moment starts at a sentence / scene change and ends after the punchline
+    import transcribe
+    for m in chosen:
+        lo, hi = max(0.0, m["a"] - 3.0), min(m["dur"], m["b"] + 4.0)
+        heard, meta = transcribe.words(m["path"], lo, hi)
+        if meta.get("language") and meta["language"] != "en" and meta.get("language_probability", 0) >= 0.7 \
+                and len(heard) > 5:
+            log.info("[long] ✋ %s (%s): Whisper hears %s, not English - dropped", m["key"], m["streamer"], meta["language"])
+            m["drop"] = True
+            continue
+        a, b = transcribe.smart_cut(m["path"], m["a"], m["b"], heard, offset=lo, max_len=50.0)
+        if b - a >= 10:
+            m["a"], m["b"] = a, b
+    chosen = [m for m in chosen if not m.get("drop")]
+    if len(chosen) < 4:
+        return False, {"error": f"only {len(chosen)} English moments left after the language check"}
     chosen.sort(key=lambda m: (m["hype"], m["views"]))  # countdown: weakest first, #1 last
     pkg = package(chosen, brand)
     clip_id = "long_" + now_local().strftime("%Y%m%d_%H%M")

@@ -115,8 +115,36 @@ def _parse_json(text: str) -> dict | None:
     return parse_json_loose(text)
 
 
-def _generate_json(contents, temperature: float = 0.9) -> dict | None:
+_pro_cache: list[str] | None = None
+
+
+def _pro_models() -> list[str]:
+    """Gemini Pro models this key can call (free tier: small daily limit - used only where quality matters most)."""
+    global _pro_cache
+    if _pro_cache is None:
+        _pro_cache = []
+        if not load_config().get("gemini", {}).get("use_pro", True):
+            return _pro_cache
+        try:
+            names = []
+            for m in _client().models.list():
+                name = (m.name or "").removeprefix("models/")
+                actions = [a.lower() for a in (getattr(m, "supported_actions", None) or [])]
+                if actions and not any("generatecontent" in a for a in actions):
+                    continue
+                if "pro" in name and not any(x in name for x in ("image", "tts", "audio", "live", "embedding",
+                                                                   "vision", "robotics", "computer")):
+                    names.append(name)
+            _pro_cache = sorted(set(names), key=_version_key, reverse=True)[:2]
+            log.info("[gemini] Pro models for the important jobs: %s", _pro_cache)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[gemini] could not list Pro models: %.150s", exc)
+    return [m for m in _pro_cache if m not in _dead_models]
+
+
+def _generate_json(contents, temperature: float = 0.9, prefer_pro: bool = False) -> dict | None:
     """Try each Gemini model ONCE. Busy / out of quota / error -> next model immediately.
+    prefer_pro: try the (smarter, rate-limited) Pro models first, then Flash.
     If every model fails, Gemini is skipped for the rest of this run (backup AIs take over)."""
     global _unavailable_until
     if not env("GEMINI_API_KEY"):
@@ -127,7 +155,8 @@ def _generate_json(contents, temperature: float = 0.9) -> dict | None:
     from google.genai import types
     for attempt in (1, 2):
         overloaded = False
-        for model in _models():
+        models = list(dict.fromkeys((_pro_models() if prefer_pro else []) + _models()))
+        for model in models:
             data, busy = _try_model(types, model, contents, temperature)
             if data:
                 return data
@@ -454,6 +483,8 @@ def write_clip_copy(clip: Path, title: str, credit: str, provider: str, kind: st
         ai_source = "built-in"
     out = _clean_copy(data, clip_dur)
     out["ai_source"] = ai_source
+    if out["verified_by_video"] and ai_source not in ("built-in", "text-only"):
+        out.update(polish_packaging(out, out.get("scene_summary", "") + " | " + out.get("script", "")))
     if ai_source == "built-in":
         out["commentary_raw"] = []
     log.info("[ai] copy written by: %s", ai_source)
@@ -656,6 +687,16 @@ def _commentary(d: dict, clip_dur: float, keep_times: bool = False) -> list[dict
     lines.sort(key=lambda x: x["t"])
     lines[0]["t"] = min(lines[0]["t"], 1.0)
     return lines
+
+
+def polish_packaging(copy: dict, context: str) -> dict:
+    """Second opinion from the critic AI on title / banner / caption (see critic.py)."""
+    import critic
+    fields = {k: copy.get(k, "") for k in ("youtube_title", "banner", "caption") if copy.get(k)}
+    better = critic.polish(fields, {"youtube_title": 70, "banner": 40, "caption": 220}, context)
+    if "banner" in better:
+        better["banner"] = re.sub(r"[^A-Z0-9 !?'.,-]", "", better["banner"].upper())[:48].strip() or copy.get("banner", "")
+    return better
 
 
 def _clean_copy(d: dict, clip_dur: float = 48) -> dict:
