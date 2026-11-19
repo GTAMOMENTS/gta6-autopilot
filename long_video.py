@@ -50,6 +50,8 @@ def gather(c: dict, used: set) -> list[dict]:
     for x in clips:
         if x["key"] in used or blocked_channel(x["streamer"]):
             continue
+        if not sc.is_famous(x["streamer"], scfg):  # famous English-speaking streamers only
+            continue
         if x["platform"] == "twitch" and langs and x["language"] and x["language"] not in langs:
             continue
         if not 10 <= x["duration"] <= 180:  # chapters need 10 s+
@@ -76,6 +78,7 @@ def gather(c: dict, used: set) -> list[dict]:
 
 
 def download(cands: list[dict]) -> list[dict]:
+    import stream_clips as sc
     from source_fetcher import Candidate, _download
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     out, why = [], {}
@@ -98,7 +101,14 @@ def download(cands: list[dict]) -> list[dict]:
             why[r] = why.get(r, 0) + 1
             path.unlink(missing_ok=True)
             continue
-        out.append({**x, "path": path, "dur": info["duration"]})
+        rep = sc.smoothness(path)
+        if rep > float(_cfg().get("max_repeated_frames", 0.2)):
+            why["choppy"] = why.get("choppy", 0) + 1
+            log.info("[long] ✋ %s (%s, %s) is choppy: %.0f%% repeated frames", x["key"], x["streamer"], x["platform"],
+                     rep * 100)
+            path.unlink(missing_ok=True)
+            continue
+        out.append({**x, "path": path, "dur": info["duration"], "repeat": rep})
     log.info("[long] downloaded %d/%d clips (skipped: %s)", len(out), len(cands), why)
     return out
 
@@ -111,6 +121,7 @@ clips joined one after another. Clip time ranges in this video:
 For EACH clip judge honestly and write:
 - is_gta6_footage: true only if the game shown is real Grand Theft Auto VI.
 - is_spoiler: true for story spoilers (story cutscenes, plot reveals, endings, character deaths).
+- is_english: true if the streamer speaks English (or nobody talks); false for any other language.
 - unsafe: true ONLY for nudity, slurs / hate speech, real-world violence, doxxing - things YouTube removes.
   In-game violence, crime, police chases and the streamer swearing are normal GTA content and are NOT unsafe.
 - hype_score 1-10: how funny / wild / shareable the moment and the streamer's reaction are (strict).
@@ -121,7 +132,8 @@ For EACH clip judge honestly and write:
 - trim_start / trim_end: seconds WITHIN that clip (0 = start of the clip) of the best part, 10-45 seconds.
 - best_t: second within the clip with the most eye-catching frame (for the thumbnail).
 Return ONLY JSON: {{"clips": [{{"clip": number, "is_gta6_footage": bool, "is_spoiler": bool, "unsafe": bool,
- "hype_score": int, "label": str, "line": str, "trim_start": number, "trim_end": number, "best_t": number}}]}}"""
+ "is_english": bool, "hype_score": int, "label": str, "line": str, "trim_start": number, "trim_end": number,
+ "best_t": number}}]}}"""
 
 
 def _proxy(path: Path, out: Path) -> bool:
@@ -188,7 +200,7 @@ def review(moments: list[dict], brand: str) -> list[dict]:
             if not v:
                 continue
             reason = ("not GTA 6" if not v.get("is_gta6_footage") else "spoiler" if v.get("is_spoiler")
-                      else "unsafe" if v.get("unsafe") else None)
+                      else "not English" if v.get("is_english") is False else "unsafe" if v.get("unsafe") else None)
             if reason:
                 log.info("[long] ✋ %s (%s): %s", m["key"], m["streamer"], reason)
                 continue
