@@ -156,19 +156,31 @@ def review(moments: list[dict], brand: str) -> list[dict]:
         lst.write_text("".join(f"file '{p.name}'\n" for _, _, p, _, _ in parts))
         reel = LONG_DIR / f"review_{b}.mp4"
         run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(lst), "-c", "copy", str(reel)], timeout=120)
-        data = None
-        try:
-            up = gemini_writer._upload_video(reel)
-            if up is not None:
-                data = gemini_writer._generate_json([up, REVIEW_PROMPT.format(
-                    brand=brand, k=len(parts), ranges="\n".join(ranges))], temperature=0.6)
+        verdicts = {}
+        for attempt in (1, 2):  # the AI sometimes answers nothing (busy) - one retry before giving up
+            data = None
+            try:
+                gemini_writer._unavailable_until = 0.0  # a busy moment in one batch shouldn't skip the rest
+                up = gemini_writer._upload_video(reel)
+                if up is not None:
+                    data = gemini_writer._generate_json([up, REVIEW_PROMPT.format(
+                        brand=brand, k=len(parts), ranges="\n".join(ranges))], temperature=0.6)
+                    try:
+                        gemini_writer._client().files.delete(name=up.name)
+                    except Exception:  # noqa: BLE001
+                        pass
+            except Exception as exc:  # noqa: BLE001
+                log.warning("[long] review batch failed: %.150s", exc)
+            verdicts = {}
+            for v in (data or {}).get("clips", []) if isinstance(data, dict) else []:
                 try:
-                    gemini_writer._client().files.delete(name=up.name)
-                except Exception:  # noqa: BLE001
-                    pass
-        except Exception as exc:  # noqa: BLE001
-            log.warning("[long] review batch failed: %.150s", exc)
-        verdicts = {int(v.get("clip", 0)): v for v in (data or {}).get("clips", []) if isinstance(v, dict)}
+                    verdicts[int(v.get("clip", 0))] = v
+                except (TypeError, ValueError, AttributeError):
+                    continue
+            if verdicts:
+                break
+            log.warning("[long] AI gave no verdicts for batch %d (attempt %d)", b // size + 1, attempt)
+            time.sleep(20)
         for i, m, p, _, _ in parts:
             p.unlink(missing_ok=True)
             v = verdicts.get(i)

@@ -574,6 +574,21 @@ def _download_media_url(c: Candidate, start: int, end: int, out: Path) -> bool:
     """Direct video file (X posts are short): download it whole, then cut the section."""
     import requests
     full = out.with_name(out.stem + "_full.mp4")
+    if ".m3u8" in (c.media_url or ""):  # HLS stream (Kick clips): ffmpeg reads it directly
+        res = run(["ffmpeg", "-y", "-user_agent", "Mozilla/5.0", "-i", c.media_url, "-c", "copy",
+                   "-bsf:a", "aac_adtstoasc", str(full)], timeout=300)
+        if res.returncode != 0 or not full.exists():
+            log.warning("[sources] stream download failed: %.200s", res.stderr[-200:])
+            full.unlink(missing_ok=True)
+            return False
+        dur = probe(full)["duration"]
+        if start <= 0.5 and end >= dur - 0.5:
+            full.rename(out)
+        else:
+            run(["ffmpeg", "-y", "-ss", str(start), "-to", str(end), "-i", str(full), "-c:v", "libx264",
+                 "-preset", "veryfast", "-crf", "17", "-c:a", "aac", "-b:a", "192k", str(out)], timeout=300)
+            full.unlink(missing_ok=True)
+        return _valid_video(out, 6)
     try:
         with requests.get(c.media_url, stream=True, timeout=60) as r:
             r.raise_for_status()
@@ -591,7 +606,7 @@ def _download_media_url(c: Candidate, start: int, end: int, out: Path) -> bool:
         run(["ffmpeg", "-y", "-ss", str(start), "-to", str(end), "-i", str(full), "-c:v", "libx264",
              "-preset", "veryfast", "-crf", "17", "-c:a", "aac", "-b:a", "192k", str(out)], timeout=300)
         full.unlink(missing_ok=True)
-    return _valid_video(out)
+    return _valid_video(out, 6)
 
 
 def _download(c: Candidate, start: int, end: int, out: Path) -> bool:
