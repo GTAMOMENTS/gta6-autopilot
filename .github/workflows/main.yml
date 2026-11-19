@@ -196,6 +196,8 @@ jobs:
           path: |
             work/ready/*.mp4
             work/ready/*.png
+            work/ready/*.jpg
+            work/ready/*.txt
             work/ready/*.mp3
           retention-days: 5
           if-no-files-found: ignore

@@ -514,6 +514,12 @@ def main() -> int:
     except Exception as exc:  # noqa: BLE001
         log.warning("[long] pending upload retry failed: %.200s", exc)
 
+    # "not before" date (e.g. the owner published one by hand - the next automatic one waits)
+    nb = slot.get("not_before")
+    if nb and not slot.get("manual") and datetime.now(timezone.utc) < datetime.fromisoformat(nb.replace("Z", "+00:00")):
+        log.info("%s waits until %s (not_before in config.json) - skipping", slot["type"], nb)
+        return 0
+
     # posting rhythm: e.g. a Short only every 2 days, a long video every 3 days (counted from the last success)
     every = float(slot.get("every_days", 0) or 0)
     if every and not slot.get("manual"):

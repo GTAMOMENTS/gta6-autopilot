@@ -642,6 +642,11 @@ def run_long(dry_run: bool) -> tuple[bool, dict]:
     caps = {"youtube_title": pkg["title"], "youtube_description": desc[:4900],
             "tags": pkg["tags"] + ["GTA 6", "GTA 6 stream moments", "GTA 6 funny moments"],
             "first_comment": "Which moment was the best? Drop the number 👇"}
+    # everything needed to upload it by hand (title, description with chapters + credits, tags) next to the video
+    (READY_DIR / f"{clip_id}_YOUTUBE_UPLOAD.txt").write_text(
+        "TITLE:\n" + caps["youtube_title"] + "\n\nDESCRIPTION:\n" + caps["youtube_description"] + "\n\nTAGS:\n"
+        + ", ".join(dict.fromkeys(caps["tags"])) + "\n\nPINNED COMMENT:\n" + caps["first_comment"]
+        + "\n\nTHUMBNAIL: " + Path(rendered.get("thumbnail") or "none").name + "\n", encoding="utf-8")
     results = {}
     if not dry_run:
         try:

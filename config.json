@@ -34,7 +34,9 @@
       "platforms": [
         "youtube"
       ],
-      "every_days": 3
+      "every_days": 3,
+      "not_before": "2026-11-22T16:00:00Z",
+      "_note": "First long video published by hand on 2026-11-19; automatic ones start 2026-11-22 20:10 TRT, then every 3 days."
     },
     {
       "time": "22:20",

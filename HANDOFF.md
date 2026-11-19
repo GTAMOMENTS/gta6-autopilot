@@ -23,7 +23,7 @@ Written 2026-11-19 by the previous assistant. Repo: https://github.com/GTAMOMENT
 | Brands | Naming cars/brands in scripts/titles is **OK** (`quality_gate.block_brand_names=false`). Brand **hashtags** (#RockstarGames, #PS5...) stay removed (Instagram flagged "branded content" once). |
 | Length | **No minimum length** for Shorts (a 1:15 minimum was tried and rejected - it dropped good short clips). |
 | Streamers | **Only famous English-speaking streamers** (no Turkish/Spanish/etc.). |
-| Schedule | **1 Short every 2 days + 1 long YouTube video every 3 days** (owner's choice after YouTube's upload limit, `every_days` in config) + viral stream clips (TikTok/IG/X) + 3 X text posts. |
+| Schedule | **1 Short every 2 days + 1 long YouTube video every 3 days** (first long video published BY HAND by the owner on 2026-11-19; `not_before` 2026-11-22 16:00 UTC) (owner's choice after YouTube's upload limit, `every_days` in config) + viral stream clips (TikTok/IG/X) + 3 X text posts. |
 | Quality | Must not post junk: script gate (>=4 lines/35 words, written by an AI that saw the clip), hype gate, choppy-clip filter. |
 | Merging | Test (dry run in Actions) then merge. The assistant's permission classifier blocks `gh pr merge` unless the owner literally says "merge" in that message. The owner also merges PRs himself sometimes. |
 
