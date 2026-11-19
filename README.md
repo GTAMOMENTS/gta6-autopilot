@@ -14,7 +14,7 @@ running free on GitHub Actions.
 |---|---|
 | 14:00 | Europe lunch break |
 | 18:00 | US morning (11:00 New York) |
-| 21:00 | Europe prime time (19:00 CET) / US lunch |
+| 21:00 | **Long YouTube video** (Europe prime time / US lunch) |
 | 00:00 | US afternoon (17:00 New York) |
 | 03:00 | US prime time (20:00 New York) |
 
