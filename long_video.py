@@ -52,7 +52,7 @@ def gather(c: dict, used: set) -> list[dict]:
             continue
         if x["platform"] == "twitch" and langs and x["language"] and x["language"] not in langs:
             continue
-        if not 8 <= x["duration"] <= 180:
+        if not 10 <= x["duration"] <= 180:  # chapters need 10 s+
             continue
         # views relative to what's normal on that platform (X counts millions, Kick hundreds)
         base = float((bars.get(x["platform"]) or {}).get("min_views", 1000)) or 1000
@@ -78,7 +78,7 @@ def gather(c: dict, used: set) -> list[dict]:
 def download(cands: list[dict]) -> list[dict]:
     from source_fetcher import Candidate, _download
     RAW_DIR.mkdir(parents=True, exist_ok=True)
-    out = []
+    out, why = [], {}
     for x in cands:
         path = RAW_DIR / f"long_{re.sub(r'[^a-zA-Z0-9]', '_', x['key'])[:50]}.mp4"
         cand = Candidate(key=x["key"], url=x["url"], title=x["title"], uploader=x["streamer"],
@@ -90,13 +90,16 @@ def download(cands: list[dict]) -> list[dict]:
             log.info("[long] download failed %s: %.100s", x["key"], exc)
             ok = False
         if not ok:
+            why[f"download failed ({x['platform']})"] = why.get(f"download failed ({x['platform']})", 0) + 1
             continue
         info = probe(path)
         if min(info["width"], info["height"]) < 480 or info["duration"] < 6:
+            r = f"low res ({x['platform']} {info['width']}x{info['height']})" if info["duration"] >= 6 else "too short"
+            why[r] = why.get(r, 0) + 1
             path.unlink(missing_ok=True)
             continue
         out.append({**x, "path": path, "dur": info["duration"]})
-    log.info("[long] downloaded %d/%d clips", len(out), len(cands))
+    log.info("[long] downloaded %d/%d clips (skipped: %s)", len(out), len(cands), why)
     return out
 
 
