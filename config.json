@@ -620,6 +620,8 @@
       "gemma",
       "openrouter",
       "nvidia",
+      "sambanova",
+      "cerebras",
       "groq",
       "mistral"
     ],
@@ -629,11 +631,23 @@
       "groq": [],
       "mistral": [],
       "github": [],
-      "gemma": []
+      "gemma": [],
+      "cerebras": [],
+      "sambanova": []
     },
     "max_models_per_provider": 4,
     "max_total_sec": 240,
-    "_note": "Free backup AIs, tried in order when Gemini can't watch the clip: GitHub Models (free, built into Actions), Gemma on the Gemini key, then OpenRouter/NVIDIA/Groq/Mistral if their free keys are set."
+    "_note": "Free backup AIs. 'providers' = order when frames are sent (vision); 'text_providers' = order for text-only jobs (critic, packaging). Cerebras / SambaNova need free keys (CEREBRAS_API_KEY, SAMBANOVA_API_KEY).",
+    "text_providers": [
+      "cerebras",
+      "groq",
+      "sambanova",
+      "github",
+      "nvidia",
+      "mistral",
+      "gemma",
+      "openrouter"
+    ]
   },
   "x_text_hashtags": [
     "#GTA6",

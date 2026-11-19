@@ -76,7 +76,8 @@ State (not in git): Actions cache `queue/` (manifest of sources/posts, history, 
 
 ### Secrets (GitHub -> Settings -> Secrets -> Actions)
 GEMINI_API_KEY, ZERNIO_API_KEY, YT_CLIENT_ID, YT_CLIENT_SECRET, YT_REFRESH_TOKEN, X_COOKIES, YTDLP_COOKIES, TWITCH_CLIENT_ID,
-TWITCH_CLIENT_SECRET, OPENROUTER_API_KEY, GROQ_API_KEY, NVIDIA_API_KEY, MISTRAL_API_KEY (+ optional X_API_*, UPLOAD_POST_*).
+TWITCH_CLIENT_SECRET, OPENROUTER_API_KEY, GROQ_API_KEY, NVIDIA_API_KEY, MISTRAL_API_KEY, CEREBRAS_API_KEY, SAMBANOVA_API_KEY
+(+ optional X_API_*, UPLOAD_POST_*). Text-only AI jobs use `ai_fallback.text_providers` order (Cerebras, Groq first); vision jobs `providers`.
 GITHUB_MODELS_TOKEN = the workflow's own GITHUB_TOKEN (no secret needed).
 
 ---------------------------------------------------------------------------------------------------------

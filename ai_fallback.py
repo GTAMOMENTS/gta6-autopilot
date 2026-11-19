@@ -32,7 +32,10 @@ PROVIDERS = {
                "default_models": ["openai/gpt-4.1", "openai/gpt-4.1-mini", "openai/gpt-4o-mini"]},
     # Gemma on the same free Gemini key (separate, much bigger free limits than Gemini Flash; sees images)
     "gemma": {"key": "GEMINI_API_KEY", "base": "https://generativelanguage.googleapis.com/v1beta/openai",
-              "max_images": 8, "only": "gemma", "default_models": ["gemma-3-27b-it", "gemma-3-12b-it"]},
+              "max_images": 8, "only": "gemma-4", "max_tokens": 8192, "default_models": []},  # gemma-3: 404 there
+    # big free text models (sign-up keys): very fast, generous free tiers
+    "cerebras": {"key": "CEREBRAS_API_KEY", "base": "https://api.cerebras.ai/v1", "max_images": 4},
+    "sambanova": {"key": "SAMBANOVA_API_KEY", "base": "https://api.sambanova.ai/v1", "max_images": 4},
     "openrouter": {"key": "OPENROUTER_API_KEY", "base": "https://openrouter.ai/api/v1", "max_images": 12},
     "groq": {"key": "GROQ_API_KEY", "base": "https://api.groq.com/openai/v1", "max_images": 5},
     "nvidia": {"key": "NVIDIA_API_KEY", "base": "https://integrate.api.nvidia.com/v1", "max_images": 4},
@@ -138,7 +141,30 @@ def extract_frames(clip: Path, count: int = 6) -> list[str]:
 
 
 def _parse(text: str) -> dict | None:
-    return parse_json_loose(text)
+    """Thinking models write their reasoning first (<think>, <thought>, "The user wants...") and the JSON after it."""
+    if not text:
+        return None
+    text = re.sub(r"<(think|thought|thinking|reasoning)>.*?</\1>", " ", text, flags=re.S | re.I)
+    text = re.sub(r"^.*?</(think|thought|thinking|reasoning)>", " ", text, flags=re.S | re.I)  # unclosed opening
+    data = parse_json_loose(text)
+    if data:
+        return data
+    # last balanced {...} block in the text (the answer usually comes at the end)
+    depth, end = 0, None
+    for i in range(len(text) - 1, -1, -1):
+        ch = text[i]
+        if ch == "}":
+            if depth == 0:
+                end = i
+            depth += 1
+        elif ch == "{" and depth:
+            depth -= 1
+            if depth == 0 and end is not None:
+                data = parse_json_loose(text[i:end + 1])
+                if data:
+                    return data
+                end = None
+    return None
 
 
 _down_until = 0.0
@@ -181,7 +207,8 @@ def _call(p: str, model: str, prompt: str, frames: list[str] | None, temperature
     try:
         msg = r.json()["choices"][0]["message"]
     except (KeyError, IndexError, ValueError):
-        log.warning("[ai-fallback] %s/%s odd response: %.200s", p, model, r.text)
+        log.warning("[ai-fallback] %s/%s odd response (HTTP %s, %s): %.300s", p, model, r.status_code,
+                    r.headers.get("content-type", "?"), r.text)
         return None, 200
     text = _message_text(msg)
     data = _parse(text)
@@ -197,7 +224,9 @@ def chat_json(prompt: str, frames: list[str] | None = None, temperature: float =
     if time.time() < _down_until:
         return None
     deadline = time.time() + int(_cfg().get("max_total_sec", 240))
-    for p in _cfg().get("providers", list(PROVIDERS)):
+    order = _cfg().get("providers", list(PROVIDERS)) if frames else \
+        _cfg().get("text_providers", ["cerebras", "groq", "sambanova", "github", "nvidia", "mistral", "gemma", "openrouter"])
+    for p in order:
         if p not in PROVIDERS or not env(PROVIDERS[p]["key"]):
             continue
         for model, vision in _models(p):
