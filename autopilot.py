@@ -474,6 +474,9 @@ def main() -> int:
     if args.slot == "voice_samples":
         from video_processor import voice_samples
         return voice_samples()
+    if args.slot == "stream_clip":  # manual test of the viral stream clips (normally streams.yml)
+        import stream_clips
+        return stream_clips.run_once(args.dry_run)
     if args.slot == "remake":
         READY_DIR.mkdir(parents=True, exist_ok=True)
         ok, detail = run_remake(args.dry_run)

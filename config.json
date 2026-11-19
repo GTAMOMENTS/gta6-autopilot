@@ -514,7 +514,32 @@
     "x_min_sec": 15,
     "x_max_sec": 600,
     "x_cache_hours": 4,
-    "_x_note": "x_accounts: video posts from these X accounts join the footage pool (credited as '<account> on X'). Read with the X_COOKIES login, at most every x_cache_hours. Every clip passes the same AI checks."
+    "_x_note": "x_accounts: video posts from these X accounts join the footage pool (credited as '<account> on X'). Read with the X_COOKIES login, at most every x_cache_hours. Every clip passes the same AI checks.",
+    "blocked_channels": [
+      "IGN",
+      "GameSpot",
+      "Rockstar Games",
+      "PlayStation",
+      "Xbox",
+      "PC Gamer",
+      "Kotaku",
+      "Eurogamer",
+      "GamesRadar",
+      "GamesRadar+",
+      "Polygon",
+      "Digital Foundry",
+      "TheGamer",
+      "Screen Rant",
+      "CBR",
+      "Dexerto",
+      "ESPN",
+      "BBC",
+      "CNN",
+      "Take-Two Interactive",
+      "Game Informer",
+      "VGC",
+      "IGN Entertainment"
+    ]
   },
   "quality_gate": {
     "min_hype_score": 7,
@@ -845,5 +870,57 @@
     "track_days": 10,
     "max_fetch_per_run": 6,
     "_note": "Pulls each video's YouTube views/likes/comments (free, via yt-dlp) and favours the formats that perform best, while still exploring the others."
+  },
+  "stream_clips": {
+    "enabled": true,
+    "_note": "Viral GTA 6 stream clips (Twitch, Kick, YouTube stream recordings' most-replayed moment) posted with the streamer's real voice + subtitles, no AI voice. Runs every 30 min from .github/workflows/streams.yml.",
+    "platforms": [
+      "tiktok",
+      "instagram",
+      "x"
+    ],
+    "max_per_day": 4,
+    "min_gap_minutes": 90,
+    "same_streamer_gap_hours": 3,
+    "max_tries": 3,
+    "window_hours": 6,
+    "min_views": 1000,
+    "min_views_per_hour": 500,
+    "min_sec": 8,
+    "max_sec": 90,
+    "languages": [
+      "en"
+    ],
+    "min_hype": 7,
+    "min_height": 720,
+    "twitch": true,
+    "twitch_game": "Grand Theft Auto VI",
+    "kick": true,
+    "kick_category_slugs": [
+      "grand-theft-auto-vi",
+      "grand-theft-auto-6",
+      "gta-vi"
+    ],
+    "youtube_vods": true,
+    "youtube_queries": [
+      "GTA 6 stream",
+      "GTA 6 livestream",
+      "GTA 6 stream highlights"
+    ],
+    "youtube_min_views": 10000,
+    "youtube_max_videos": 3,
+    "youtube_max_age_hours": 72,
+    "youtube_clip_sec": 40,
+    "youtube_velocity_factor": 0.2,
+    "zoom": 1.6,
+    "audio_volume": 1.0,
+    "hashtags": [
+      "#GTA6Stream",
+      "#GTA6Funny"
+    ],
+    "x_accounts": [
+      "IShowSpeedHQ"
+    ],
+    "x_cache_hours": 2
   }
 }

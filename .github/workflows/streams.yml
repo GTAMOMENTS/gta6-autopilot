@@ -1,0 +1,154 @@
+name: GTA6 Viral Stream Clips
+
+# Every 30 min: find GTA 6 stream clips (Twitch, Kick, YouTube stream recordings) that are going viral
+# right now and post the best one with the streamer's real voice + subtitles (no AI voice-over).
+# Separate from the main schedule (own state cache + own concurrency group), so neither blocks the other.
+on:
+  schedule:
+    - cron: '7,37 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run: find + render the clip but do NOT post (download it from the run Artifacts)'
+        type: boolean
+        default: true
+
+concurrency:
+  group: gta6-stream-clips
+  cancel-in-progress: false
+
+jobs:
+  stream-clips:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      models: read
+    timeout-minutes: 25
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Restore stream clip state
+        uses: actions/cache/restore@v4
+        with:
+          path: queue_streams
+          key: gta6-streams-${{ github.run_id }}
+          restore-keys: |
+            gta6-streams-
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Month (for refreshing the package cache)
+        id: month
+        run: echo "value=$(date +%Y-%m)" >> "$GITHUB_OUTPUT"
+
+      # The Ubuntu mirror is sometimes extremely slow, and ffmpeg needs ~60 packages.
+      # Keep the downloaded .deb files in the Actions cache so later runs install offline in seconds.
+      - name: Restore cached ffmpeg packages
+        id: aptcache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/apt-debs
+          key: apt-debs-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.month.outputs.value }}
+          restore-keys: |
+            apt-debs-v2-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install FFmpeg + fonts (apt)
+        timeout-minutes: 6
+        continue-on-error: true
+        run: |
+          # Ubuntu's background auto-updater grabs the package lock on fresh runners -> stop it first
+          sudo systemctl stop unattended-upgrades apt-daily.service apt-daily-upgrade.service 2>/dev/null || true
+          sudo killall -q unattended-upgr 2>/dev/null || true
+          mkdir -p ~/apt-debs/partial
+          OPTS="-o Dir::Cache::Archives=$HOME/apt-debs -o APT::Keep-Downloaded-Packages=true -o DPkg::Lock::Timeout=120 -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          PKGS="ffmpeg fonts-montserrat fontconfig"
+          # fast path: runner's package lists + cached .debs (no downloads); otherwise refresh lists and download
+          sudo apt-get install -y -q --no-install-recommends $OPTS $PKGS \
+            || { sudo apt-get update -q $OPTS && sudo apt-get install -y -q --no-install-recommends $OPTS $PKGS; }
+          sudo chmod -R a+rX ~/apt-debs
+
+      - name: Retry FFmpeg install (only if the first attempt stalled)
+        timeout-minutes: 10
+        run: |
+          if command -v ffmpeg >/dev/null && command -v ffprobe >/dev/null; then ffmpeg -version | head -1; exit 0; fi
+          echo "First apt attempt failed/stalled - repairing and retrying"
+          sudo systemctl stop unattended-upgrades apt-daily.service apt-daily-upgrade.service 2>/dev/null || true
+          sudo killall -q -9 apt-get apt dpkg unattended-upgr 2>/dev/null || true
+          sleep 3
+          sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock /var/lib/apt/lists/lock
+          sudo dpkg --configure -a || true
+          mkdir -p ~/apt-debs/partial
+          OPTS="-o Dir::Cache::Archives=$HOME/apt-debs -o APT::Keep-Downloaded-Packages=true -o DPkg::Lock::Timeout=120 -o Acquire::Retries=5 -o Acquire::http::Timeout=30"
+          sudo apt-get update -q $OPTS
+          sudo apt-get install -y -q --no-install-recommends $OPTS ffmpeg fontconfig
+          sudo chmod -R a+rX ~/apt-debs
+          ffmpeg -version | head -1
+
+      - name: Save ffmpeg packages for next runs
+        if: steps.aptcache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ~/apt-debs
+          key: apt-debs-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.month.outputs.value }}
+
+      - name: Install Python dependencies
+        run: pip install -U -r requirements.txt
+
+      - name: Install browser for free X posting (only if X_COOKIES is set)
+        timeout-minutes: 6
+        continue-on-error: true
+        env:
+          X_COOKIES: ${{ secrets.X_COOKIES }}
+        run: |
+          if [ -z "$X_COOKIES" ]; then echo "X_COOKIES not set - skipping"; exit 0; fi
+          pip install -q playwright
+          # Google Chrome is preinstalled on GitHub runners; only fetch Chromium if it is missing
+          command -v google-chrome >/dev/null || python -m playwright install chromium
+
+      - name: Find + post a viral stream clip
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GITHUB_MODELS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          ZERNIO_API_KEY: ${{ secrets.ZERNIO_API_KEY }}
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          UPLOAD_POST_API_KEY: ${{ secrets.UPLOAD_POST_API_KEY }}
+          UPLOAD_POST_PROFILE: ${{ secrets.UPLOAD_POST_PROFILE }}
+          YTDLP_COOKIES: ${{ secrets.YTDLP_COOKIES }}
+          X_COOKIES: ${{ secrets.X_COOKIES }}
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
+          TIMEZONE: Europe/Istanbul
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+        run: python stream_clips.py
+
+      - name: Upload rendered clip
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stream-clip-${{ github.run_id }}
+          path: work/ready/*.mp4
+          retention-days: 3
+          if-no-files-found: ignore
+
+      - name: Save stream clip state
+        if: always() && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
+        uses: actions/cache/save@v4
+        with:
+          path: queue_streams
+          key: gta6-streams-${{ github.run_id }}-${{ github.run_attempt }}

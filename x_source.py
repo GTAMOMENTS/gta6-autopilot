@@ -128,17 +128,19 @@ def fetch_account(account: str, scrolls: int = 5) -> list[dict]:
     return parse_timeline(payloads, account)
 
 
-def account_clips(cfg: dict) -> list[tuple[str, dict]]:
+def account_clips(cfg: dict, accounts: list[str] | None = None, cache_file=None,
+                  cache_hours: float | None = None) -> list[tuple[str, dict]]:
     """[(account, clip)] for every configured X account, from cache when it is fresh."""
     s = cfg.get("sources", {})
-    accounts = [a.lstrip("@") for a in s.get("x_accounts", []) if a.strip()]
+    accounts = [a.lstrip("@") for a in (accounts if accounts is not None else s.get("x_accounts", [])) if a.strip()]
     if not accounts:
         return []
     if not x_browser_ready():
         log.info("[x-source] X_COOKIES not set - skipping X accounts")
         return []
-    cache = load_json(CACHE_FILE, {})
-    max_age = float(s.get("x_cache_hours", 4)) * 3600
+    cache_file = cache_file or CACHE_FILE
+    cache = load_json(cache_file, {})
+    max_age = float(cache_hours if cache_hours is not None else s.get("x_cache_hours", 4)) * 3600
     out = []
     for acc in accounts:
         entry = cache.get(acc.lower(), {})
@@ -152,7 +154,7 @@ def account_clips(cfg: dict) -> list[tuple[str, dict]]:
             except Exception as exc:  # noqa: BLE001
                 log.warning("[x-source] could not read @%s: %.200s", acc, exc)
         out += [(acc, c) for c in entry.get("clips", [])]
-    save_json(CACHE_FILE, cache)
+    save_json(cache_file, cache)
     return out
 
 
