@@ -7,7 +7,7 @@ running free on GitHub Actions.
 
 ## Daily schedule (fully automatic)
 
-**5 videos a day**, each posted to YouTube Shorts + Instagram + TikTok + X, at peak hours
+**4 Shorts + 1 long YouTube video a day**; the Shorts go to YouTube Shorts + Instagram + TikTok + X, at peak hours
 (times in Turkey time, TRT; each run starts ~20 min early so the post is live on the hour):
 
 | Live at (TRT) | Audience peak |
@@ -38,6 +38,23 @@ format has 2+ videos, mostly picks the best performing formats (25% of runs stil
 **Captions per platform**: "GTA 6" + search keywords, numbered series ("GTA 6 Car Chases #4") in the YouTube
 title, 3-5 targeted hashtags (YouTube ignores all hashtags if there are more than 15), and the ending question as
 the first YouTube comment (needs the comment permission: re-run `tools/youtube_auth.py` once).
+
+**Daily long YouTube video** (`long_video.py`, slot `long_video` at 20:10 TRT): a 5-10 min 16:9 countdown of the
+day's best GTA 6 stream moments (top Twitch streams, English Kick, X clip accounts). The AI reviews the clips in
+batches (real GTA 6, no spoilers, nothing unsafe, hype), trims each to its best part and writes a label + one
+narration line per moment. Edit: cold open of #1, title card + Fenrir line per moment (weakest first, #1 last),
+whoosh between clips, subscribe outro, even loudness. YouTube gets a title with streamer names, chapters, credit links
+for every clip, an auto thumbnail (custom thumbnails need a phone-verified channel) and a first comment. It replaces one
+Short: **4 Shorts + 1 long video a day** fits YouTube's free upload quota (about 6/day).
+
+**Viral stream clips** (`stream_clips.py`, workflow `streams.yml`, every 30 min, separate from the daily videos):
+finds the most-watched GTA 6 streams right now and posts their best clip with the streamer's **real voice**, big
+word-by-word subtitles and a hook banner - no AI voice-over. Sources: top live streams on **Twitch** (needs free
+`TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET`) and **Kick** (English, no key), big streamers' **YouTube** stream
+recordings (cut at the "most replayed" peak) and **X clip accounts** (`stream_clips.x_accounts`, e.g. IShowSpeedHQ).
+Viral = views per hour, with a separate bar per platform. Every clip passes the AI check (real GTA 6, no spoilers,
+nothing unsafe, hype 7+). Posts to TikTok, Instagram and X, max 4 a day, 90 min apart, never the same moment twice.
+News/official channels (IGN, Rockstar, PlayStation...) are never used.
 
 **No spoilers**: story/walkthrough/cutscene/ending titles are blocked and the AI rejects any clip
 that shows story spoilers.
