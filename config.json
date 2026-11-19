@@ -632,8 +632,15 @@
       "mistral": [],
       "github": [],
       "gemma": [],
-      "cerebras": [],
-      "sambanova": []
+      "cerebras": [
+        "gpt-oss-120b",
+        "qwen-3.8-27b"
+      ],
+      "sambanova": [
+        "gpt-oss-120b",
+        "GLM-5.3",
+        "gemma-4-31B-it"
+      ]
     },
     "max_models_per_provider": 4,
     "max_total_sec": 240,
