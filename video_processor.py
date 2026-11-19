@@ -203,6 +203,7 @@ def _gemini_tts_wav(prompt: str, model: str, voice: str, out_wav: Path) -> Path:
         data = base64.b64decode(data)
     m = re.search(r"rate=(\d+)", part.inline_data.mime_type or "")
     raw = out_wav.with_suffix(".pcm")
+    raw.parent.mkdir(parents=True, exist_ok=True)
     raw.write_bytes(data)
     run(["ffmpeg", "-y", "-f", "s16le", "-ar", m.group(1) if m else "24000", "-ac", "1", "-i", str(raw),
          "-ar", "48000", str(out_wav)], timeout=60, check=True)
@@ -343,6 +344,7 @@ def synthesize_lines(lines: list[dict], clip_id: str) -> list[dict]:
     raises HumanVoiceUnavailable instead of using edge-tts / gTTS. Returns lines + path/dur/words."""
     vcfg = load_config().get("voice", {})
     engine = vcfg.get("engine", "auto")
+    VO_DIR.mkdir(parents=True, exist_ok=True)  # tours voice the lines before render() creates it
     paths = [VO_DIR / f"{clip_id}_l{i}.mp3" for i in range(len(lines))]
 
     def finish(words_per_line, label):
