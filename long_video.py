@@ -655,6 +655,46 @@ def package_guide(items: list[dict], spec: dict, brand: str, part: int = 1) -> d
     }
 
 
+def _final_real_check(items: list[dict]) -> list[dict]:
+    """Authenticity check on the exact window of every part that will be shown (main clip + extra angles),
+    trusted stream clips too: QA found GTA V footage (Michael, Los Santos) at the start of a money guide."""
+    import authentic
+    parts = [(it, p_) for it in items for p_ in [it] + list(it.get("extra") or [])]
+    wins = []
+    for k, (_, p_) in enumerate(parts):
+        w = LONG_DIR / f"realcheck_{k}.mp4"
+        LONG_DIR.mkdir(parents=True, exist_ok=True)
+        run(["ffmpeg", "-y", "-v", "error", "-ss", f"{p_['a']:.2f}", "-to", f"{p_['b']:.2f}", "-i", str(p_["path"]),
+             "-an", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", str(w)], timeout=180)
+        wins.append(w)
+    bad = set()
+    for b0 in range(0, len(parts), 6):
+        res = authentic.check(wins[b0:b0 + 6])
+        for k, r in enumerate(res or [None] * len(wins[b0:b0 + 6]), b0):
+            if r is None or not r["ok"]:
+                bad.add(k)
+                p_ = parts[k][1]
+                log.info("[guide] ✋ final check: %s (%s) %s", p_.get("label") or p_["key"], p_["streamer"],
+                         f"not GTA 6 - {r['game']} ({r['evidence']})" if r else "could not be checked")
+    for w in wins:
+        w.unlink(missing_ok=True)
+    out = []
+    for it in items:
+        idx = [k for k, (owner, _) in enumerate(parts) if owner is it]
+        main_k, extra_ks = idx[0], idx[1:]
+        good_extra = [parts[k][1] for k in extra_ks if k not in bad]
+        if main_k in bad:
+            if not good_extra:
+                continue
+            new_main = {**good_extra[0], "label": it["label"], "rank": it["rank"], "sources": it["sources"]}
+            new_main["extra"] = good_extra[1:]
+            out.append(new_main)
+        else:
+            it["extra"] = good_extra
+            out.append(it)
+    return out
+
+
 def make_guide(kind: str, brand: str, used: set, state: dict) -> dict:
     """Guide long video: {chosen, pkg, rendered, spec} or {error}."""
     c = _cfg()
@@ -680,6 +720,11 @@ def make_guide(kind: str, brand: str, used: set, state: dict) -> dict:
         for m in clips:
             Path(m["path"]).unlink(missing_ok=True)
         return {"error": f"only {len(good)} good items for {kind} ({len(items)} found)"}
+    good = _final_real_check(good)  # the exact parts that will be shown, streamer clips included
+    if len(good) < int(c.get("guide_min_items", 4)):
+        for m in clips:
+            Path(m["path"]).unlink(missing_ok=True)
+        return {"error": f"only {len(good)} items left after the final GTA 6 check"}
     good.sort(key=lambda it: it["rank"])  # countdown: weakest first, #1 last
     part = int(state.get("guide_count", {}).get(kind, 0)) + 1
     pkg = package_guide(good, spec, brand, part)
