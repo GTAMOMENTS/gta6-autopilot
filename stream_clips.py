@@ -535,6 +535,11 @@ def produce(clip: dict, dry_run: bool, state: dict) -> dict | None:
         hashlib.md5(clip["key"].encode()).hexdigest()[:6]
     from long_video import _bbox
     cam = _bbox(ai.get("facecam")) if c.get("facecam_layout", True) else None
+    if cam:
+        from long_video import _region_ok
+        if not _region_ok(cut, max(0.5, (b - a) / 2), cam):
+            log.info("[streams] the AI's webcam position shows no picture - normal layout instead")
+            cam = None
     rendered = render(cut, clip_id, copy["banner"], [], voiced=[], caption_words=words,
                       game_volume=float(c.get("audio_volume", 1.0)), fg_zoom=float(c.get("zoom", 1.6)),
                       fx={"facecam": cam} if cam else None)

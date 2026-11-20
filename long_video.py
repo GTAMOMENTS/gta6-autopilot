@@ -14,6 +14,7 @@ import logging
 import math
 import re
 import shutil
+import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -100,6 +101,11 @@ def _fetch_one(x: dict) -> tuple[dict | None, str | None]:
     if not _has_audio(path):
         path.unlink(missing_ok=True)
         return None, "no sound"
+    errs = _decode_errors(path)
+    if errs > int(_cfg().get("max_decode_errors", 30)):
+        log.info("[long] ✋ %s (%s, %s) is corrupted: %d decoding errors", x["key"], x["streamer"], x["platform"], errs)
+        path.unlink(missing_ok=True)
+        return None, "corrupted"
     rep = sc.smoothness(path)
     if rep > float(_cfg().get("max_repeated_frames", 0.2)):
         log.info("[long] ✋ %s (%s, %s) is choppy: %.0f%% repeated frames", x["key"], x["streamer"], x["platform"],
@@ -107,6 +113,27 @@ def _fetch_one(x: dict) -> tuple[dict | None, str | None]:
         path.unlink(missing_ok=True)
         return None, "choppy"
     return {**x, "path": path, "dur": info["duration"], "repeat": rep}, None
+
+
+def _decode_errors(path: Path) -> int:
+    """Broken video data (pixel garbage / green-purple smears come from it): count the decoder's error lines."""
+    res = run(["ffmpeg", "-v", "error", "-i", str(path), "-map", "0:v:0", "-f", "null", "-"], timeout=300)
+    return len([ln for ln in res.stderr.splitlines() if ln.strip()])
+
+
+def _region_ok(src: Path, t: float, box: list) -> bool:
+    """Is there a real picture (a face cam) in this part of the frame? A blank / one-colour area = no.
+    (QA found a REACTION close-up that showed only an empty black/red area: wrong webcam coordinates.)"""
+    x, y, w, h = box
+    res = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(0.0, t):.2f}", "-i", str(src), "-frames:v", "1",
+                          "-vf", f"crop=iw*{w:.3f}:ih*{h:.3f}:iw*{x:.3f}:ih*{y:.3f},scale=48:48,format=gray",
+                          "-f", "rawvideo", "-"], capture_output=True, timeout=60)
+    px = res.stdout
+    if res.returncode != 0 or len(px) < 48 * 48:
+        return False
+    mean = sum(px) / len(px)
+    std = (sum((p - mean) ** 2 for p in px) / len(px)) ** 0.5
+    return std >= float(_cfg().get("facecam_min_contrast", 18)) and 15 <= mean <= 240
 
 
 def download(cands: list[dict]) -> list[dict]:
@@ -133,7 +160,10 @@ REVIEW_PROMPT = """You are the editor of "{brand}", a GTA 6 channel. The attache
 clips joined one after another. Clip time ranges in this video:
 {ranges}
 For EACH clip judge honestly and write:
-- is_gta6_footage: true only if the game shown is real Grand Theft Auto VI.
+- is_gta6_footage: true only if real Grand Theft Auto VI GAMEPLAY is on screen for most of the clip. A streamer
+  only talking / eating / reacting at the desk with no game visible = false.
+- broken: true if the picture is corrupted (pixelated blocks, green / purple smears, glitching image), mostly
+  frozen or black.
 - is_spoiler: true for story spoilers (story cutscenes, plot reveals, endings, character deaths).
 - is_english: true if the streamer speaks English (or nobody talks); false for any other language.
 - unsafe: true ONLY for nudity, slurs / hate speech, real-world violence, doxxing - things YouTube removes.
@@ -146,8 +176,8 @@ For EACH clip judge honestly and write:
 - trim_start / trim_end: seconds WITHIN that clip (0 = start of the clip) of the best part, 10-45 seconds.
 - best_t: second within the clip with the most eye-catching frame / the punchline (for the replay + thumbnail).
 - facecam: [x, y, w, h] as fractions of the frame (0-1) where the streamer's webcam is, or null if there is none.
-Return ONLY JSON: {{"clips": [{{"clip": number, "is_gta6_footage": bool, "is_spoiler": bool, "unsafe": bool,
- "is_english": bool, "hype_score": int, "label": str, "line": str, "trim_start": number, "trim_end": number,
+Return ONLY JSON: {{"clips": [{{"clip": number, "is_gta6_footage": bool, "broken": bool, "is_spoiler": bool,
+ "unsafe": bool, "is_english": bool, "hype_score": int, "label": str, "line": str, "trim_start": number, "trim_end": number,
  "best_t": number, "facecam": [number, number, number, number] | null}}]}}"""
 
 
@@ -245,7 +275,8 @@ def review(moments: list[dict], brand: str) -> list[dict]:
             v = verdicts.get(i)
             if not v:
                 continue
-            reason = ("not GTA 6" if not v.get("is_gta6_footage") else "spoiler" if v.get("is_spoiler")
+            reason = ("not GTA 6" if not v.get("is_gta6_footage") else "broken picture" if v.get("broken")
+                      else "spoiler" if v.get("is_spoiler")
                       else "not English" if v.get("is_english") is False else "unsafe" if v.get("unsafe") else None)
             if reason:
                 log.info("[long] ✋ %s (%s): %s", m["key"], m["streamer"], reason)
@@ -259,9 +290,13 @@ def review(moments: list[dict], brand: str) -> list[dict]:
                 a, e = 0.0, min(m["dur"], 45.0)
             if e - a < 10:
                 continue
+            cam = _bbox(v.get("facecam"))
+            if cam and not _region_ok(m["path"], float(v.get("best_t") or (a + e) / 2), cam):
+                log.info("[long] %s: the AI's webcam position shows no picture - no facecam for this clip", m["key"])
+                cam = None
             reviewed.append({**m, "hype": int(v.get("hype_score") or 0), "label": str(v.get("label") or m["title"])[:60],
                              "line": str(v.get("line") or "").strip(), "a": a, "b": min(e, a + 45),
-                             "best_t": float(v.get("best_t") or (a + e) / 2), "facecam": _bbox(v.get("facecam"))})
+                             "best_t": float(v.get("best_t") or (a + e) / 2), "facecam": cam})
         reel.unlink(missing_ok=True)
         log.info("[long] batch %d: %d/%d clips passed", b // size + 1,
                  sum(1 for r in reviewed if r["key"] in {m["key"] for m in batch}), len(batch))
@@ -555,7 +590,8 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str) -> dict | None:
         if i >= n_all - int(c.get("replays", 3)) and c.get("punchline_inserts", True):
             ins = LONG_DIR / f"ins_{i:02d}.mp4"
             bt = min(max(m["best_t"], 1.2), m["dur"] - 1.6)
-            if m.get("facecam") and _segment(m["path"], bt - 0.6, bt + 1.8, ins, crop=m["facecam"]):
+            if m.get("facecam") and _region_ok(m["path"], bt, m["facecam"]) and \
+                    _segment(m["path"], bt - 0.6, bt + 1.8, ins, crop=m["facecam"]):
                 label = "REACTION"
             elif _segment(m["path"], bt - 1.0, bt + 0.9, ins, speed=0.55):
                 label = "REPLAY"

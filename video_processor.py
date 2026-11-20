@@ -308,6 +308,68 @@ def _align_cuts(segs: list[tuple[float, float]], words: list[int]) -> list[tuple
     return pieces
 
 
+_NUM = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve",
+        "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty"]
+
+
+def _norm_tokens(text: str) -> list[str]:
+    """Words for matching script vs Whisper: lower case, no punctuation, small numbers as words ("15" = "fifteen")."""
+    out = []
+    for tok in re.findall(r"[a-z0-9']+", text.lower().replace(".", "")):
+        tok = tok.strip("'")
+        if tok.isdigit() and int(tok) <= 20:
+            tok = _NUM[int(tok)]
+        if tok:
+            out.append(tok)
+    return out
+
+
+def _whisper_cuts(full: Path, texts: list[str]) -> list[tuple[float, float]] | None:
+    """Exact cut points: Whisper listens to the one-take narration and finds where every script line is
+    spoken. None = Whisper not available (caller uses pauses + word counts). Raises _SplitError if a line
+    can't be found (the caller then records the lines one by one)."""
+    import difflib
+    import transcribe
+    if transcribe._get_model() is None:
+        return None
+    heard, _ = transcribe.words(full)
+    if not heard:
+        raise _SplitError("Whisper heard no speech in the narration")
+    h_tok, h_idx = [], []
+    for i, w in enumerate(heard):
+        for t in _norm_tokens(w["text"]):
+            h_tok.append(t)
+            h_idx.append(i)
+    s_tok, s_line = [], []
+    for li, t in enumerate(texts):
+        for tok in _norm_tokens(t):
+            s_tok.append(tok)
+            s_line.append(li)
+    match = {}
+    for a, b, size in difflib.SequenceMatcher(None, s_tok, h_tok, autojunk=False).get_matching_blocks():
+        for k in range(size):
+            match[a + k] = b + k
+    spans = []  # (first heard word index, last heard word index) per line
+    for li, text in enumerate(texts):
+        idx = [k for k in range(len(s_tok)) if s_line[k] == li]
+        got = [h_idx[match[k]] for k in idx if k in match]
+        if not idx or len(got) < 0.6 * len(idx):
+            raise _SplitError(f"Whisper could not find the line '{text[:40]}' in the narration")
+        spans.append((min(got), max(got)))
+    for i in range(1, len(spans)):
+        if spans[i][0] <= spans[i - 1][1]:
+            raise _SplitError("narration lines overlap / out of order")
+    dur = probe(full)["duration"]
+    cuts = []  # boundary between line i-1 and i: the longest pause between their matched words
+    for i in range(1, len(spans)):
+        lo, hi = spans[i - 1][1], spans[i][0]
+        j = max(range(lo, hi), key=lambda x: heard[x + 1]["start"] - heard[x]["end"])
+        cuts.append((heard[j]["end"] + heard[j + 1]["start"]) / 2)
+    starts = [max(0.0, heard[spans[0][0]]["start"] - 0.12)] + cuts
+    ends = cuts + [min(dur, heard[spans[-1][1]]["end"] + 0.2)]
+    return list(zip(starts, ends))
+
+
 def _gemini_all_lines(lines: list[dict], paths: list[Path], model: str, voice: str | None = None) -> None:
     """ONE Gemini TTS request with the whole script (natural flow, saves quota), then cut into lines at the
     pauses that match the script. Every piece is checked against its line; any doubt -> _SplitError and the
@@ -324,9 +386,15 @@ def _gemini_all_lines(lines: list[dict], paths: list[Path], model: str, voice: s
         expected = sum(words) / 2.6
         if not 0.55 * expected <= speech <= 1.6 * expected + 2:
             raise _SplitError(f"{speech:.0f}s of speech for {sum(words)} words - doesn't match the script")
-        pieces = _align_cuts(segs, words)
-        if not pieces:
-            raise _SplitError(f"could not split Gemini audio into {len(lines)} lines (found {len(segs)} parts)")
+        # Whisper hears where each line is actually spoken (cutting by word counts drifted on long scripts:
+        # half a sentence ended up on the next clip - found by QA)
+        pieces = _whisper_cuts(full, texts) if len(lines) > 1 else None
+        if pieces:
+            log.info("[voice] Whisper split the narration into %d lines", len(pieces))
+        else:  # Whisper not available: pauses + word counts
+            pieces = _align_cuts(segs, words)
+            if not pieces:
+                raise _SplitError(f"could not split Gemini audio into {len(lines)} lines (found {len(segs)} parts)")
         rate = speech / sum(words)  # this take's real seconds per word
         for (a, b), text, w in zip(pieces, texts, words):
             if not (0.5 * w * rate - 0.4 <= b - a <= 1.7 * w * rate + 1.0):
