@@ -113,6 +113,11 @@ def sandbox(tmp_path, monkeypatch):
                     monkeypatch.setattr(mod, attr, new)
     fake["work"].mkdir(parents=True, exist_ok=True)
     fake["queue"].mkdir(parents=True, exist_ok=True)
+    ac = sys.modules.get("ai_cache")
+    if ac is not None and hasattr(ac, "reset"):
+        # the AI verdict cache keeps an in-memory copy: one test's saved verdicts must not leak into the next
+        monkeypatch.setattr(ac, "CACHE_FILE", fake["queue"] / "ai_verdicts.json")
+        ac.reset()
     return SimpleNamespace(root=root, state=fake["queue"], work=fake["work"], ready=fake["work"] / "ready",
                            raw=fake["work"] / "raw", voice=fake["work"] / "voice")
 
