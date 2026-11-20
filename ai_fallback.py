@@ -114,8 +114,8 @@ def _models(p: str) -> list[tuple[str, bool]]:
     except Exception as exc:  # noqa: BLE001
         log.warning("[ai-fallback] %s model list failed: %.150s", p, exc)
     uniq = list(dict(found).items())
-    pinned_set = set(pinned)
-    uniq.sort(key=lambda mv: (mv[0] not in pinned_set,) + _rank(*mv))
+    order = {m: i for i, m in enumerate(pinned)}  # pinned models keep the order set in config.json
+    uniq.sort(key=lambda mv: (order.get(mv[0], len(order)),) + _rank(*mv))
     chosen = [mv for mv in uniq if mv[0] != "openrouter/free"][: int(_cfg().get("max_models_per_provider", 4))]
     if p == "openrouter" and any(m == "openrouter/free" for m, _ in uniq):
         chosen.append(("openrouter/free", True))  # OpenRouter's auto-router to whichever free model is up

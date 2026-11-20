@@ -77,42 +77,52 @@ def gather(c: dict, used: set) -> list[dict]:
     return picked
 
 
-def download(cands: list[dict]) -> list[dict]:
+def _fetch_one(x: dict) -> tuple[dict | None, str | None]:
+    """Download + check one candidate. Returns (clip, None) or (None, reason it was skipped)."""
     import stream_clips as sc
     from source_fetcher import Candidate, _download
+    path = RAW_DIR / f"long_{re.sub(r'[^a-zA-Z0-9]', '_', x['key'])[:50]}.mp4"
+    cand = Candidate(key=x["key"], url=x["url"], title=x["title"], uploader=x["streamer"],
+                     provider=f"{x['platform']}_clip", duration=x["duration"], kind="stream",
+                     media_url=x.get("media_url") or None)
+    try:
+        ok = _download(cand, 0, int(x["duration"]) + 1, path)
+    except Exception as exc:  # noqa: BLE001
+        log.info("[long] download failed %s: %.100s", x["key"], exc)
+        ok = False
+    if not ok:
+        return None, f"download failed ({x['platform']})"
+    info = probe(path)
+    if min(info["width"], info["height"]) < 480 or info["duration"] < 6:
+        path.unlink(missing_ok=True)
+        return None, (f"low res ({x['platform']} {info['width']}x{info['height']})" if info["duration"] >= 6
+                      else "too short")
+    if not _has_audio(path):
+        path.unlink(missing_ok=True)
+        return None, "no sound"
+    rep = sc.smoothness(path)
+    if rep > float(_cfg().get("max_repeated_frames", 0.2)):
+        log.info("[long] ✋ %s (%s, %s) is choppy: %.0f%% repeated frames", x["key"], x["streamer"], x["platform"],
+                 rep * 100)
+        path.unlink(missing_ok=True)
+        return None, "choppy"
+    return {**x, "path": path, "dur": info["duration"], "repeat": rep}, None
+
+
+def download(cands: list[dict]) -> list[dict]:
+    """Downloads + checks the candidates a few at a time (one by one took ~18 min for 40 clips).
+    The result keeps the candidates' order (most viewed first)."""
+    from concurrent.futures import ThreadPoolExecutor
     RAW_DIR.mkdir(parents=True, exist_ok=True)
+    workers = max(1, int(_cfg().get("download_workers", 4)))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        results = list(pool.map(_fetch_one, cands))
     out, why = [], {}
-    for x in cands:
-        path = RAW_DIR / f"long_{re.sub(r'[^a-zA-Z0-9]', '_', x['key'])[:50]}.mp4"
-        cand = Candidate(key=x["key"], url=x["url"], title=x["title"], uploader=x["streamer"],
-                         provider=f"{x['platform']}_clip", duration=x["duration"], kind="stream",
-                         media_url=x.get("media_url") or None)
-        try:
-            ok = _download(cand, 0, int(x["duration"]) + 1, path)
-        except Exception as exc:  # noqa: BLE001
-            log.info("[long] download failed %s: %.100s", x["key"], exc)
-            ok = False
-        if not ok:
-            why[f"download failed ({x['platform']})"] = why.get(f"download failed ({x['platform']})", 0) + 1
-            continue
-        info = probe(path)
-        if min(info["width"], info["height"]) < 480 or info["duration"] < 6:
-            r = f"low res ({x['platform']} {info['width']}x{info['height']})" if info["duration"] >= 6 else "too short"
-            why[r] = why.get(r, 0) + 1
-            path.unlink(missing_ok=True)
-            continue
-        if not _has_audio(path):
-            why["no sound"] = why.get("no sound", 0) + 1
-            path.unlink(missing_ok=True)
-            continue
-        rep = sc.smoothness(path)
-        if rep > float(_cfg().get("max_repeated_frames", 0.2)):
-            why["choppy"] = why.get("choppy", 0) + 1
-            log.info("[long] ✋ %s (%s, %s) is choppy: %.0f%% repeated frames", x["key"], x["streamer"], x["platform"],
-                     rep * 100)
-            path.unlink(missing_ok=True)
-            continue
-        out.append({**x, "path": path, "dur": info["duration"], "repeat": rep})
+    for clip, reason in results:
+        if clip:
+            out.append(clip)
+        elif reason:
+            why[reason] = why.get(reason, 0) + 1
     log.info("[long] downloaded %d/%d clips (skipped: %s)", len(out), len(cands), why)
     return out
 

@@ -28,6 +28,7 @@ log = logging.getLogger("autopilot")
 
 _client_obj = None
 _unavailable_until = 0.0  # skip Gemini for the rest of the run after repeated overloads
+_busy_until: dict[str, float] = {}  # model -> time: a model that just said 503/504 is skipped for a few minutes
 
 
 # --------------------------------------------------------------------------- client
@@ -157,6 +158,12 @@ def _generate_json(contents, temperature: float = 0.9, prefer_pro: bool = False)
     for attempt in (1, 2):
         overloaded = False
         models = list(dict.fromkeys((_pro_models() if prefer_pro else []) + _models()))
+        if attempt == 1:
+            # a model that was overloaded a few minutes ago is skipped (each 503/504 costs up to ~50s)
+            fresh = [m for m in models if _busy_until.get(m, 0) <= time.time()]
+            if fresh and len(fresh) < len(models):
+                overloaded = True  # if the fresh ones fail too, the 2nd round tries the busy ones again
+                models = fresh
         for model in models:
             data, busy = _try_model(types, model, contents, temperature)
             if data:
@@ -196,7 +203,10 @@ def _try_model(types, model: str, contents, temperature: float) -> tuple[dict | 
                                   "RESOURCE_EXHAUSTED")):
             _dead_models.add(model)  # gone or out of quota for today - don't try it again this run
             return None, False
-        return None, any(x in msg for x in ("503", "504", "UNAVAILABLE", "DEADLINE_EXCEEDED", "high demand"))
+        busy = any(x in msg for x in ("503", "504", "UNAVAILABLE", "DEADLINE_EXCEEDED", "high demand"))
+        if busy:
+            _busy_until[model] = time.time() + float(load_config().get("gemini", {}).get("busy_cooldown_sec", 480))
+        return None, busy
     return None, False
 
 

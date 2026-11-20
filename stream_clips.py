@@ -39,8 +39,6 @@ def is_famous(streamer: str, c: dict | None = None) -> bool:
 
 def smoothness(path: Path) -> float:
     """Share of repeated frames when played at 30 fps - laggy streams / clips that skip frames look choppy."""
-    tot = run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-count_frames", "-show_entries",
-               "stream=nb_read_frames", "-of", "csv=p=0", "-read_intervals", "%+60", str(path)], timeout=120)
     res = run(["ffmpeg", "-hide_banner", "-t", "60", "-i", str(path), "-vf",
                "fps=30,scale=320:-2,mpdecimate=hi=200:lo=64:frac=0.33", "-f", "null", "-"], timeout=180)
     seen = re.findall(r"frame=\s*(\d+)", res.stderr)

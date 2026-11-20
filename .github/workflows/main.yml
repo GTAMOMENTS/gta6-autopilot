@@ -64,7 +64,7 @@ jobs:
     permissions:
       contents: read
       models: read   # free GitHub Models AI (backup script writer), no key needed
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

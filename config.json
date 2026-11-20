@@ -534,7 +534,8 @@
     "max_total_sec": 240,
     "fallback_frames": 8,
     "tour_frames": 12,
-    "use_pro": true
+    "use_pro": true,
+    "busy_cooldown_sec": 480
   },
   "voice": {
     "engine": "gemini",
@@ -1034,7 +1035,8 @@
     "replays": 3,
     "intro_sting": true,
     "music_volume": 0.07,
-    "_approval_note": "Long videos are never auto-published: after QA passes they wait for the owner (download from Artifacts, then upload by hand or run the workflow with slot approve_long)."
+    "_approval_note": "Long videos are never auto-published: after QA passes they wait for the owner (download from Artifacts, then upload by hand or run the workflow with slot approve_long).",
+    "download_workers": 4
   },
   "whisper": {
     "enabled": true,
