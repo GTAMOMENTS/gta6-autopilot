@@ -141,3 +141,9 @@ charm pack, learning, stream clips, long video, English-only + choppy filter, Ge
 - **Long videos are never auto-published** (`long_video.require_approval`): after QA passes they wait in
   `queue/pending_long/`; the owner uploads by hand or runs the workflow with slot `approve_long`.
 - Stream-clip Shorts: facecam-on-top / gameplay-below layout when the AI finds a webcam (`stream_clips.facecam_layout`).
+- QA caught on real footage (dry run 1): the narrator said "Number four" while the card showed "#13" (the AI wrote the
+  lines before the countdown order existed) -> numbers are now added AFTER ordering (`_strip_rank` / `_ranked`), and
+  frozen stretches in source streams (lag) are cut out by `_jump_keep` (freezedetect).
+- Run time: a long-video run is ~40-60 min (40 downloads + 7 Gemini review batches + render + QA). Dry run 2 hit the old
+  60 min job limit -> downloads run 4 at a time (`long_video.download_workers`), a Gemini model that answers 503/504
+  is skipped for 8 min (`gemini.busy_cooldown_sec`), job timeout is 120 min (repo is public: Actions minutes are free).
