@@ -437,6 +437,11 @@ def upload_post_text(text: str) -> dict:
 
 def publish_video(video: Path, platforms: list[str], copy: dict, credit: str) -> dict:
     """Returns {platform: {"ok": bool, "provider": str, "url"/"error": ...}}."""
+    paused = set(load_config().get("publishing", {}).get("paused_platforms", []))
+    if paused & set(platforms):  # e.g. Instagram flagged the account for non-original content (2026-11-20)
+        log.info("[publish] paused in config (publishing.paused_platforms), not posting to: %s",
+                 sorted(paused & set(platforms)))
+        platforms = [p for p in platforms if p not in paused]
     caps = build_captions(copy, credit)
     results: dict[str, dict] = {}
     pending = {p: [prov for prov in routes_for(p)] for p in platforms}
