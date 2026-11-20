@@ -213,6 +213,11 @@ def prompt_note(fmt: dict | None, tour: bool) -> str:
     if fmt.get("must_show"):
         lines.append(f"REQUIRED FOR THIS FORMAT: the footage must clearly show {fmt['must_show']}. Set "
                      "shows_required=true ONLY if you actually see it happen, and give required_t = the second "
-                     "(within this footage) where it happens; otherwise shows_required=false and required_t=null. "
-                     "Your part must include that second.")
+                     "(within this footage) where it happens, and required_evidence = exactly what is on screen at "
+                     "that second (e.g. \"HUD cash goes from $1,200 to $3,600 after opening the safe\"); otherwise "
+                     "shows_required=false, required_t=null, required_evidence=\"\". Your part must include that second.")
+    if fmt.get("tutorial"):
+        lines.append("HOW-TO RULES: name the specific method and place in the first two lines, then the steps the "
+                     "viewer can SEE and copy, in order; every line must match what is on screen when it is said; "
+                     "no vague filler (\"look for these spots\", \"watch out\") and no lines about things not shown.")
     return "\n".join(lines)
