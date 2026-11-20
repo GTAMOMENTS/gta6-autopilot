@@ -123,7 +123,11 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
                       "category) - flag 'not GTA 6' only if you clearly see GTA V places or characters. ")
         muted_note = ("The original creator's voice-over is muted on purpose (so there is no game sound) - only our "
                       "narrator speaks. " if _mute(copy) == 0.0 else "")
-        teaser_note = trust_note + muted_note + ("The first ~1.2 s is an intentional cold open: a quick flash of the big moment, which then "
+        style_note = ("INTENTIONAL EDIT (not errors): the banner pops in at the top on the first frame, captions show "
+                      "the narration 2-4 words at a time with the spoken word highlighted, zoom punch-ins / a short shake "
+                      "and flash on the big moment, and when the last line is a question it also appears as a card with a "
+                      "call to action. ")
+        teaser_note = trust_note + muted_note + style_note + ("The first ~1.2 s is an intentional cold open: a quick flash of the big moment, which then "
                        "plays again at its real place in the clip - that repeat is NOT a montage error. "
                        if float(vcfg.get("fx", {}).get("teaser_sec", 0)) > 0 and not src.is_reel else "")
         verdict = qa.check(Path(rendered["path"]), "short", lines=rendered.get("placed"),
