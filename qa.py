@@ -91,13 +91,38 @@ def _norm_words(text: str) -> list[str]:
     return re.findall(r"[a-z0-9']+", text.lower().replace("*", ""))
 
 
+def _narration_stem(path: Path, lines: list[dict]) -> Path | None:
+    """The narration alone, placed exactly as in the final mix (same delays, same length) - so Whisper checks
+    what the narrator says and WHEN, without the streamer / game sound talking over it."""
+    if not lines or not all(ln.get("path") and Path(ln["path"]).exists() for ln in lines):
+        return None
+    total = probe(path)["duration"] or 0
+    inputs, chains = [], []
+    for i, ln in enumerate(lines):
+        ms = int(float(ln["start"]) * 1000)
+        inputs += ["-i", str(ln["path"])]
+        chains.append(f"[{i}:a]aresample=16000,aformat=channel_layouts=mono,adelay={ms}[v{i}]")
+    out = path.with_name(path.stem + "_narration.wav")
+    fc = ";".join(chains) + ";" + "".join(f"[v{i}]" for i in range(len(lines))) + \
+        f"amix=inputs={len(lines)}:normalize=0:duration=longest,apad[o]"
+    res = run(["ffmpeg", "-y", "-hide_banner", *inputs, "-filter_complex", fc, "-map", "[o]", "-t", f"{total:.2f}",
+               str(out)], timeout=300)
+    return out if res.returncode == 0 and out.exists() else None
+
+
 def voice_check(path: Path, lines: list[dict]) -> list[dict]:
-    """lines: [{"text", "start", "dur"}] = narration placed in the final video. Whisper must hear each line
-    (word match) close to where it is placed (timing)."""
+    """lines: [{"text", "start", "dur", "path"?}] = narration placed in the final video. Whisper must hear each
+    line (word match) close to where it is placed (timing). Uses the narration-only track when the voice files
+    are known (the final mix has streamer / game sound under the voice)."""
     import transcribe
     if not lines:
         return []
-    heard, _ = transcribe.words(path)
+    stem = _narration_stem(path, lines)
+    try:
+        heard, _ = transcribe.words(stem or path)
+    finally:
+        if stem:
+            stem.unlink(missing_ok=True)
     if not heard:
         if transcribe._get_model() is None:
             return [{"severity": "low", "type": "voice_unchecked", "detail": "Whisper not available"}]
