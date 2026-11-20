@@ -131,8 +131,8 @@ For EACH clip judge honestly and write:
 - hype_score 1-10: how funny / wild / shareable the moment and the streamer's reaction are (strict).
 - label: max 6 words, Title Case, what happens ("Kai Cenat Vs The Yacht"). No spoilers of the punchline.
 - line: what our narrator says right before it plays: 8-20 words, casual YouTuber voice, names the streamer,
-  builds curiosity without giving away the punchline ("Number seven, Kai thought a jet ski could outrun a police
-  helicopter. It could not.").  Say "GTA 6", never "GTA VI".
+  builds curiosity without giving away the punchline ("Kai thought a jet ski could outrun a police helicopter.
+  It could not."). NO numbers or rankings in the line (the countdown number is added later). Say "GTA 6".
 - trim_start / trim_end: seconds WITHIN that clip (0 = start of the clip) of the best part, 10-45 seconds.
 - best_t: second within the clip with the most eye-catching frame / the punchline (for the replay + thumbnail).
 - facecam: [x, y, w, h] as fractions of the frame (0-1) where the streamer's webcam is, or null if there is none.
@@ -152,6 +152,24 @@ def _bbox(v) -> list | None:
     if not (0 <= x < 1 and 0 <= y < 1 and 0.08 <= w <= 0.6 and 0.08 <= h <= 0.6 and x + w <= 1.02 and y + h <= 1.02):
         return None
     return [round(x, 3), round(y, 3), round(min(w, 1 - x), 3), round(min(h, 1 - y), 3)]
+
+
+_NUM_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
+              "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty"]
+
+
+def _strip_rank(line: str) -> str:
+    """Remove any 'Number seven,' / '#7:' / 'At number 3' the AI put in - the real rank is added at render time."""
+    pat = r"^\s*(at\s+)?(number|no\.?|#)\s*(\d+|" + "|".join(_NUM_WORDS) + r")\b[\s,.:;!-]*"
+    return re.sub(pat, "", line, flags=re.I).strip()
+
+
+def _ranked(n: int, line: str) -> str:
+    """The narrator says the SAME number the title card shows."""
+    word = _NUM_WORDS[n] if n < len(_NUM_WORDS) else str(n)
+    body = _strip_rank(line)
+    body = body[:1].upper() + body[1:]
+    return f"Number {word}. {body}" if body else ""
 
 
 def _proxy(path: Path, out: Path) -> bool:
@@ -340,7 +358,7 @@ def _segment(src: Path, a: float, b: float, out: Path, silent_ok: bool = False, 
 def _jump_keep(src: Path, a: float, b: float, protect: float) -> list | None:
     """Ranges to keep inside [a, b]: quiet stretches (no talking, no action sound) over 1 s are cut out,
     except around the punchline. None = nothing worth cutting."""
-    if not _cfg().get("jump_cuts", True) or not _has_audio(src):
+    if not _cfg().get("jump_cuts", True):
         return None
     res = run(["ffmpeg", "-hide_banner", "-ss", f"{a:.3f}", "-t", f"{b - a:.3f}", "-i", str(src), "-vn", "-af",
                "silencedetect=noise=-35dB:d=1.0", "-f", "null", "-"], timeout=120)
@@ -349,6 +367,21 @@ def _jump_keep(src: Path, a: float, b: float, protect: float) -> list | None:
         x, y = a + float(st) + 0.3, a + float(en) - 0.3  # keep a little air around each cut
         if y - x >= 0.7 and not (x - 1.5 <= protect <= y + 1.5):
             quiet.append((x, y))
+    # frozen picture in the stream itself (lag) - always cut out
+    fr = run(["ffmpeg", "-hide_banner", "-ss", f"{a:.3f}", "-t", f"{b - a:.3f}", "-i", str(src), "-an", "-vf",
+              "scale=320:-2,freezedetect=n=0.003:d=0.8", "-f", "null", "-"], timeout=180)
+    fs = re.findall(r"freeze_start: ([\d.]+)", fr.stderr)
+    fe = re.findall(r"freeze_end: ([\d.]+)", fr.stderr) + [str(b - a)] * 3
+    for st, en in zip(fs, fe):
+        quiet.append((a + float(st) - 0.05, a + float(en) + 0.05))
+    quiet = sorted(quiet)
+    merged = []
+    for x, y in quiet:  # overlapping cuts -> one
+        if merged and x <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], y))
+        else:
+            merged.append((max(a, x), min(b, y)))
+    quiet = merged
     if not quiet:
         return None
     keep, cur = [], a
@@ -499,8 +532,34 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str) -> dict | None:
     READY_DIR.mkdir(parents=True, exist_ok=True)
     c = _cfg()
     top = moments[-1]  # #1 (moments are in countdown order: worst first)
-    # narration first (Fenrir): its lengths decide the cold-open length; the video still works without it
-    texts = [pkg["intro_line"]] + [m.get("line") or "" for m in moments] + [pkg["outro_line"]]
+    # 1) prepare every moment (jump cuts) + the punchline inserts first, so the final countdown numbers are known
+    prepared = []
+    n_all = len(moments)
+    for i, m in enumerate(moments):
+        out = LONG_DIR / f"seg_{i:02d}.mp4"
+        keep = _jump_keep(m["path"], m["a"], m["b"], m["best_t"])
+        if not _segment(m["path"], m["a"], m["b"], out, keep=keep):
+            log.warning("[long] could not prepare %s - dropped", m["key"])
+            continue
+        ins, label = None, ""
+        if i >= n_all - int(c.get("replays", 3)) and c.get("punchline_inserts", True):
+            ins = LONG_DIR / f"ins_{i:02d}.mp4"
+            bt = min(max(m["best_t"], 1.2), m["dur"] - 1.6)
+            if m.get("facecam") and _segment(m["path"], bt - 0.6, bt + 1.8, ins, crop=m["facecam"]):
+                label = "REACTION"
+            elif _segment(m["path"], bt - 1.0, bt + 0.9, ins, speed=0.55):
+                label = "REPLAY"
+            else:
+                ins = None
+        prepared.append({"m": m, "seg": out, "ins": ins, "label": label})
+    if len(prepared) < 3:
+        return None
+    n = len(prepared)
+    for k, pr in enumerate(prepared):  # the narrator says exactly the number the card shows
+        pr["n"] = n - k
+        pr["line"] = _ranked(pr["n"], pr["m"].get("line") or "")
+    # 2) narration (Fenrir) with the final numbers; its lengths decide the cold-open length
+    texts = [pkg["intro_line"]] + [pr["line"] for pr in prepared] + [pkg["outro_line"]]
     voice_by_text: dict[str, dict] = {}
     try:
         spoken = [t for t in texts if t.strip()]
@@ -510,7 +569,7 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str) -> dict | None:
         log.warning("[long] narration skipped: %s", exc)
     intro_v = voice_by_text.get(pkg["intro_line"])
     segs, cards, voiced, inserts = [], [], [], []
-    # cold open: #1 around its best frame, long enough for the intro line
+    # 3) cold open: #1 around its best frame, long enough for the intro line
     teaser = LONG_DIR / "seg_teaser.mp4"
     t_len = min(9.0, max(float(c.get("teaser_sec", 4.0)), (intro_v["dur"] + 0.8) if intro_v else 0))
     ta = max(0.0, min(top["best_t"] - t_len / 2, top["dur"] - t_len))
@@ -519,42 +578,23 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str) -> dict | None:
     cursor = sum(_vdur(s) for s in segs)
     if intro_v and segs:
         voiced.append({**intro_v, "t": 0.3})
-    n = len(moments)
-    for i, m in enumerate(moments):
-        out = LONG_DIR / f"seg_{i:02d}.mp4"
-        keep = _jump_keep(m["path"], m["a"], m["b"], m["best_t"])
-        if not _segment(m["path"], m["a"], m["b"], out, keep=keep):
-            log.warning("[long] could not prepare %s - dropped", m["key"])
-            continue
-        d = _vdur(out)
-        num = n - i
-        cards.append({"start": cursor, "n": num, "label": m["label"],
+    # 4) timeline: card + voice line + moment (+ REPLAY / REACTION insert)
+    for pr in prepared:
+        m, d = pr["m"], _vdur(pr["seg"])
+        cards.append({"start": cursor, "n": pr["n"], "label": m["label"],
                       "who": f"{m['streamer']} on {m['platform'].title()}", "m": m})
-        v = voice_by_text.get(m.get("line") or "")
+        v = voice_by_text.get(pr["line"])
         if v and v["dur"] < d - 0.6:  # a line longer than its moment would talk over the next one
             voiced.append({**v, "t": cursor + 0.35})
-        segs.append(out)
+        segs.append(pr["seg"])
         cursor += d
-        # the punchline lands: top 3 moments get a reaction close-up (facecam) or a slow-motion replay
-        if i >= n - int(c.get("replays", 3)) and c.get("punchline_inserts", True):
-            ins = LONG_DIR / f"ins_{i:02d}.mp4"
-            bt = min(max(m["best_t"], 1.2), m["dur"] - 1.6)
-            if m.get("facecam") and _segment(m["path"], bt - 0.6, bt + 1.8, ins, crop=m["facecam"]):
-                label = "REACTION"
-            elif _segment(m["path"], bt - 1.0, bt + 0.9, ins, speed=0.55):
-                label = "REPLAY"
-            else:
-                label = ""
-            if label:
-                di = _vdur(ins)
-                inserts.append({"start": cursor, "end": cursor + di, "label": label})
-                segs.append(ins)
-                cursor += di
+        if pr["ins"] is not None:
+            di = _vdur(pr["ins"])
+            inserts.append({"start": cursor, "end": cursor + di, "label": pr["label"]})
+            segs.append(pr["ins"])
+            cursor += di
     if len(cards) < 3:
         return None
-    # renumber if some segments were dropped
-    for k, cd in enumerate(cards):
-        cd["n"] = len(cards) - k
     outro_at = cursor
     frame = LONG_DIR / "outro.jpg"
     run(["ffmpeg", "-y", "-ss", f"{top['best_t']:.2f}", "-i", str(top["path"]), "-frames:v", "1", str(frame)], timeout=60)
