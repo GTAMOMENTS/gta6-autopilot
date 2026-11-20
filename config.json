@@ -368,7 +368,7 @@
       "lore"
     ],
     "preferred_title_terms": {
-      "no commentary": 2.0,
+      "no commentary": 3.5,
       "4k": 1.0,
       "chase": 2.0,
       "shootout": 2.5,
@@ -533,6 +533,29 @@
       "VGC",
       "IGN Entertainment"
     ],
+    "salvage_min_sec": 45,
+    "search_workers": 3,
+    "review_cache_days": 10,
+    "bad_clip_days": 14,
+    "unsafe_title_terms": [
+      "strip club",
+      "strip clubs",
+      "stripclub",
+      "stripper",
+      "strippers",
+      "lap dance",
+      "lapdance",
+      "pole dance",
+      "pole dancer",
+      "vanilla unicorn",
+      "nsfw",
+      "nude",
+      "naked",
+      "topless",
+      "18+"
+    ],
+    "unsafe_title_penalty": 6.0,
+    "_download_note": "Downloads: Dailymotion streams are picked from yt-dlp's format list by height / id (its HLS list often has no height info -> 'Requested format is not available'); yt-dlp info is fetched once per video and reused (--load-info-json); whole short clips are downloaded normally (no ffmpeg sections); a slow section download is stopped early and the part already downloaded is kept if it has salvage_min_sec+; YouTube switches to another player client for the rest of the run when the default one is refused. Searches: search_workers YouTube searches at a time, results clearly older than the launch (approximate date) dropped before any download. review_cache_days: long-video review verdicts reused per clip + section; bad_clip_days: clips a review found not GTA 6 / broken / spoiler / unsafe are not downloaded again. unsafe_title_terms: clips whose title suggests strip clubs etc. rank last (the AI rejects them as unsafe).",
     "_launch_note": "Only footage uploaded from 2026-11-18 (UTC): GTA 6 unlocked at midnight LOCAL time on Nov 19, which is Nov 18 in UTC for the earliest time zones (New Zealand), so real launch-day videos carry a Nov 18 date. Older 'GTA 6' videos are fakes made in GTA V / mods (the owner caught a GTA V train clip). Every clip also passes authentic.py."
   },
   "quality_gate": {
@@ -1277,6 +1300,16 @@
     "width": 1280,
     "min_confidence": 0.65,
     "batch": 6,
+    "parallel_batches": 2,
+    "cache": true,
+    "cache_days_real": 30,
+    "cache_days_fake": 60,
+    "cache_days_unsure": 2,
+    "channel_memory_days": 90,
+    "block_channel_after_fakes": 2,
+    "fake_channel_penalty": 3.0,
+    "trusted_channel_bonus": 2.5,
+    "_cache_note": "Answers are remembered in queue/ai_verdicts.json per source + checked window (a pass is reused only for the same part of the same video; errors are never stored; a prompt / game-facts change invalidates). A video with a confidently fake part is never downloaded again. Channels: every video that passed / failed counts once; a channel with block_channel_after_fakes+ fakes (and more than twice as many fakes as passes) is skipped, channels whose videos passed rank higher.",
     "_note": "Focused 'which game is this?' check on sharp frames for footage from YouTube / Dailymotion / X. Decides on certain signs (places, characters, graphics), never on the HUD alone (the AI has never seen GTA VI's real HUD). Twitch / Kick clips from the GTA VI category are trusted."
   },
   "music": {

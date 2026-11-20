@@ -45,9 +45,12 @@ def gather(c: dict, used: set) -> list[dict]:
             clips += fn(scfg)
         except Exception as exc:  # noqa: BLE001
             log.warning("[long] %s failed: %.150s", fn.__name__, exc)
+    import ai_cache
+    from source_fetcher import _launch_ts, unsafe_title_penalty
     langs = set(scfg.get("languages", ["en"]))
     bars = scfg.get("viral_bar", {})
-    pool = []
+    cutoff = _launch_ts(load_config())
+    pool, skipped = [], {}
     for x in clips:
         if x["key"] in used or blocked_channel(x["streamer"]):
             continue
@@ -57,10 +60,20 @@ def gather(c: dict, used: set) -> list[dict]:
             continue
         if not 10 <= x["duration"] <= 180:  # chapters need 10 s+
             continue
-        # views relative to what's normal on that platform (X counts millions, Kick hundreds)
+        if cutoff and x.get("created") and x["created"] < cutoff:  # only footage from after the launch
+            skipped["before launch"] = skipped.get("before launch", 0) + 1
+            continue
+        bad = ai_cache.bad_reason(x["key"])  # an earlier review found it broken / not GTA 6 / unsafe...
+        if bad:
+            skipped[bad] = skipped.get(bad, 0) + 1
+            continue
+        # views relative to what's normal on that platform (X counts millions, Kick hundreds); strip-club
+        # titles last (the AI rejects them as unsafe - a wasted download + review)
         base = float((bars.get(x["platform"]) or {}).get("min_views", 1000)) or 1000
-        x["score"] = math.log10(x["views"] + 1) - math.log10(base)
+        x["score"] = math.log10(x["views"] + 1) - math.log10(base) - unsafe_title_penalty(x["title"]) / 3
         pool.append(x)
+    if skipped:
+        log.info("[long] skipped (remembered from earlier runs / launch date): %s", skipped)
     pool.sort(key=lambda x: x["score"], reverse=True)
     picked, per_streamer = [], {}
     for x in pool:
@@ -80,8 +93,15 @@ def gather(c: dict, used: set) -> list[dict]:
 
 def _fetch_one(x: dict) -> tuple[dict | None, str | None]:
     """Download + check one candidate. Returns (clip, None) or (None, reason it was skipped)."""
-    import stream_clips as sc
-    from source_fetcher import Candidate, _download
+    import ai_cache
+    import authentic
+    from source_fetcher import Candidate, FormatsLimited, _download
+    fake = authentic.known_fake(x["key"])
+    if fake:
+        return None, f"not GTA 6 (checked before: {fake.split()[0]})"
+    bad = ai_cache.bad_reason(x["key"])
+    if bad:
+        return None, f"{bad} (reviewed before)"
     path = RAW_DIR / f"long_{re.sub(r'[^a-zA-Z0-9]', '_', x['key'])[:50]}.mp4"
     whole = x["platform"] in ("youtube", "dailymotion")  # guide footage: a normal video, not a stream clip
     cand = Candidate(key=x["key"], url=x["url"], title=x["title"], uploader=x["streamer"],
@@ -97,6 +117,8 @@ def _fetch_one(x: dict) -> tuple[dict | None, str | None]:
             return None, "download failed (youtube)"
     try:
         ok = _download(cand, a0, b0, path)
+    except FormatsLimited:
+        return None, f"no HD stream ({x['platform']})"
     except Exception as exc:  # noqa: BLE001
         log.info("[long] download failed %s: %.100s", x["key"], exc)
         ok = False
@@ -107,27 +129,41 @@ def _fetch_one(x: dict) -> tuple[dict | None, str | None]:
         path.unlink(missing_ok=True)
         return None, (f"low res ({x['platform']} {info['width']}x{info['height']})" if info["duration"] >= 6
                       else "too short")
-    if not _has_audio(path):
+    if not info["has_audio"]:
         path.unlink(missing_ok=True)
         return None, "no sound"
-    errs = _decode_errors(path)
+    errs, rep = _decode_errors(path, with_smoothness=True)  # one decode for both checks
     if errs > int(_cfg().get("max_decode_errors", 30)):
         log.info("[long] ✋ %s (%s, %s) is corrupted: %d decoding errors", x["key"], x["streamer"], x["platform"], errs)
         path.unlink(missing_ok=True)
         return None, "corrupted"
-    rep = sc.smoothness(path)
     if rep > float(_cfg().get("max_repeated_frames", 0.2)):
         log.info("[long] ✋ %s (%s, %s) is choppy: %.0f%% repeated frames", x["key"], x["streamer"], x["platform"],
                  rep * 100)
         path.unlink(missing_ok=True)
         return None, "choppy"
+    authentic.remember(path, x["key"], x["streamer"], x["platform"], x.get("section"))
     return {**x, "path": path, "dur": info["duration"], "repeat": rep}, None
 
 
-def _decode_errors(path: Path) -> int:
-    """Broken video data (pixel garbage / green-purple smears come from it): count the decoder's error lines."""
-    res = run(["ffmpeg", "-v", "error", "-i", str(path), "-map", "0:v:0", "-f", "null", "-"], timeout=300)
-    return len([ln for ln in res.stderr.splitlines() if ln.strip()])
+def _decode_errors(path: Path, with_smoothness: bool = False):
+    """Broken video data (pixel garbage / green-purple smears come from it): count the decoder's error lines.
+    with_smoothness: in the same decode, also the share of repeated frames in the first 60 s (exactly like
+    stream_clips.smoothness) -> (errors, repeated share) - one full decode per clip instead of two."""
+    if not with_smoothness:
+        res = run(["ffmpeg", "-v", "error", "-i", str(path), "-map", "0:v:0", "-f", "null", "-"], timeout=300)
+        return len([ln for ln in res.stderr.splitlines() if ln.strip()])
+    res = run(["ffmpeg", "-hide_banner", "-nostats", "-v", "error", "-progress", "pipe:1", "-i", str(path),
+               "-filter_complex", "[0:v:0]split=2[full][s];[s]trim=duration=60,fps=30,scale=320:-2,"
+               "mpdecimate=hi=200:lo=64:frac=0.33[m]", "-map", "[m]", "-f", "null", "-",
+               "-map", "[full]", "-f", "null", "-"], timeout=300)
+    errs = len([ln for ln in res.stderr.splitlines() if ln.strip()])
+    frames = re.findall(r"^frame=(\d+)", res.stdout or "", re.M)
+    total30 = min(60.0, probe(path)["duration"] or 0) * 30
+    if res.returncode != 0 or not frames or total30 < 30:
+        import stream_clips as sc  # fall back to the separate check
+        return errs, sc.smoothness(path)
+    return errs, round(max(0.0, 1 - int(frames[-1]) / total30), 3)
 
 
 def _region_ok(src: Path, t: float, box: list) -> bool:
@@ -240,9 +276,18 @@ def _game_facts() -> str:
 def _batch_verdicts(moments: list[dict], prompt_for):
     """The AI watches the clips in batches (one upload per batch saves quota). prompt_for(k, ranges) -> prompt.
     Yields (batch, [(moment, verdict or None)])."""
+    import ai_cache
     import gemini_writer
     LONG_DIR.mkdir(parents=True, exist_ok=True)
     size = int(_cfg().get("review_batch", 6))
+    # verdicts from earlier runs (same prompt, same clip + section) cost no quota; errors are never remembered
+    ns = ai_cache.review_ns(prompt_for(0, ""), _game_facts())
+    cached = [(m, v) for m in moments if (v := ai_cache.review_get(ns, m["key"], m.get("section")))]
+    if cached:
+        log.info("[long] %d clip reviews reused from earlier runs (no AI call)", len(cached))
+        hit = {id(m) for m, _ in cached}
+        moments = [m for m in moments if id(m) not in hit]
+        yield [m for m, _ in cached], cached
     for b in range(0, len(moments), size):
         batch = moments[b:b + size]
         parts, ranges, t = [], [], 0.0
@@ -285,8 +330,10 @@ def _batch_verdicts(moments: list[dict], prompt_for):
                 break
             log.warning("[long] AI gave no verdicts for batch %d (attempt %d)", b // size + 1, attempt)
             time.sleep(20)
-        for _, _, p, _, _ in parts:
+        for i, m, p, _, _ in parts:
             p.unlink(missing_ok=True)
+            if verdicts.get(i):
+                ai_cache.review_put(ns, m["key"], m.get("section"), verdicts[i])
         reel.unlink(missing_ok=True)
         yield batch, [(m, verdicts.get(i)) for i, m, _, _, _ in parts]
 
@@ -425,7 +472,10 @@ def guide_spec(kind: str) -> dict | None:
 
 def gather_guide(spec: dict, used: set) -> list[dict]:
     """GTA 6 gameplay videos that show the subject (YouTube + Dailymotion), one ~110 s section each."""
-    from source_fetcher import TitleFilter, blocked_channel, discover_dailymotion, discover_youtube
+    import ai_cache
+    import authentic
+    from source_fetcher import (TitleFilter, blocked_channel, discover_dailymotion, discover_youtube, load_manifest,
+                                unsafe_title_penalty)
     cfg, c = load_config(), _cfg()
     tf = TitleFilter(cfg)
     found = []
@@ -436,11 +486,32 @@ def gather_guide(spec: dict, used: set) -> list[dict]:
         except Exception as exc:  # noqa: BLE001
             log.warning("[guide] %s search failed: %.150s", name, exc)
     pool, per = _guide_stream_clips(c, used), {}
-    # footage without someone talking over it keeps its game sound (muted voice-overs feel empty) -> first
-    for x in sorted(found, key=lambda x: ("no commentary" in (x.title or "").lower(), x.views), reverse=True):
+    srcs = load_manifest()["sources"]
+    trust = {x.key: authentic.channel_verdict(x.uploader) for x in found}
+    skipped: dict[str, int] = {}
+
+    def skip(why: str) -> None:
+        skipped[why] = skipped.get(why, 0) + 1
+    # footage without someone talking over it keeps its game sound (muted voice-overs feel empty) -> first; then
+    # channels whose videos passed the GTA 6 check before; strip-club titles last
+    for x in sorted(found, key=lambda x: ("no commentary" in (x.title or "").lower(), trust[x.key][1]
+                                          - unsafe_title_penalty(x.title), x.views), reverse=True):
         dur = float(x.duration or 0)
         ch = (x.uploader or "unknown").strip()
         if x.key in used or GUIDE_BAD.search(x.title or "") or blocked_channel(ch, cfg) or not 30 <= dur <= 5400:
+            continue
+        st = srcs.get(x.key, {})
+        if st.get("rejected") or st.get("fail_count", 0) >= 2:  # e.g. found to be from before the launch
+            skip("rejected before")
+            continue
+        if authentic.known_fake(x.key):
+            skip("not GTA 6 (checked before)")
+            continue
+        if trust[x.key][0] == "fake":
+            skip("GTA V / mod channel")
+            continue
+        if ai_cache.bad_reason(x.key):
+            skip("bad review before")
             continue
         if per.get(ch.lower(), 0) >= int(c.get("guide_max_per_channel", 2)):
             continue
@@ -454,7 +525,8 @@ def gather_guide(spec: dict, used: set) -> list[dict]:
                      "duration": dur, "section": sec, "views": int(x.views or 0), "created": 0})
         if len(pool) >= int(c.get("guide_candidates", 24)) + int(c.get("guide_stream_clips", 18)):
             break
-    log.info("[guide] %d videos found, %d candidates: %s", len(found), len(pool),
+    log.info("[guide] %d videos found, %d candidates%s: %s", len(found), len(pool),
+             f" (skipped {skipped})" if skipped else "",
              [f"{x['streamer']}: {x['title'][:40]} ({x['views']}v)" for x in pool[:8]])
     return pool
 
@@ -478,11 +550,17 @@ def _guide_stream_clips(c: dict, used: set) -> list[dict]:
             clips += fn(scfg)
         except Exception as exc:  # noqa: BLE001
             log.warning("[guide] %s failed: %.150s", fn.__name__, exc)
+    import ai_cache
+    from source_fetcher import _launch_ts, unsafe_title_penalty
     langs = set(scfg.get("languages", ["en"]))
+    cutoff = _launch_ts(load_config())
     pool = [x for x in clips if x["key"] not in used and sc.is_famous(x["streamer"], scfg)
             and 15 <= x["duration"] <= 180 and not (x["platform"] == "twitch" and langs and x["language"]
-                                                     and x["language"] not in langs)]
-    pool.sort(key=lambda x: (bool(_MONEYISH.search(x["title"] or "")), x["views"]), reverse=True)
+                                                     and x["language"] not in langs)
+            and not (cutoff and x.get("created") and x["created"] < cutoff) and not ai_cache.bad_reason(x["key"])]
+    # strip-club clips last (always rejected as unsafe), then money-sounding titles, then views
+    pool.sort(key=lambda x: (not unsafe_title_penalty(x["title"]), bool(_MONEYISH.search(x["title"] or "")),
+                             x["views"]), reverse=True)
     out, per = [], {}
     for x in pool:
         s = x["streamer"].lower()

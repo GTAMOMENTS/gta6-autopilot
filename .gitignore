@@ -7,3 +7,4 @@ yt_client_secret*.json
 02_Voiceovers/
 03_Ready_To_Post/
 queue_streams/
+queue/ai_verdicts.json
