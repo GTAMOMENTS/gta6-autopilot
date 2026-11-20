@@ -158,8 +158,9 @@ def download(cands: list[dict]) -> list[dict]:
 
 # --------------------------------------------------------------------------- 2. AI review (batches)
 
-REVIEW_PROMPT = """You are the editor of "{brand}", a GTA 6 channel. The attached video is {k} short GTA 6 livestream
-clips joined one after another. Clip time ranges in this video:
+REVIEW_PROMPT = """You are the editor of "{brand}", a GTA 6 channel. GAME FACTS (newer than your training data - trust
+them): {game}
+The attached video is {k} short GTA 6 livestream clips joined one after another. Clip time ranges in this video:
 {ranges}
 For EACH clip judge honestly and write:
 - is_gta6_footage: true only if real Grand Theft Auto VI GAMEPLAY is on screen for most of the clip. A streamer
@@ -222,6 +223,11 @@ def _proxy(path: Path, out: Path) -> bool:
     return res.returncode == 0 and out.exists()
 
 
+def _game_facts() -> str:
+    import gemini_writer
+    return gemini_writer._game_context()
+
+
 def _batch_verdicts(moments: list[dict], prompt_for):
     """The AI watches the clips in batches (one upload per batch saves quota). prompt_for(k, ranges) -> prompt.
     Yields (batch, [(moment, verdict or None)])."""
@@ -282,7 +288,8 @@ def review(moments: list[dict], brand: str) -> list[dict]:
         return []
     reviewed = []
     for bi, (batch, pairs) in enumerate(_batch_verdicts(
-            moments, lambda k, ranges: REVIEW_PROMPT.format(brand=brand, k=k, ranges=ranges)), 1):
+            moments, lambda k, ranges: REVIEW_PROMPT.format(brand=brand, k=k, ranges=ranges,
+                                                            game=_game_facts())), 1):
         for m, v in pairs:
             if not v:
                 continue
@@ -406,7 +413,8 @@ def gather_guide(spec: dict, used: set) -> list[dict]:
         except Exception as exc:  # noqa: BLE001
             log.warning("[guide] %s search failed: %.150s", name, exc)
     pool, per = [], {}
-    for x in sorted(found, key=lambda x: x.views, reverse=True):
+    # footage without someone talking over it keeps its game sound (muted voice-overs feel empty) -> first
+    for x in sorted(found, key=lambda x: ("no commentary" in (x.title or "").lower(), x.views), reverse=True):
         dur = float(x.duration or 0)
         ch = (x.uploader or "unknown").strip()
         if x.key in used or GUIDE_BAD.search(x.title or "") or blocked_channel(ch, cfg) or not 30 <= dur <= 5400:
@@ -428,8 +436,9 @@ def gather_guide(spec: dict, used: set) -> list[dict]:
     return pool
 
 
-GUIDE_REVIEW_PROMPT = """You are the researcher and editor of "{brand}", a GTA 6 channel. We are making a long YouTube
-countdown about {subject}. The attached video is {k} GTA 6 gameplay clips from other creators joined one after another:
+GUIDE_REVIEW_PROMPT = """You are the researcher and editor of "{brand}", a GTA 6 channel. GAME FACTS (newer than your
+training data - trust them): {game}
+We are making a long YouTube countdown about {subject}. The attached video is {k} GTA 6 gameplay clips from other creators joined one after another:
 {ranges}
 For EACH clip judge honestly:
 - is_gta6_footage: true only if real Grand Theft Auto VI GAMEPLAY is on screen for most of the clip (not GTA 5 /
@@ -470,7 +479,7 @@ def review_guide(clips: list[dict], spec: dict, brand: str) -> list[dict]:
     import difflib
     out = []
     for bi, (batch, pairs) in enumerate(_batch_verdicts(clips, lambda k, ranges: GUIDE_REVIEW_PROMPT.format(
-            brand=brand, subject=spec["subject"], noun=spec["noun"], k=k, ranges=ranges)), 1):
+            brand=brand, subject=spec["subject"], noun=spec["noun"], k=k, ranges=ranges, game=_game_facts())), 1):
         passed = 0
         for m, v in pairs:
             if not v:
@@ -587,7 +596,8 @@ def make_guide(kind: str, brand: str, used: set, state: dict) -> dict:
     items = review_guide(clips, spec, brand)
     prev = {_item_key(x) for x in state.get("guide_items", {}).get(kind, [])}
     for it in items:  # confirmed by several creators = better; already covered in an earlier guide = later
-        it["rank"] = it["hype"] + 0.5 * min(it["sources"] - 1, 2) - (2.5 if _item_key(it["label"]) in prev else 0)
+        it["rank"] = (it["hype"] + 0.5 * min(it["sources"] - 1, 2) - (2.5 if _item_key(it["label"]) in prev else 0)
+                      - (0.3 if it.get("has_narrator", True) else 0))
     good = sorted([it for it in items if it["hype"] >= int(c.get("guide_min_usefulness", 5))],
                   key=lambda it: it["rank"], reverse=True)[: int(c.get("guide_max_items", 7))]
     if len(good) < int(c.get("guide_min_items", 4)):
