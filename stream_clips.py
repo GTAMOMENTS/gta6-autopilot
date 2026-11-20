@@ -20,7 +20,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from common import BASE_DIR, RAW_DIR, READY_DIR, env, load_config, load_json, probe, run, save_json, setup_logging, \
+from common import BASE_DIR, RAW_DIR, READY_DIR, STATE_DIR, env, load_config, load_json, probe, run, save_json, setup_logging, \
     write_summary
 
 log = logging.getLogger("autopilot")
@@ -444,7 +444,7 @@ def subtitle_words(transcript: list, offset: float, length: float) -> list[dict]
     return words
 
 
-def produce(clip: dict, dry_run: bool, state: dict) -> dict | None:
+def produce(clip: dict, dry_run: bool, state: dict, platforms: list[str] | None = None) -> dict | None:
     from gemini_writer import _clean_copy
     from highlight import cut_segments
     from publisher import _available, publish_video, routes_for
@@ -557,7 +557,7 @@ def produce(clip: dict, dry_run: bool, state: dict) -> dict | None:
         state.setdefault("rejected", {})[clip["key"]] = time.time()
         return None
     credit = f"{clip['streamer']} on {clip['platform'].title()}"
-    platforms = [p for p in c.get("platforms", ["tiktok", "instagram", "x"])
+    platforms = [p for p in (platforms or c.get("platforms", ["tiktok", "instagram", "x"]))
                  if dry_run or any(_available(pr, p) for pr in routes_for(p))]
     results = {} if dry_run else publish_video(Path(rendered["path"]), platforms, copy, credit)
     ok = dry_run or any(r.get("ok") for r in results.values())
@@ -568,6 +568,39 @@ def produce(clip: dict, dry_run: bool, state: dict) -> dict | None:
     if ok and not dry_run:
         state.setdefault("posted", []).append(record)
     return record
+
+
+SLOT_STATE_FILE = STATE_DIR / "stream_clips_slot.json"  # main schedule's own memory (saved with queue/)
+
+
+def run_for_slot(platforms: list[str], dry_run: bool) -> tuple[bool, dict]:
+    """Video A "stream reactions": the most viral famous-streamer clip right now, posted on the main schedule
+    (instead of separate posts). (False, {...}) when nothing is viral enough -> the caller follows a trend."""
+    c = _cfg()
+    READY_DIR.mkdir(parents=True, exist_ok=True)
+    state = load_json(SLOT_STATE_FILE, {"posted": [], "rejected": {}})
+    now = time.time()
+    state["posted"] = [p for p in state.get("posted", []) if now - p.get("at", 0) < 4 * 86400]
+    state["rejected"] = {k: v for k, v in state.get("rejected", {}).items() if now - v < 2 * 86400}
+    try:
+        candidates = [x for x in find_viral(c, state) if x["key"] not in state["rejected"]]
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[streams] finding viral clips failed: %.200s", exc)
+        candidates = []
+    result = None
+    for clip in candidates[: int(c.get("max_tries", 3))]:
+        result = produce(clip, dry_run, state, platforms=platforms)
+        if result:
+            break
+    save_json(SLOT_STATE_FILE, state)
+    if not result or result.get("skip"):
+        return False, {"error": "no viral stream clip passed today" if not result else "AI unavailable",
+                       "no_stream_clip": True}
+    res = result.get("results") or {}
+    ok = dry_run or any(r.get("ok") for r in res.values())
+    return ok, {"id": "stream_" + result["key"], "banner": result["banner"], "results": res,
+                "format": "Viral stream clip", "streamer": result["streamer"], "url": result["url"],
+                "rendered": result["rendered"]}
 
 
 def main() -> int:

@@ -324,7 +324,8 @@ TASKS
      tags (no #RockstarGames, #PlayStation, #Xbox, #ad) - no sponsored-looking content.
 
 Return ONLY JSON with exactly these keys:
-{{"is_gta6_footage": bool, "unsafe": bool, "has_facecam": bool, "has_narrator": bool, "is_spoiler": bool, "fits_format": bool, "hype_score": int,
+{{"is_gta6_footage": bool, "unsafe": bool, "has_facecam": bool, "has_narrator": bool, "is_spoiler": bool,
+ "fits_format": bool, "shows_required": bool, "required_t": number | null, "hype_score": int,
  "scene_summary": str, "clip_start": number, "clip_end": number, "payoff_t": number,
  "content_type": "explainer" | "action" | "scenic",
  "banner": str, "commentary": [{{"t": number, "line": str}}], "youtube_title": str, "caption": str,
@@ -401,7 +402,8 @@ TASKS
    company or brand tags (no #RockstarGames, #PlayStation, #Xbox, #ad).
 
 Return ONLY JSON with exactly these keys:
-{{"is_gta6_footage": bool, "unsafe": bool, "has_facecam": bool, "has_narrator": bool, "is_spoiler": bool, "fits_format": bool, "hype_score": int,
+{{"is_gta6_footage": bool, "unsafe": bool, "has_facecam": bool, "has_narrator": bool, "is_spoiler": bool,
+ "fits_format": bool, "shows_required": bool, "required_t": number | null, "hype_score": int,
  "scene_summary": str, "angle": str, "shots": [{{"start": number, "line": str}}], "banner": str, "youtube_title": str, "caption": str,
  "x_text": str, "hashtags": [str]}}"""
 
@@ -738,6 +740,8 @@ def _clean_copy(d: dict, clip_dur: float = 48) -> dict:
         "is_spoiler": bool(d.get("is_spoiler", False)),
         "unsafe": d.get("unsafe") is True,
         "fits_format": bool(d.get("fits_format", True)),
+        "shows_required": d.get("shows_required") is True,
+        "required_t": d.get("required_t") if isinstance(d.get("required_t"), (int, float)) else None,
         "content_type": str(d.get("content_type", "action")).lower(),
         "hype_score": int(d.get("hype_score") or 6),
         "scene_summary": s("scene_summary"),
@@ -841,8 +845,15 @@ _TEXT_FALLBACK = {
 
 def write_text_post(kind: str, recent_texts: list[str], todays_clips: list[str]) -> str:
     kind = kind if kind in TEXT_KINDS else "x_text_morning"
+    try:  # what GTA 6 players search for / talk about today (trend radar) - posts that join the conversation
+        import trends
+        hot = trends.context_line()
+    except Exception:  # noqa: BLE001
+        hot = ""
+    hot = f"\nWHAT PLAYERS TALK ABOUT TODAY: {hot} (use it if it fits - a question or poll about a hot topic gets " \
+          "the most replies)" if hot else ""
     prompt = f"""You run the X account of "{load_config().get('brand', {}).get('display_name', 'GTA VI Top Moments')}".
-CONTEXT: {_game_context()}
+CONTEXT: {_game_context()}{hot}
 Write {TEXT_KINDS[kind]}.
 Clips we posted today: {todays_clips or 'none yet'}.
 Rules: max 230 characters, conversational, at most 1-2 emojis, at most 1 hashtag, NO links,

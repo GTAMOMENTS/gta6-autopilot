@@ -527,6 +527,14 @@ def discover(cfg: dict, manifest: dict, kind: str | None = None, fmt: dict | Non
         if s_queries:
             stream += discover_youtube(cfg, s_queries, stf, "stream")
 
+    bad = [t.lower() for t in (fmt or {}).get("blocked_title_terms", [])]
+    if bad:  # e.g. Money Tips: never "glitch" / "infinite money" videos (patched exploits, fake methods)
+        n_before = len(gameplay) + len(stream)
+        gameplay = [x for x in gameplay if not any(t in (x.title or "").lower() for t in bad)]
+        stream = [x for x in stream if not any(t in (x.title or "").lower() for t in bad)]
+        if n_before - len(gameplay) - len(stream):
+            log.info("[sources] %d videos skipped for this format's blocked words (%s)",
+                     n_before - len(gameplay) - len(stream), ", ".join(bad[:4]))
     first, second = (stream, gameplay) if kind == "stream" else (gameplay, stream)
     ranked = (rank(first, manifest, tf, boost, prefer_min)            # preferred type first
               + rank(second, manifest, tf, boost, prefer_min))
@@ -684,6 +692,7 @@ def _fill_metadata(c: Candidate, cfg: dict) -> bool:
     if res.returncode != 0:
         if c.provider == "youtube" and _is_blocked(res.stderr):
             raise PermissionError("youtube-blocked")
+        log.info("[sources] no video info for '%s': %s", c.title[:50], res.stderr.strip()[-160:])
         return False
     try:
         meta = json.loads(res.stdout)
@@ -754,6 +763,7 @@ def iter_clips(target_sec: int, max_attempts: int = 6, skip_providers: set | Non
                 ranges = [(a, b)]
                 start, end = a, b
             elif (tour.get("enabled", True) and c.kind == "gameplay" and c.duration
+                    and not (fmt or {}).get("continuous")
                     and c.duration >= n_slices * slice_len * 2):
                 # feature-tour format: several slices from different parts -> one reel
                 ranges, files = [], []

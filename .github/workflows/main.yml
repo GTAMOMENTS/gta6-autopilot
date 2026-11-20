@@ -3,13 +3,14 @@ name: GTA6 Top Moments 24/7 Autopilot
 on:
   schedule:
     # UTC times = TRT (Europe/Istanbul, UTC+3) minus 3h. Must match config.json "schedule".
-    # 1 Short every 2 days (23:40 slot) to YouTube Shorts + Instagram + TikTok + X, 1 long YouTube video every 3 days
-    # (20:10 slot). The cron fires daily; config.json "every_days" makes the bot skip the in-between days.
-    - cron: '50 6 * * *'    # 09:50 TRT  x_text_morning
-    - cron: '20 13 * * *'   # 16:20 TRT  x_question_nostalgia
-    - cron: '10 17 * * *'   # 20:10 TRT  long_video     (5-10 min YouTube countdown, live ~21:00 TRT = 14:00 New York)
-    - cron: '20 19 * * *'   # 22:20 TRT  x_daily_recap
-    - cron: '40 20 * * *'   # 23:40 TRT  vertical_clip  (live ~00:00 TRT = 17:00 New York)
+    # Owner's plan (2026-11-20): Video A + Video B every day, 3 X text posts, a long video every 3 days
+    # (the cron fires daily; config.json "every_days" makes the bot skip the in-between days).
+    - cron: '10 12 * * *'   # 15:10 TRT  long_video     (ready ~17:00 TRT; the owner publishes ~22:00 TRT)
+    - cron: '50 13 * * *'   # 16:50 TRT  x_text_morning (question / poll, 08:50 New York)
+    - cron: '40 16 * * *'   # 19:40 TRT  vertical_clip  Video A: rotation (11:40 New York)
+    - cron: '10 19 * * *'   # 22:10 TRT  x_question_nostalgia (hot take / poll)
+    - cron: '40 22 * * *'   # 01:40 TRT  money_clip     Video B: GTA 6 Money Tip (17:40 New York)
+    - cron: '20 1 * * *'    # 04:20 TRT  x_daily_recap
   workflow_dispatch:
     inputs:
       slot:
@@ -24,6 +25,8 @@ on:
           - long_video
           - approve_long
           - vertical_clip
+          - money_clip
+          - trends
           - x_video_clip
           - test_all
           - x_text_morning
@@ -42,7 +45,7 @@ on:
         type: string
         default: ''
       format:
-        description: 'Only for manual test runs - scheduled runs always rotate formats automatically'
+        description: 'Manual runs only. Shorts: a format. Long video: moments / money_guide / trend_guide'
         type: choice
         default: auto
         options:
@@ -53,9 +56,16 @@ on:
           - secrets
           - stunts_crashes
           - stream_reactions
+          - trending
+          - money_tips
+          - money_guide
+          - moments
+          - trend_guide
 
 concurrency:
-  group: gta6-autopilot
+  # real runs share one queue (state is saved between them); dry runs never save state, so each gets its own
+  # queue - test runs no longer block or cancel the real schedule
+  group: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && format('gta6-dry-{0}', github.run_id) || 'gta6-autopilot' }}
   cancel-in-progress: false
 
 jobs:

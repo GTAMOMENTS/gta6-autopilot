@@ -24,7 +24,7 @@ from common import (HISTORY_FILE, READY_DIR, env, load_config, load_json, now_lo
                     setup_logging, tz, write_summary)
 
 log = logging.getLogger("autopilot")
-VIDEO_TYPES = ("vertical_clip", "x_video_clip", "test_all")
+VIDEO_TYPES = ("vertical_clip", "money_clip", "x_video_clip", "test_all")
 SEARCH_PROVIDERS = {"dailymotion", "youtube", "twitch_clip", "twitch_vod", "x_account"}  # need the AI check
 
 
@@ -111,19 +111,25 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
     backup_hype = int(gate.get("backup_hype_score", min_hype - 1))
     budget_end = time.time() + int(scfg.get("time_budget_min", 25)) * 60
 
+    def _mute(copy) -> float | None:
+        """Footage with another YouTuber talking (allowed for some formats): their voice is muted."""
+        return 0.0 if (fmt or {}).get("allow_narrated") and copy.get("has_narrator") else None
+
     def publish_and_record(src, copy, clip_id, rendered, ranges) -> tuple[bool, dict] | None:
         from formats import bump_series, series_label
         import qa
         c = src.candidate
         trust_note = ("FOOTAGE SOURCE: it passed a separate GTA VI authenticity check (or comes from the Twitch GTA VI "
                       "category) - flag 'not GTA 6' only if you clearly see GTA V places or characters. ")
-        teaser_note = trust_note + ("The first ~1.2 s is an intentional cold open: a quick flash of the big moment, which then "
+        muted_note = ("The original creator's voice-over is muted on purpose (so there is no game sound) - only our "
+                      "narrator speaks. " if _mute(copy) == 0.0 else "")
+        teaser_note = trust_note + muted_note + ("The first ~1.2 s is an intentional cold open: a quick flash of the big moment, which then "
                        "plays again at its real place in the clip - that repeat is NOT a montage error. "
                        if float(vcfg.get("fx", {}).get("teaser_sec", 0)) > 0 and not src.is_reel else "")
         verdict = qa.check(Path(rendered["path"]), "short", lines=rendered.get("placed"),
                            context=f"{teaser_note}Format: {(fmt or {}).get('name', '')}. Banner: {copy.get('banner')}. "
-                                   f"Narration lines (also burned in as captions): "
-                                   + " | ".join(ln["text"] for ln in rendered.get("placed", [])))
+                                   f"Narration lines with start times (also burned in as captions): "
+                                   + " | ".join(f"[{ln['start']:.1f}s] {ln['text']}" for ln in rendered.get("placed", [])))
         if not verdict["pass"]:
             qa_problems.append(verdict["report"].splitlines()[1] if len(verdict["report"].splitlines()) > 1 else "QA failed")
             mark_rejected(c, "failed QA")
@@ -170,6 +176,10 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
             if cursor + dur > max_total:
                 break
             a = min(max(0.0, sh["start"] - 0.3), max(0.0, sec_dur - dur))
+            if segments and (fmt or {}).get("continuous"):
+                a = max(a, segments[-1][1])  # one continuous scene: always forward, never the same footage twice
+                if a + dur > sec_dur:
+                    break
             segments.append((round(a, 2), round(a + dur, 2)))
             kept.append({**v, "t": cursor + 0.15})
             cursor += dur
@@ -189,7 +199,7 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         if cuts:
             fx["sfx"].append({"t": cuts[-1], "kind": "boom"})
             fx["zoom"].append((cuts[-1], cuts[-1] + 1.0))
-        rendered = render(clip, clip_id, copy["banner"], copy["commentary"], voiced=kept, fx=fx)
+        rendered = render(clip, clip_id, copy["banner"], copy["commentary"], voiced=kept, fx=fx, game_volume=_mute(copy))
         if not rendered:
             return None
         return publish_and_record(src, copy, clip_id, rendered, segments)
@@ -197,6 +207,15 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
     def produce(src, copy, energy, sec_dur) -> tuple[bool, dict] | None:
         """AI editor's window -> cut -> voice lines -> render -> publish -> record."""
         c, section = src.candidate, src.clip_path
+        raw = sorted([ln for ln in copy.get("commentary_raw", []) if ln.get("t") is not None and ln.get("text")],
+                     key=lambda ln: ln["t"])
+        if _mute(copy) == 0.0 and len(raw) >= 4:
+            # muted footage (another creator's voice removed): the narrator talks only ~1/3 of the time, the
+            # rest would be dead silence (QA rejected 7-12 s gaps) -> the edit follows the voice: each line
+            # gets its own piece of the same scene (section times from the AI), in order
+            copy["shots"] = [{"start": float(ln["t"]), "text": ln["text"]} for ln in raw]
+            log.info("[editor] muted footage - the edit follows the voice (%d lines)", len(copy["shots"]))
+            return produce_tour(src, copy, sec_dur)
         min_len = min(float(vcfg.get("min_clip_sec", 25)), sec_dur)
         max_len = min(float(vcfg.get("duration_sec", 50)), sec_dur)
         start, end = copy.get("clip_start"), copy.get("clip_end")
@@ -207,8 +226,15 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         else:
             end = min(end, sec_dur, start + max_len)
             log.info("[editor] AI picked %.0f-%.0fs of the slice (%.0fs)", start, end, end - start)
+        need_t = copy.get("required_t") if fmt and fmt.get("must_show") else None
+        if need_t is not None and 0 <= need_t <= sec_dur and not start <= need_t <= end:
+            # the proof (e.g. the cash counter going up) must be in the video: move the window over it
+            length = end - start
+            start = max(0.0, min(need_t - length * 0.6, sec_dur - length))
+            end = min(sec_dur, start + length)
+            log.info("[editor] moved the part to %.0f-%.0fs so it shows %s", start, end, fmt.get("must_show_short", ""))
         # the big moment: AI's payoff_t, else the most intense second of the picked part
-        payoff = copy.get("payoff_t")
+        payoff = need_t if need_t is not None and start <= need_t <= end else copy.get("payoff_t")
         if payoff is None or not start <= payoff <= end:
             part = energy[int(start):int(end)] or [0]
             payoff = start + part.index(max(part)) + 0.5
@@ -241,7 +267,7 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
             return None
 
         clip_id = "gta6_" + now_local().strftime("%Y%m%d_%H%M") + "_" + hashlib.md5(c.key.encode()).hexdigest()[:6]
-        rendered = render(clip, clip_id, copy["banner"], commentary, fx=fx)
+        rendered = render(clip, clip_id, copy["banner"], commentary, fx=fx, game_volume=_mute(copy))
         if not rendered:
             return None
         return publish_and_record(src, copy, clip_id, rendered, [list(x) for x in segs])
@@ -271,6 +297,19 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
             mark_rejected(c, "choppy")
             section.unlink(missing_ok=True)
             continue
+        if c.provider in ("youtube", "dailymotion", "x_account", "extra") and \
+                cfg.get("authenticity", {}).get("enabled", True):
+            # "GTA 6" uploads are often GTA V / mods: one focused check on sharp frames before anything else
+            import authentic
+            real = authentic.check([section])
+            if real is None or not real[0]["ok"]:
+                why = ("no AI could check it is really GTA 6" if real is None else
+                       f"not GTA 6 ({real[0]['game']} {real[0]['confidence'] * 100:.0f}%: {real[0]['evidence']})")
+                log.info("[gate] ✋ rejected '%s': %s", c.title[:60], why)
+                if real is not None:
+                    mark_rejected(c, "not GTA VI footage")
+                section.unlink(missing_ok=True)
+                continue
         energy = energy_curve(section)
         copy = write_clip_copy(section, c.title, src.credit, c.provider, c.kind, energy_hints(energy, 30, 3),
                                tour=src.is_reel, fmt=fmt)
@@ -288,7 +327,8 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
                 reason = "story spoiler"
             elif copy.get("unsafe"):
                 reason = "nudity / unsafe content"
-            elif copy.get("has_narrator") and gate.get("reject_narrator", True) and c.kind != "stream":
+            elif copy.get("has_narrator") and gate.get("reject_narrator", True) and c.kind != "stream" \
+                    and not (fmt or {}).get("allow_narrated"):
                 reason = "someone already talks over this footage"
             elif copy["has_facecam"] and gate.get("reject_facecam", True) and c.kind != "stream":
                 reason = "facecam / overlay"
@@ -296,6 +336,8 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
                 reason = f"low hype ({copy['hype_score']})"
             elif fmt and not copy.get("fits_format", True):
                 reason = f"doesn't fit the '{fmt['name']}' format"
+            elif fmt and fmt.get("must_show") and not copy.get("shows_required"):
+                reason = f"doesn't show {fmt.get('must_show_short', 'what the format needs')}"
             if reason:
                 log.info("[gate] ✋ rejected '%s': %s | %s", c.title[:60], reason, copy["scene_summary"])
                 mark_rejected(c, reason)
@@ -476,6 +518,9 @@ def summarize(slot: dict, sid: str, ok: bool, detail: dict, dry_run: bool) -> No
                   f"**AI check:** {cp.get('content_type', '?')}, hype {cp['hype_score']}, verified={cp['verified_by_video']} by {cp.get('ai_source', '?')} — {cp['scene_summary']}  ",
                   "**Voice lines:** " + " · ".join(f"[{ln['t']}s] {ln['text']}" for ln in
                                                    (detail.get('voice_lines') or cp.get('commentary', [])))]
+    if detail.get("streamer") and "copy" not in detail:  # Video A as a viral stream clip
+        lines.append(f"**Stream clip:** {detail.get('banner', '')} — {detail['streamer']} [{detail.get('url', '')}]"
+                     f"({detail.get('url', '')})  ")
     for plat, r in (detail.get("results") or {}).items():
         lines.append(f"- {plat}: {'✅' if r.get('ok') else '❌'} {r.get('provider', '')} {r.get('url') or r.get('error') or ''}")
     for key in ("error", "skipped"):
@@ -519,6 +564,9 @@ def main() -> int:
             return 0
         log.error("Upload refused: %s", res.get("error"))
         return 1
+    if args.slot == "trends":  # manual check of the trend radar (prints today's hot topics)
+        import trends
+        return trends.main()
     if args.slot == "stream_clip":  # manual test of the viral stream clips (normally streams.yml)
         import stream_clips
         return stream_clips.run_once(args.dry_run)
@@ -573,7 +621,22 @@ def main() -> int:
                 log.info("%s posted %.0f h ago - this slot runs every %g days, skipping", slot["type"], gap_h, every)
                 return 0
 
+    # a platform can start later (e.g. Video A goes to YouTube Shorts only from week 2: upload limit)
+    starts = slot.get("platform_from") or {}
+    if starts:
+        now_utc = datetime.now(timezone.utc)
+        later = [p for p in slot["platforms"] if starts.get(p)
+                 and now_utc < datetime.fromisoformat(starts[p].replace("Z", "+00:00"))]
+        if later:
+            log.info("%s: %s start later (%s)", slot["type"], later, {p: starts[p] for p in later})
+            slot = {**slot, "platforms": [p for p in slot["platforms"] if p not in later]}
+
     READY_DIR.mkdir(parents=True, exist_ok=True)
+    try:  # trend radar: what people search for / watch now (cached for a few hours, never breaks a run)
+        import trends
+        trends.refresh()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[trends] skipped: %.150s", exc)
     try:  # learn from views: refresh recent videos' YouTube stats (cheap, a few per run)
         import analytics
         analytics.refresh_stats()
@@ -582,17 +645,29 @@ def main() -> int:
             log.info("[learn] format scores: %s", {k: (v["score"], v["n"]) for k, v in scores.items()})
     except Exception as exc:  # noqa: BLE001
         log.warning("[learn] stats refresh skipped: %.150s", exc, exc_info=True)
-    if slot["type"] == "long_video":  # daily 5-10 min YouTube countdown of the day's best stream moments
+    if slot["type"] == "long_video":  # long YouTube video: stream-moments countdown or a guide (money / trend)
         from long_video import run_long
         ok, detail = run_long(args.dry_run)
     elif slot["type"] in VIDEO_TYPES:
-        from formats import advance_format, current_format
-        fmt = current_format(cfg)
-        ok, detail = run_video_slot(slot, args.dry_run, fmt)
+        from formats import advance_format, current_format, format_by_id, mark_topic, specialize
+        fmt = current_format(cfg, slot)
+        if fmt and fmt["id"] == "stream_reactions" and cfg.get("stream_clips", {}).get("in_main_schedule", True):
+            # the most viral famous-streamer clip right now (streamer's own voice + subtitles)
+            import stream_clips
+            ok, detail = stream_clips.run_for_slot(slot["platforms"], args.dry_run)
+            if not ok and detail.get("no_stream_clip"):
+                log.info("[streams] no viral stream clip today - following a trend instead")
+                fmt = specialize(format_by_id("trending", cfg)) or specialize(format_by_id("top5_funny", cfg)) or fmt
+                ok, detail = run_video_slot(slot, args.dry_run, fmt)
+        else:
+            ok, detail = run_video_slot(slot, args.dry_run, fmt)
         if fmt:
             detail.setdefault("format", fmt["name"])
             if not args.dry_run and "skipped" not in detail:
-                advance_format(fmt, ok)
+                if not slot.get("format"):  # Video B (fixed Money Tip) doesn't move Video A's rotation
+                    advance_format(fmt, ok)
+                if ok:
+                    mark_topic(fmt)
     else:
         ok, detail = run_text_slot(slot, args.dry_run)
 

@@ -170,6 +170,10 @@ Check for:
 - narration: the voice-over not saying what the on-screen text / subtitles say, narration out of sync with the
   captions, narration talking over the streamer's important line or the punchline, narration describing
   something different from what is on screen
+- LINE BY LINE: the narration lines are listed below with their start times. For EACH line, look at the picture
+  at that time: it must show what the line talks about. A line that explains an action / place while the video
+  shows something unrelated (e.g. "loot the safe" over a car driving down a road) is a HIGH severity montage error.
+  Also flag a cut to unrelated footage in the middle of an explanation.
 - content: not GTA 6, story spoilers, non-English streamer, nudity / slurs / real violence
 - overall: would a professional editor publish this as is?
 Return ONLY JSON: {{"publish": bool, "score": int (1-10), "issues": [{{"at": seconds, "severity": "high"|"medium"|"low",
