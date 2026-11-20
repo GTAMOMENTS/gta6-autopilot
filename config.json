@@ -103,7 +103,11 @@
       "instagram": 5,
       "tiktok": 5,
       "x": 3
-    }
+    },
+    "paused_platforms": [
+      "instagram"
+    ],
+    "_paused_note": "2026-11-20: Instagram flagged the account ('content may not be original to you' - not recommended to non-followers). Owner's choice: pause Instagram until there is original footage; request the review later. Remove 'instagram' from this list to resume."
   },
   "sources": {
     "providers": [
