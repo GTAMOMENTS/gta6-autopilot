@@ -15,13 +15,18 @@ section is downloaded, then highlight.py picks the most intense seconds.
 """
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import logging
 import math
+import os
 import random
 import re
 import shutil
+import signal
+import subprocess
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -36,15 +41,23 @@ from highlight import concat_files, cut_highlight
 log = logging.getLogger("autopilot")
 
 DM_API = "https://api.dailymotion.com/videos"
-def ytdlp_format() -> str:
+
+
+def ytdlp_format(max_h: int = 1080) -> str:
     """Quality between `min_height` (default 720p) and 1080p, preferring <=30fps
     (our videos are 30fps - 60fps sources are ~2x bigger for nothing)."""
     h = int(load_config().get("sources", {}).get("min_height", 720))
-    q = f"[height>={h}][height<=1080]"
+    q = f"[height>={h}][height<={max_h}]"
     return (f"bv*{q}[fps<=?30][vcodec!*=av01]+ba/bv*{q}[fps<=?30]+ba/b{q}[fps<=?30]/"
             f"bv*{q}+ba/b{q}")
+
+
 class YouTubeFormatsLimited(Exception):
     """YouTube served no 720p+ stream for this video, even with the other player clients."""
+
+
+class FormatsLimited(Exception):
+    """The site (e.g. Dailymotion) lists no 720p+ stream for this video."""
 
 
 # When YouTube serves only low-quality streams to one client (it does that for hours at a time),
@@ -57,6 +70,9 @@ YT_FALLBACK_CLIENTS = [
 FULL_DOWNLOAD_MAX_SEC = 600      # only fetch whole videos (no section support) when they are short
 FULL_DOWNLOAD_MAX_SIZE = "250M"
 BOT_BLOCK_MARKERS = ("confirm you", "not a bot", "sign in to confirm", "http error 429", "precondition", "403: forbidden", "403 forbidden")
+# a YouTube player client that worked after the default one was refused (bot check / no HD) - used for the rest of
+# the run, so every later video doesn't fail first
+_yt_client: list[str] = []
 
 
 @dataclass
@@ -226,6 +242,8 @@ def discover_dailymotion(cfg: dict, queries: list[str], tf: TitleFilter) -> list
                 log.warning("[sources] Dailymotion search '%s' failed: %s", q, exc)
                 continue
             for v in items:
+                if after and v.get("created_time") and float(v["created_time"]) < after:
+                    continue  # the API filter is not trusted alone: older "GTA 6" uploads are fakes
                 ok, why = tf.check(v.get("title", ""))
                 ok = ok and tf.language_ok(v.get("title", ""), v.get("language") or "")
                 dur = float(v.get("duration") or 0)
@@ -273,24 +291,58 @@ def blocked_channel(name: str, cfg: dict | None = None) -> bool:
     return bool(low) and any(b.lower() == low or (len(b) > 4 and b.lower() in low) for b in blocked)
 
 
+def _youtube_search(q: str, n: int = 30) -> tuple[list[dict], str]:
+    """One YouTube search (newest first) -> (entries, error text). Entries carry an approximate upload time
+    ("3 days ago") so clearly old videos are dropped before any download / date lookup."""
+    # sp=CAI%3D -> YouTube's own "sort by upload date" (newest footage first)
+    url = "https://www.youtube.com/results?search_query=" + requests.utils.quote(q) + "&sp=CAI%253D"
+    res = run(_ytdlp_base() + ["--extractor-args", "youtubetab:approximate_date", "--flat-playlist", "-J",
+                               "--playlist-end", str(n), url], timeout=90)
+    if res.returncode != 0:
+        return [], res.stderr[-300:] or "failed"
+    try:
+        return [e for e in json.loads(res.stdout).get("entries", []) or [] if e], ""
+    except (json.JSONDecodeError, AttributeError):
+        return [], "bad answer"
+
+
+def _clearly_before(ts, cutoff: float | None) -> bool:
+    """An approximate upload time ("N days ago") that is surely before the cutoff (1.5 days of margin)."""
+    try:
+        return bool(cutoff and ts and float(ts) < cutoff - 1.5 * 86400)
+    except (TypeError, ValueError):
+        return False
+
+
 def discover_youtube(cfg: dict, queries: list[str], tf: TitleFilter, kind: str = "gameplay") -> list[Candidate]:
+    from concurrent.futures import ThreadPoolExecutor
     s = cfg.get("sources", {})
     out: dict[str, Candidate] = {}
-    for q in queries:
-        # sp=CAI%3D -> YouTube's own "sort by upload date" (newest footage first)
-        url = "https://www.youtube.com/results?search_query=" + requests.utils.quote(q) + "&sp=CAI%253D"
-        res = run(_ytdlp_base() + ["--flat-playlist", "-J", "--playlist-end", "30", url], timeout=90)
-        if res.returncode != 0:
-            log.warning("[sources] YouTube search '%s' failed: %s", q, res.stderr[-200:])
-            if any(m in res.stderr.lower() for m in BOT_BLOCK_MARKERS):
-                break
-            continue
-        try:
-            entries = json.loads(res.stdout).get("entries", []) or []
-        except json.JSONDecodeError:
+    cutoff, old = _min_created_ts(cfg), 0
+    queries = list(dict.fromkeys(queries))
+    # a few searches at a time (one by one took ~1 min per 8 queries); a bot check stops the rest
+    workers = max(1, min(int(s.get("search_workers", 3)), len(queries) or 1))
+    blocked = threading.Event()
+
+    def search(q: str):
+        if blocked.is_set():
+            return q, [], "skipped"
+        entries, err = _youtube_search(q)
+        if err and any(m in err.lower() for m in BOT_BLOCK_MARKERS):
+            blocked.set()
+        return q, entries, err
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        results = list(ex.map(search, queries))
+    for q, entries, err in results:
+        if err:
+            if err != "skipped":
+                log.warning("[sources] YouTube search '%s' failed: %s", q, err[-200:])
             continue
         for e in entries:
-            if not e or not e.get("id"):
+            if not e.get("id"):
+                continue
+            if _clearly_before(e.get("timestamp"), cutoff):
+                old += 1
                 continue
             ok, _ = tf.check(e.get("title", ""))
             dur = float(e.get("duration") or 0)
@@ -306,7 +358,8 @@ def discover_youtube(cfg: dict, queries: list[str], tf: TitleFilter, kind: str =
                 uploader=e.get("channel") or e.get("uploader") or "", provider="youtube",
                 duration=dur, views=int(e.get("view_count") or 0), kind=kind,
             )
-    log.info("[sources] YouTube (%s): %d usable videos", kind, len(out))
+    log.info("[sources] YouTube (%s): %d usable videos%s", kind, len(out),
+             f" ({old} older than the launch skipped)" if old else "")
     return list(out.values())
 
 
@@ -431,12 +484,26 @@ def discover_trailers(cfg: dict) -> list[Candidate]:
 
 def rank(cands: list[Candidate], manifest: dict, tf: TitleFilter, boost: list[str] | None = None,
          prefer_min_sec: int = 0) -> list[Candidate]:
+    import authentic
     srcs = manifest["sources"]
     now = time.time()
-    ranked = []
+    cutoff = _launch_ts(load_config())
+    ranked, why = [], {}
     for c in cands:
         st = srcs.get(c.key, {})
         if st.get("rejected") or st.get("fail_count", 0) >= 2:
+            why["rejected before"] = why.get("rejected before", 0) + 1
+            continue
+        if cutoff and c.created and c.created < cutoff and not c.official and c.provider != "local":
+            why["before launch"] = why.get("before launch", 0) + 1  # "GTA 6" footage from before launch = fake
+            continue
+        if authentic.known_fake(c.key):
+            why["not GTA 6 (checked before)"] = why.get("not GTA 6 (checked before)", 0) + 1
+            continue
+        ch_status, ch_adjust = authentic.channel_verdict(c.uploader) if c.provider in (
+            "youtube", "dailymotion", "x_account", "extra") else ("", 0.0)
+        if ch_status == "fake":
+            why["GTA V / mod channel"] = why.get("GTA V / mod channel", 0) + 1
             continue
         uses = len(st.get("uses", []))
         max_uses = 1 if c.duration < 600 else (2 if c.duration < 1800 else 4)
@@ -446,7 +513,8 @@ def rank(cands: list[Candidate], manifest: dict, tf: TitleFilter, boost: list[st
             max_uses = 999
         if uses >= max_uses:
             continue
-        score = c.score + tf.bonus(c.title)
+        score = c.score + tf.bonus(c.title) + ch_adjust  # channels whose videos passed the GTA 6 check first
+        score -= unsafe_title_penalty(c.title)  # strip clubs etc. - the AI rejects them as unsafe anyway
         if boost and any(b in _norm(c.title) for b in boost):
             score += 4.0                       # title matches this run's video format
         if prefer_min_sec and c.duration and c.duration < prefer_min_sec:
@@ -464,7 +532,23 @@ def rank(cands: list[Candidate], manifest: dict, tf: TitleFilter, boost: list[st
         c.score = score
         ranked.append(c)
     ranked.sort(key=lambda c: c.score, reverse=True)
+    if why:
+        log.info("[sources] skipped %s", why)
     return ranked
+
+
+@functools.lru_cache(maxsize=4)
+def _unsafe_rx(terms: tuple) -> re.Pattern | None:
+    return _term_regex(list(terms))
+
+
+def unsafe_title_penalty(title: str) -> float:
+    """Titles that suggest content the AI rejects as unsafe (strip clubs, lap dances...) rank lower: each such
+    clip costs a download + an AI review and is never used."""
+    rx = _unsafe_rx(tuple(load_config().get("sources", {}).get("unsafe_title_terms", [])))
+    if rx and rx.search(_norm(title)):
+        return float(load_config().get("sources", {}).get("unsafe_title_penalty", 6.0))
+    return 0.0
 
 
 def _stream_filter(cfg: dict) -> TitleFilter:
@@ -617,7 +701,213 @@ def _download_media_url(c: Candidate, start: int, end: int, out: Path) -> bool:
     return _valid_video(out, 6)
 
 
-def _download(c: Candidate, start: int, end: int, out: Path) -> bool:
+_TIME_RE = re.compile(rb"time=(\d+):(\d\d):(\d\d(?:\.\d+)?)")
+
+
+def _stop(p: subprocess.Popen) -> None:
+    """Stop yt-dlp the way Ctrl+C does: it asks ffmpeg to finish the file, so the part already downloaded stays a
+    playable video. Then make sure nothing of it (an ffmpeg child) keeps running in the background."""
+    try:
+        p.send_signal(signal.SIGINT)
+        p.wait(timeout=25)
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+    try:
+        os.killpg(p.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        pass
+    try:
+        p.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
+
+
+def _run_ytdlp(cmd: list[str], timeout: int = 300, section_len: float = 0.0,
+               keep_min: float = 0.0) -> subprocess.CompletedProcess:
+    """Run yt-dlp in its own process group (a timeout used to leave its ffmpeg running in the background).
+    Section downloads are watched through ffmpeg's progress: when the section can't finish before the timeout,
+    the download stops early - as soon as `keep_min` seconds are there (kept), or at once if even that can't
+    arrive in time. returncode 124 = stopped (stderr says why)."""
+    log.debug("RUN %s", " ".join(cmd))
+    t0 = time.time()
+    try:
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+    except OSError as exc:
+        return subprocess.CompletedProcess(cmd, 127, stdout="", stderr=str(exc))
+    st = {"out": bytearray(), "err": bytearray(), "got": 0.0, "first": 0.0, "moved": t0}
+
+    def pump(stream, name: str) -> None:
+        tail = b""
+        while True:
+            chunk = stream.read1(8192) if hasattr(stream, "read1") else stream.read(8192)
+            if not chunk:
+                break
+            buf = st[name]
+            buf += chunk
+            if len(buf) > 400_000:
+                del buf[:-200_000]
+            if name == "err":
+                found = list(_TIME_RE.finditer(tail + chunk))
+                tail = chunk[-40:]
+                if found:
+                    h, m, s = found[-1].groups()
+                    got = int(h) * 3600 + int(m) * 60 + float(s)
+                    now = time.time()
+                    st["first"] = st["first"] or now
+                    if got > st["got"]:
+                        st["got"], st["moved"] = got, now
+
+    pumps = [threading.Thread(target=pump, args=(p.stdout, "out"), daemon=True),
+             threading.Thread(target=pump, args=(p.stderr, "err"), daemon=True)]
+    for t in pumps:
+        t.start()
+    reason = ""
+    while True:
+        try:
+            p.wait(timeout=2)
+            break
+        except subprocess.TimeoutExpired:
+            pass
+        now = time.time()
+        left = t0 + timeout - now
+        if left <= 0:
+            reason = f"took longer than {timeout}s"
+            break
+        if section_len and st["first"]:
+            got, el = st["got"], now - st["first"]
+            if now - st["moved"] > 60:
+                reason = "stalled for 60s"
+                break
+            if el >= 30 and got < section_len:
+                rate = got / el
+                if rate > 0 and (section_len - got) / rate > left:  # would not finish in time
+                    if got + rate * left < keep_min:
+                        reason = f"too slow ({rate:.2f}x real time)"
+                        break
+                    if got >= min(section_len, max(keep_min, 0.75 * section_len)):
+                        reason = f"slow ({rate:.2f}x real time) - stopped with {got:.0f}s downloaded"
+                        break
+    if reason:
+        _stop(p)
+    for t in pumps:
+        t.join(timeout=10)
+    out_s = st["out"].decode("utf-8", "replace")
+    err_s = st["err"].decode("utf-8", "replace").replace("\r", "\n")
+    if reason:
+        err_s += f"\nTIMEOUT: yt-dlp {reason}"
+        return subprocess.CompletedProcess(cmd, 124, stdout=out_s, stderr=err_s)
+    return subprocess.CompletedProcess(cmd, p.returncode, stdout=out_s, stderr=err_s)
+
+
+_INFO: dict[str, tuple[dict, Path]] = {}  # url + client -> (yt-dlp info, its JSON file) - extracted once per run
+_info_lock = threading.Lock()
+
+
+def _info(c: Candidate, extra: list[str] | None = None) -> tuple[dict | None, Path | None]:
+    """yt-dlp's info for a video (formats, date, heatmap) - fetched once per run; the JSON file lets the downloads
+    skip extracting it again (--load-info-json). Raises PermissionError when YouTube refuses (bot check)."""
+    extra = list(extra if extra is not None else (_yt_client if c.provider == "youtube" else []))
+    k = c.url + "|" + " ".join(extra)
+    with _info_lock:
+        if k in _INFO:
+            return _INFO[k]
+    res = run(_ytdlp_base() + extra + ["-J", "--skip-download", c.url], timeout=90)
+    if res.returncode != 0:
+        if c.provider == "youtube" and _is_blocked(res.stderr):
+            raise PermissionError("youtube-blocked")
+        log.info("[sources] no video info for '%s': %s", c.title[:50], res.stderr.strip()[-160:])
+        return None, None
+    try:
+        info = json.loads(res.stdout)
+    except json.JSONDecodeError:
+        return None, None
+    if not isinstance(info, dict):
+        return None, None
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
+    f = RAW_DIR / f"info_{hashlib.md5(k.encode()).hexdigest()[:12]}.json"
+    f.write_text(json.dumps(info), encoding="utf-8")
+    with _info_lock:
+        _INFO[k] = (info, f)
+    return info, f
+
+
+_ID_HEIGHT = re.compile(r"(?<![0-9])(\d{3,4})p?(?:@(\d{2,3}))?(?:-\d+)?$")
+
+
+def _fmt_height(f: dict) -> int:
+    """Height of a format - from yt-dlp, else from 'WxH', else from the id (Dailymotion: hls-1080, hls-720@60)."""
+    if f.get("height"):
+        return int(f["height"])
+    m = re.search(r"(\d{3,4})x(\d{3,4})", str(f.get("resolution") or ""))
+    if m:
+        return int(m.group(2))
+    m = _ID_HEIGHT.search(str(f.get("format_id") or ""))
+    if m and 100 <= int(m.group(1)) <= 4320:
+        return int(m.group(1))
+    return 0
+
+
+def _fmt_fps(f: dict) -> float:
+    if f.get("fps"):
+        return float(f["fps"])
+    m = _ID_HEIGHT.search(str(f.get("format_id") or ""))
+    return float(m.group(2)) if m and m.group(2) else 0.0
+
+
+def _choose_format(info: dict, min_h: int, max_h: int = 1080) -> str | None:
+    """Pick the download format ourselves when yt-dlp's filters find nothing (e.g. Dailymotion streams without
+    height info): min_h..max_h (else the smallest bigger one), <=30 fps, H.264, with sound. None = no 720p+."""
+    fmts = [f for f in info.get("formats") or [] if f.get("format_id") and f.get("url")]
+    if fmts and not any(_fmt_height(f) for f in fmts if f.get("vcodec") != "none"):
+        return "bv*+ba/b"  # the site gives no sizes at all: best stream (the resolution is checked after download)
+    vids = [f for f in fmts if f.get("vcodec") != "none" and _fmt_height(f)]
+    auds = [f for f in fmts if f.get("vcodec") == "none" and f.get("acodec") not in (None, "none")]
+    ok = [f for f in vids if min_h <= _fmt_height(f) <= max_h]
+    if not ok:
+        bigger = sorted((f for f in vids if _fmt_height(f) > max_h), key=_fmt_height)
+        ok = [f for f in bigger if _fmt_height(f) == _fmt_height(bigger[0])] if bigger else []
+    if not ok:
+        return None
+
+    def score(f: dict) -> tuple:
+        fps = _fmt_fps(f)
+        muxed = f.get("acodec") != "none"
+        return (fps <= 31, _fmt_height(f), "av01" not in str(f.get("vcodec") or ""), muxed or bool(auds),
+                str(f.get("protocol") or "").startswith("http") and "m3u8" not in str(f.get("protocol") or ""),
+                float(f.get("tbr") or 0))
+    best = max(ok, key=score)
+    if best.get("acodec") == "none" and auds:
+        audio = max(auds, key=lambda a: (float(a.get("abr") or a.get("tbr") or 0)))
+        return f"{best['format_id']}+{audio['format_id']}"
+    return str(best["format_id"])
+
+
+def _formats_summary(info: dict, n: int = 12) -> str:
+    out = []
+    for f in (info.get("formats") or [])[-n:]:
+        v = "video" if f.get("vcodec") != "none" else "audio"
+        if f.get("acodec") not in (None, "none") and v == "video":
+            v = "video+audio"
+        h = _fmt_height(f)
+        out.append(f"{f.get('format_id')}:{h or '?'}p{('@' + str(int(_fmt_fps(f)))) if _fmt_fps(f) else ''} {v}")
+    return ", ".join(out) or "no formats"
+
+
+def _salvage(out: Path, keep_min: float) -> bool:
+    """A section download stopped early (slow site): keep the part that arrived if it is long enough."""
+    part = out.with_name(out.name + ".part")
+    if not part.exists():
+        return False
+    got = probe(part)["duration"]
+    if got >= keep_min > 0:
+        part.replace(out)
+        log.info("[sources] slow download - kept the first %.0fs of the section", got)
+        return True
+    part.unlink(missing_ok=True)
+    return False
+
+
+def _download(c: Candidate, start: int, end: int, out: Path, timeout: int = 300) -> bool:
     out.unlink(missing_ok=True)
     if c.media_url:
         return _download_media_url(c, start, end, out)
@@ -625,47 +915,108 @@ def _download(c: Candidate, start: int, end: int, out: Path) -> bool:
         res = run(["ffmpeg", "-y", "-ss", str(start), "-to", str(end), "-i", c.local_path,
                    "-c", "copy", str(out)], timeout=300)
         return res.returncode == 0 and _valid_video(out)
+    s = load_config().get("sources", {})
+    min_h = int(s.get("min_height", 720))
+    length = max(1.0, float(end - start))
+    keep_min = min(length, float(s.get("salvage_min_sec", 45)))
+    # the whole (short) clip is wanted, e.g. a Twitch clip: a normal download - much faster than ffmpeg sections
+    whole = (start <= 0 and c.duration and end >= c.duration - 1 and c.duration <= FULL_DOWNLOAD_MAX_SEC)
 
-    # 1) fast path: only download the section we need
-    def section(extra: list[str]):
-        return run(_ytdlp_base() + extra + [
-            "-f", ytdlp_format(), "--merge-output-format", "mp4",
-            "--download-sections", f"*{start}-{end}",
-            "-o", str(out), c.url,
-        ], timeout=300)
-    res = section([])
-    if res.returncode == 0 and _valid_video(out):
+    def attempt(fmt: str, extra: list[str] | None = None, info_file: Path | None = None, budget: int = timeout):
+        out.unlink(missing_ok=True)
+        out.with_name(out.name + ".part").unlink(missing_ok=True)
+        cmd = _ytdlp_base() + list(extra or []) + ["-f", fmt, "--merge-output-format", "mp4"]
+        cmd += ["--max-filesize", FULL_DOWNLOAD_MAX_SIZE] if whole else ["--download-sections", f"*{start}-{end}"]
+        cmd += ["-o", str(out)] + (["--load-info-json", str(info_file)] if info_file else [c.url])
+        res = _run_ytdlp(cmd, timeout=budget, section_len=0 if whole else length, keep_min=keep_min)
+        if res.returncode == 0 and _valid_video(out, min(10.0, length * 0.8)):
+            return True, res
+        if res.returncode == 124 and not whole and _salvage(out, keep_min):
+            return True, res
+        return False, res
+
+    yt_extra = list(_yt_client) if c.provider == "youtube" else []
+    info_file, fmt = None, ytdlp_format()
+    known = _INFO.get(c.url + "|" + " ".join(yt_extra))
+    if c.provider == "dailymotion" or known:
+        # Dailymotion: pick the stream ourselves (its HLS list often has no height info, so yt-dlp's filters found
+        # nothing: "Requested format is not available"); YouTube: reuse the info fetched for the date check
+        info, info_file = known or _info(c)
+        if c.provider == "dailymotion":
+            if not info:
+                return False
+            fmt = _choose_format(info, min_h)
+            if not fmt:
+                log.info("[sources] Dailymotion has no %dp+ stream for '%s' (%s)", min_h, c.title[:50],
+                         _formats_summary(info))
+                raise FormatsLimited(_formats_summary(info))
+    ok, res = attempt(fmt, yt_extra, info_file)
+    if ok:
         return True
-    err = res.stderr[-400:]
-    if c.provider == "youtube" and "format is not available" in err.lower():
-        for extra in YT_FALLBACK_CLIENTS:
-            log.info("[sources] YouTube offered no 720p+ stream - retrying with %s", " ".join(extra[1:2]))
-            out.unlink(missing_ok=True)
-            res = section(extra)
-            if res.returncode == 0 and _valid_video(out):
-                log.info("[sources] ✅ got it with %s", " ".join(extra[1:2]))
-                return True
-            err = res.stderr[-400:]
-            if "format is not available" not in err.lower():
-                break
-        if "format is not available" in err.lower():
-            raise YouTubeFormatsLimited(err)
+    err = res.stderr[-600:]
+    if "format is not available" in err.lower():
+        if c.provider == "youtube":
+            for extra in [x for x in YT_FALLBACK_CLIENTS if x != yt_extra]:
+                log.info("[sources] YouTube offered no 720p+ stream - retrying with %s", " ".join(extra[1:2]))
+                ok, res = attempt(fmt, extra)
+                if ok:
+                    log.info("[sources] ✅ got it with %s", " ".join(extra[1:2]))
+                    return True
+                err = res.stderr[-600:]
+                if "format is not available" not in err.lower():
+                    break
+            if "format is not available" in err.lower():
+                raise YouTubeFormatsLimited(err)
+        else:
+            info, info_file = _info(c)
+            fmt2 = _choose_format(info, min_h) if info else None
+            log.info("[sources] %s: yt-dlp found no %dp+ format - streams: %s -> %s", c.provider, min_h,
+                     _formats_summary(info or {}), fmt2 or "none")
+            if not fmt2 and info and c.provider == "dailymotion":
+                raise FormatsLimited(_formats_summary(info))
+            if fmt2:
+                ok, res = attempt(fmt2, None, info_file)
+                if ok:
+                    return True
+                err = res.stderr[-600:]
     if c.provider == "youtube" and _is_blocked(err):
+        # bot check / 403 for this client: the other player clients often still work (no login needed)
+        for extra in [x for x in YT_FALLBACK_CLIENTS if x != yt_extra]:
+            ok, res = attempt(fmt, extra, budget=min(timeout, 240))
+            if ok:
+                _yt_client[:] = extra
+                log.info("[sources] YouTube refused the default client - %s works, using it for this run",
+                         " ".join(extra[1:2]))
+                return True
         raise PermissionError("youtube-blocked")
-    if res.returncode == 124:  # too slow - a full download would be even slower, skip this video
-        log.warning("[sources] section download too slow, skipping: %s", c.title[:60])
+    if res.returncode == 124:
+        why = res.stderr.strip().splitlines()[-1] if res.stderr.strip() else "timeout"
+        if c.provider == "youtube" and not whole and ("too slow" in why or "stalled" in why):
+            # throttled stream: another client gets another server; 720p is half the data
+            extra = next((x for x in YT_FALLBACK_CLIENTS if x != yt_extra), None)
+            if extra:
+                log.info("[sources] YouTube download %s - one more try at 720p with %s", why.split("yt-dlp ")[-1],
+                         " ".join(extra[1:2]))
+                ok, res = attempt(ytdlp_format(720), extra, budget=min(timeout, 200))
+                if ok:
+                    return True
+        log.warning("[sources] section download too slow, skipping (%s): %s", why.split("yt-dlp ")[-1], c.title[:60])
         return False
 
-    # 2) fallback: some HLS sources (Dailymotion with split audio/video) can't be
-    #    section-downloaded -> fetch the whole video (if not huge) and cut locally.
+    # fallback: a source that can't be section-downloaded -> fetch the whole video (if not huge) and cut locally.
+    if whole:
+        log.warning("[sources] download failed (%s): %s", c.provider, err[-300:])
+        return False
     if c.duration and c.duration > FULL_DOWNLOAD_MAX_SEC:
-        log.warning("[sources] section download failed and video too long for a full download - skipping")
+        log.warning("[sources] section download failed (%s: %s) and the video is too long for a full download - "
+                    "skipping", c.provider, err.strip().splitlines()[-1][:160] if err.strip() else "no error text")
         return False
     full = out.with_name(out.stem + "_full.mp4")
     full.unlink(missing_ok=True)
     out.unlink(missing_ok=True)
-    res = run(_ytdlp_base() + ["-f", ytdlp_format(), "--merge-output-format", "mp4",
-                               "--max-filesize", FULL_DOWNLOAD_MAX_SIZE, "-o", str(full), c.url], timeout=300)
+    res = _run_ytdlp(_ytdlp_base() + yt_extra + ["-f", fmt, "--merge-output-format", "mp4",
+                                                 "--max-filesize", FULL_DOWNLOAD_MAX_SIZE, "-o", str(full)]
+                     + (["--load-info-json", str(info_file)] if info_file else [c.url]), timeout=timeout)
     if res.returncode != 0 or not _valid_video(full):
         log.warning("[sources] download failed (%s): %s", c.provider, res.stderr[-400:])
         full.unlink(missing_ok=True)
@@ -680,7 +1031,7 @@ def _download(c: Candidate, start: int, end: int, out: Path) -> bool:
 
 
 def _fill_metadata(c: Candidate, cfg: dict) -> bool:
-    """For URLs without duration/date (extra urls, youtube), fetch metadata once."""
+    """For URLs without duration/date (extra urls, youtube), fetch metadata once (the downloads reuse it)."""
     if c.local_path:
         c.duration = probe(Path(c.local_path))["duration"]
         return c.duration > 0
@@ -688,15 +1039,25 @@ def _fill_metadata(c: Candidate, cfg: dict) -> bool:
     need_meta = need_date or (c.provider == "youtube" and c.duration > 300)  # heatmap for long videos
     if c.duration and not need_meta:
         return True
-    res = run(_ytdlp_base() + ["-J", "--skip-download", c.url], timeout=90)
-    if res.returncode != 0:
-        if c.provider == "youtube" and _is_blocked(res.stderr):
-            raise PermissionError("youtube-blocked")
-        log.info("[sources] no video info for '%s': %s", c.title[:50], res.stderr.strip()[-160:])
-        return False
     try:
-        meta = json.loads(res.stdout)
-    except json.JSONDecodeError:
+        meta, _ = _info(c)
+    except PermissionError:
+        if c.provider != "youtube" or _yt_client:
+            raise
+        meta = None
+        for extra in YT_FALLBACK_CLIENTS:  # bot check for the default client: the others often still answer
+            try:
+                meta, _ = _info(c, extra)
+            except PermissionError:
+                continue
+            if meta:
+                _yt_client[:] = extra
+                log.info("[sources] YouTube refused the default client - %s works, using it for this run",
+                         " ".join(extra[1:2]))
+                break
+        if not meta:
+            raise
+    if not meta:
         return False
     c.duration = float(meta.get("duration") or c.duration or 0)
     c.heatmap = meta.get("heatmap") or None
@@ -705,9 +1066,9 @@ def _fill_metadata(c: Candidate, cfg: dict) -> bool:
         c.created = float(meta["timestamp"])
     elif meta.get("upload_date"):
         c.created = datetime.strptime(meta["upload_date"], "%Y%m%d").replace(tzinfo=timezone.utc).timestamp()
-    if need_date and c.created and c.created < _min_created_ts(cfg):
-        log.info("[sources] skip old YouTube video (%s): %s",
-                 datetime.fromtimestamp(c.created, timezone.utc).date(), c.title[:60])
+    if need_date and (not c.created or c.created < _min_created_ts(cfg)):
+        log.info("[sources] skip %s YouTube video (%s): %s", "old" if c.created else "undated",
+                 datetime.fromtimestamp(c.created, timezone.utc).date() if c.created else "no date", c.title[:60])
         _note_failure(c)
         _note_failure(c)  # 2 strikes -> never retried
         return False
@@ -727,6 +1088,7 @@ def iter_clips(target_sec: int, max_attempts: int = 6, skip_providers: set | Non
     style = s.get("clip_style", "auto")
     youtube_blocked = False
     yt_limited = 0  # YouTube videos that came back without any 720p+ stream this run
+    dm_limited = 0  # same for Dailymotion
 
     cands = discover(cfg, manifest, fmt=fmt)
     log.info("[sources] %d ranked candidates; top: %s", len(cands),
@@ -800,6 +1162,16 @@ def iter_clips(target_sec: int, max_attempts: int = 6, skip_providers: set | Non
                 if not _download(c, start, end, sec_file):
                     _note_failure(c)
                     continue
+        except FormatsLimited as exc:
+            dm_limited += 1
+            log.warning("[sources] %s has no %sp+ stream for '%s' - not trying it again (%s)", c.provider,
+                        s.get("min_height", 720), c.title[:60], str(exc)[:160])
+            _note_failure(c)
+            _note_failure(c)
+            if dm_limited >= 2:
+                skip_providers.add(c.provider)
+                log.warning("[sources] %s serves no HD streams right now - using the other sources this run", c.provider)
+            continue
         except YouTubeFormatsLimited:
             yt_limited += 1
             log.warning("[sources] YouTube served no 720p+ stream for '%s' (all clients)", c.title[:60])
@@ -829,6 +1201,9 @@ def iter_clips(target_sec: int, max_attempts: int = 6, skip_providers: set | Non
             sec_file.unlink(missing_ok=True)
             _note_failure(c)
             continue
+        import authentic  # the GTA 6 check remembers its answer for this source + window
+        authentic.remember(sec_file, c.key, c.uploader, c.provider,
+                           [x for r in ranges for x in r] if ranges else (start, end))
         # the AI editor (autopilot.py) watches this whole section / reel and picks the best part(s)
         yield ClipSource(candidate=c, clip_path=sec_file, section=(start, end), segments=[],
                          sections=ranges, is_reel=bool(ranges))

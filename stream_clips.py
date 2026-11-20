@@ -197,10 +197,17 @@ def kick_clips(c: dict) -> list[dict]:
     out, seen, notes = [], set(), []
     max_age = float(c.get("window_hours", 6)) * 3600
     urls = [f"https://kick.com/api/v2/channels/{ch}/clips?sort=view&time=day" for ch in kick_top_channels(c)]
-    for url in urls:
+
+    def fetch(url: str):
         try:
-            items = _items(_kick_get(url))
+            return url, _items(_kick_get(url)), None
         except Exception as exc:  # noqa: BLE001
+            return url, [], exc
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=4) as ex:  # one by one took ~1-2 s per channel
+        answers = list(ex.map(fetch, urls))
+    for url, items, exc in answers:
+        if exc is not None:
             notes.append(f"{url.split('kick.com')[1][:50]}: {str(exc)[:30]}")
             continue
         kept = 0
@@ -306,14 +313,19 @@ def x_account_clips(c: dict) -> list[dict]:
     accounts = c.get("x_accounts", [])
     if not accounts:
         return []
-    out = []
+    from source_fetcher import _launch_ts
+    cutoff = _launch_ts(load_config())
+    out, old = [], 0
     for acc, x in x_source.account_clips(load_config(), accounts=accounts, cache_file=STATE_FILE.with_name("x_cache.json"),
                                          cache_hours=float(c.get("x_cache_hours", 2))):
+        if cutoff and x.get("created") and x["created"] < cutoff:  # "GTA 6" clips from before launch are fakes
+            old += 1
+            continue
         text = re.sub(r"https?://\S+", "", x.get("text", "")).strip()
         out.append(_clip("x", x["id"], x.get("page_url") or f"https://x.com/{acc}/status/{x['id']}", text, acc,
                          int(x.get("views") or 0), x.get("created") or 0, float(x.get("duration") or 0),
                          media_url=x.get("media_url", "")))
-    log.info("[streams] X accounts: %d recent video posts", len(out))
+    log.info("[streams] X accounts: %d recent video posts%s", len(out), f" ({old} from before launch skipped)" if old else "")
     return out
 
 
@@ -334,6 +346,9 @@ def find_viral(c: dict, state: dict) -> list[dict]:
         clips += kick_clips(c)
     if c.get("youtube_vods", True):
         clips += youtube_vod_peaks(c)
+    import ai_cache
+    from source_fetcher import _launch_ts, unsafe_title_penalty
+    cutoff = _launch_ts(load_config())
     posted = state.get("posted", [])
     posted_keys = {p["key"] for p in posted}
     langs = set(c.get("languages", ["en"]))
@@ -342,6 +357,10 @@ def find_viral(c: dict, state: dict) -> list[dict]:
         why = None
         if x["key"] in posted_keys:
             why = "already posted"
+        elif cutoff and x.get("created") and x["created"] < cutoff:
+            why = "before launch"
+        elif ai_cache.bad_reason(x["key"]):
+            why = "rejected by an earlier AI review"
         elif not is_famous(x["streamer"], c):
             why = "not a famous English streamer"
         elif x["platform"] == "twitch" and langs and x["language"] and x["language"] not in langs:
@@ -370,7 +389,8 @@ def find_viral(c: dict, state: dict) -> list[dict]:
         log.info("[streams] not picked: %s | fastest clips: %s", reasons,
                  [f"{x['platform']}:{x['streamer']} {x['views']}v/{x['age_h']}h={x['velocity']:.0f}/h {x['duration']:.0f}s"
                   for x in top])
-    good.sort(key=lambda x: x["velocity"], reverse=True)
+    # strip-club / lap-dance titles last: the AI review rejects them as unsafe (a wasted download + review)
+    good.sort(key=lambda x: (not unsafe_title_penalty(x["title"]), x["velocity"]), reverse=True)
     log.info("[streams] %d clips found, %d viral candidates: %s", len(clips), len(good),
              [f"{x['streamer']} {x['views']}v {x['velocity']:.0f}/h" for x in good[:5]])
     return good

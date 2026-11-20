@@ -199,6 +199,13 @@ def _try_model(types, model: str, contents, temperature: float) -> tuple[dict | 
     except Exception as exc:  # noqa: BLE001
         msg = str(exc)
         log.warning("[gemini] %s failed (%.120s) - next model", model, msg)
+        if ("PerMinute" in msg or "per minute" in msg.lower()) and "PerDay" not in msg:
+            # a per-MINUTE limit (two requests at once, or a quick retry) - not today's quota: pause this model
+            # briefly instead of dropping it (and its remaining daily quota) for the rest of the run
+            m = re.search(r"retry in ([\d.]+)\s*s|retryDelay'?\"?:\s*'?\"?(\d+)s", msg)
+            wait = float(next((g for g in (m.groups() if m else ()) if g), 30))
+            _busy_until[model] = time.time() + min(90.0, wait + 2)
+            return None, True
         if any(x in msg for x in ("404", "NOT_FOUND", "not supported", "exceeded your current quota",
                                   "RESOURCE_EXHAUSTED")):
             _dead_models.add(model)  # gone or out of quota for today - don't try it again this run
@@ -212,14 +219,20 @@ def _try_model(types, model: str, contents, temperature: float) -> tuple[dict | 
 
 def _upload_video(clip: Path):
     """Upload a light 480p proxy of the clip to the Gemini Files API."""
-    proxy = WORK_DIR / "gemini_proxy.mp4"
+    import threading
+    WORK_DIR.mkdir(parents=True, exist_ok=True)
+    proxy = WORK_DIR / f"gemini_proxy_{threading.get_ident()}.mp4"  # own file per thread (parallel checks)
     res = run(["ffmpeg", "-y", "-i", str(clip), "-vf", "scale=-2:480,fps=12",
                "-c:v", "libx264", "-preset", "veryfast", "-crf", "32",
                "-c:a", "aac", "-b:a", "48k", "-ac", "1", str(proxy)], timeout=240)
     if res.returncode != 0:
+        proxy.unlink(missing_ok=True)
         return None
     client = _client()
-    f = client.files.upload(file=str(proxy), config={"mime_type": "video/mp4"})
+    try:
+        f = client.files.upload(file=str(proxy), config={"mime_type": "video/mp4"})
+    finally:
+        proxy.unlink(missing_ok=True)
     deadline = time.time() + 120
     while getattr(f.state, "name", str(f.state)) == "PROCESSING" and time.time() < deadline:
         time.sleep(4)
