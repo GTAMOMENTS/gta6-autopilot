@@ -137,8 +137,9 @@ REDDIT HOT POSTS:
 Find the {n} topics people want most right now that we can show with GTA 6 GAMEPLAY footage.
 Rules:
 - no story spoilers (no plot, mission endings, character deaths, story twists) and no leaks/rumours as facts
-- a topic must be something you can SHOW in gameplay (a place, car, activity, mechanic, money method, challenge,
-  secret, comparison...), not news or drama
+- a topic must be something you can SHOW in open-world gameplay (a place, car, activity, mechanic, money method,
+  challenge, secret...), not news or drama, and NEVER settings / graphics options / menus / performance / HDR /
+  console or PC specs / prices / release info (nothing to film)
 - prefer topics that show up in several sources (search + big videos) and are rising
 For each topic:
 - topic: 2-6 words ("Fastest Way To Make Money")

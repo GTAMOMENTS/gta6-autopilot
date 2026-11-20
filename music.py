@@ -54,13 +54,16 @@ def ensure_tracks() -> int:
                 "fields": "id,name,username,license,duration,previews,avg_rating,num_ratings"})
             r.raise_for_status()
             results = r.json().get("results", [])
+            log.info("[music] Freesound '%s': %d CC0 results", q, len(results))
         except Exception as exc:  # noqa: BLE001
             log.warning("[music] Freesound search '%s' failed: %.120s", q, exc)
             continue
         for x in results:
             if len(have) + got >= want:
                 break
-            if str(x.get("id")) in index["tracks"] or "Creative Commons 0" not in str(x.get("license", "")):
+            lic = str(x.get("license", ""))
+            # Freesound gives the licence as a URL (.../publicdomain/zero/1.0/) - CC0 only (the search filters too)
+            if str(x.get("id")) in index["tracks"] or not ("publicdomain/zero" in lic or "Creative Commons 0" in lic):
                 continue
             url = (x.get("previews") or {}).get("preview-hq-mp3")
             if not url:
@@ -79,8 +82,7 @@ def ensure_tracks() -> int:
                                              "duration": x.get("duration"), "license": "CC0"}
             got += 1
     save_json(CACHE / "index.json", index)
-    if got:
-        log.info("[music] downloaded %d CC0 beats from Freesound (%d in the cache)", got, len(have) + got)
+    log.info("[music] %d new CC0 beats from Freesound (%d in the cache)", got, len(have) + got)
     return len(have) + got
 
 
