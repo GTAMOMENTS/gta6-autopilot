@@ -128,8 +128,8 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
                        if float(vcfg.get("fx", {}).get("teaser_sec", 0)) > 0 and not src.is_reel else "")
         verdict = qa.check(Path(rendered["path"]), "short", lines=rendered.get("placed"),
                            context=f"{teaser_note}Format: {(fmt or {}).get('name', '')}. Banner: {copy.get('banner')}. "
-                                   f"Narration lines (also burned in as captions): "
-                                   + " | ".join(ln["text"] for ln in rendered.get("placed", [])))
+                                   f"Narration lines with start times (also burned in as captions): "
+                                   + " | ".join(f"[{ln['start']:.1f}s] {ln['text']}" for ln in rendered.get("placed", [])))
         if not verdict["pass"]:
             qa_problems.append(verdict["report"].splitlines()[1] if len(verdict["report"].splitlines()) > 1 else "QA failed")
             mark_rejected(c, "failed QA")

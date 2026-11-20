@@ -978,7 +978,9 @@
         "must_show": "the player actually EARNING money: the cash / money counter on the HUD going up, a payout / sale / reward screen, or picking up cash. Stealing, crashing or destroying things without getting paid on screen does NOT count",
         "must_show_short": "money being earned on screen",
         "allow_narrated": true,
-        "_allow_narrated_note": "Most real money guides have a YouTuber talking: allowed, their voice is muted and Fenrir explains."
+        "_allow_narrated_note": "Most real money guides have a YouTuber talking: allowed, their voice is muted and Fenrir explains.",
+        "continuous": true,
+        "_continuous_note": "A how-to must stay in ONE continuous part of the source video: the multi-slice 'tour' edit jumped to unrelated driving footage while the narration was still explaining the method (owner, 2026-11-20)."
       },
       {
         "id": "trending",
@@ -1191,7 +1193,7 @@
     "guide_candidates": 24,
     "guide_section_sec": 110,
     "guide_max_items": 8,
-    "guide_min_items": 4,
+    "guide_min_items": 3,
     "guide_min_usefulness": 5,
     "guide_max_per_channel": 2,
     "trend_min_demand": 5,
@@ -1205,7 +1207,9 @@
       "GTA 6 easy money no commentary"
     ],
     "guide_min_item_sec": 25,
-    "guide_stream_clips": 18
+    "guide_stream_clips": 18,
+    "guide_max_angles": 2,
+    "_guide_note": "Guides: each method from up to 3 creators (main + 2 extra angles, each part narrated with lines about its own footage); 3 methods minimum when that is all the real footage there is (2026-11-20: 3 methods, each confirmed by 2-3 creators)."
   },
   "whisper": {
     "enabled": true,

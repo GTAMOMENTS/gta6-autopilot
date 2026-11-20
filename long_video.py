@@ -585,6 +585,7 @@ def review_guide(clips: list[dict], spec: dict, brand: str) -> list[dict]:
         twin = next((x for x in items if difflib.SequenceMatcher(None, _item_key(x["label"]), k).ratio() > 0.72), None)
         if twin:
             twin["sources"] += 1  # several creators show the same method -> more trustworthy
+            twin.setdefault("extra", []).append(r)  # ...and their footage becomes extra angles of it
         else:
             items.append(r)
     log.info("[guide] %d different items: %s", len(items),
@@ -939,12 +940,16 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str, mode: str = "momen
     prepared = []
     n_all = len(moments)
     for i, m in enumerate(moments):
+        # guide: the same method from other creators follows as extra "angles" (each with its own lines)
+        parts = [m] + (m.get("extra") or [])[: int(c.get("guide_max_angles", 2))] if guide else [m]
+        first_ok = False
         out = LONG_DIR / f"seg_{i:02d}.mp4"
         keep = _jump_keep(m["path"], m["a"], m["b"], m["best_t"], freeze_only=guide)
         if not _segment(m["path"], m["a"], m["b"], out, keep=keep, silent_ok=guide,
                         mute=guide and m.get("has_narrator", True)):
             log.warning("[long] could not prepare %s - dropped", m["key"])
             continue
+        first_ok = True
         ins, label = None, ""
         if not guide and i >= n_all - int(c.get("replays", 3)) and c.get("punchline_inserts", True):
             ins = LONG_DIR / f"ins_{i:02d}.mp4"
@@ -956,15 +961,28 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str, mode: str = "momen
                 label = "REPLAY"
             else:
                 ins = None
-        prepared.append({"m": m, "seg": out, "ins": ins, "label": label})
-    if len(prepared) < 3:
+        prepared.append({"m": m, "part": m, "seg": out, "ins": ins, "label": label, "first": True})
+        for j, part in enumerate(parts[1:], 1):
+            if not first_ok:
+                break
+            o2 = LONG_DIR / f"seg_{i:02d}_{j}.mp4"
+            k2 = _jump_keep(part["path"], part["a"], part["b"], part["best_t"], freeze_only=True)
+            if _segment(part["path"], part["a"], part["b"], o2, keep=k2, silent_ok=True,
+                        mute=part.get("has_narrator", True)):
+                prepared.append({"m": m, "part": part, "seg": o2, "ins": None, "label": "", "first": False})
+    firsts = [pr for pr in prepared if pr["first"]]
+    if len(firsts) < 3:
         return None
-    n = len(prepared)
-    for k, pr in enumerate(prepared):  # the narrator says exactly the number the card shows
-        pr["n"] = n - k
-        if guide:  # "Number five. Selling Stolen Cars." + the explanation lines
-            pr["line"] = _ranked(pr["n"], pr["m"]["label"].rstrip(".!? ") + ".")
-            pr["lines"] = [pr["line"]] + [_strip_rank(x) for x in pr["m"].get("lines", []) if _strip_rank(x)]
+    n, k = len(firsts), 0
+    for pr in prepared:  # the narrator says exactly the number the card shows
+        if pr["first"]:
+            k += 1
+        pr["n"] = n - k + 1
+        if guide:  # "Number five. Selling Stolen Cars." + the explanation lines (of THIS part's footage)
+            body = [_strip_rank(x) for x in pr["part"].get("lines", []) if _strip_rank(x)]
+            head = [_ranked(pr["n"], pr["m"]["label"].rstrip(".!? ") + ".")] if pr["first"] else []
+            pr["lines"] = head + body
+            pr["line"] = pr["lines"][0] if pr["lines"] else ""
         else:
             pr["line"] = _ranked(pr["n"], pr["m"].get("line") or "")
             pr["lines"] = [pr["line"]]
@@ -991,10 +1009,13 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str, mode: str = "momen
                 need += v["dur"] + 0.3
             pr["voices"] = kept
             # footage with its own game sound may run longer than the narration; muted footage may not (silence)
-            floor = 10.0 if pr["m"].get("has_narrator", True) else float(c.get("guide_min_item_sec", 25))
+            muted = pr["part"].get("has_narrator", True)
+            floor = (10.0 if pr["first"] else 6.0) if muted else float(c.get("guide_min_item_sec", 25))
             target = min(seg_d, max(need + 0.9, floor))
             if target < seg_d - 0.4:
                 _trim(pr["seg"], target)
+        # an extra angle without narration over muted footage would be dead air -> leave it out
+        prepared = [pr for pr in prepared if pr["first"] or pr["voices"] or not pr["part"].get("has_narrator", True)]
     segs, cards, voiced, inserts = [], [], [], []
     # 3) cold open: #1 around its best frame, long enough for the intro line
     teaser = LONG_DIR / "seg_teaser.mp4"
@@ -1008,8 +1029,9 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str, mode: str = "momen
     # 4) timeline: card + voice line + moment (+ REPLAY / REACTION insert)
     for pr in prepared:
         m, d = pr["m"], _vdur(pr["seg"])
-        who = f"Gameplay: {m['streamer']}" if guide else f"{m['streamer']} on {m['platform'].title()}"
-        cards.append({"start": cursor, "n": pr["n"], "label": m["label"], "who": who, "m": m})
+        who = f"Gameplay: {pr['part']['streamer']}" if guide else f"{m['streamer']} on {m['platform'].title()}"
+        if pr["first"]:
+            cards.append({"start": cursor, "n": pr["n"], "label": m["label"], "who": who, "m": m})
         if guide:
             t = cursor + 0.35
             for v in pr.get("voices", []):
@@ -1112,7 +1134,8 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str, mode: str = "momen
     if guide:
         chapters = ["0:00 Intro"] + [f"{int(cd['start'] // 60)}:{int(cd['start'] % 60):02d} #{cd['n']} {cd['label']}"
                                      for cd in cards]
-        credits = [f"#{cd['n']} {cd['label']} - gameplay by {cd['m']['streamer']}: {cd['m']['url']}" for cd in cards]
+        credits = [f"#{pr['n']} {pr['m']['label']} - gameplay by {pr['part']['streamer']}: {pr['part']['url']}"
+                   for pr in prepared]
     else:
         chapters = ["0:00 Intro"] + [f"{int(cd['start'] // 60)}:{int(cd['start'] % 60):02d} #{cd['n']} {cd['label']} "
                                      f"({cd['m']['streamer']})" for cd in cards]
@@ -1321,7 +1344,7 @@ def run_long(dry_run: bool) -> tuple[bool, dict]:
                "moments a REPLAY (slow motion) or REACTION (facecam close-up) insert is intentional; the last seconds "
                "are a static 'subscribe' card. Narration lines: ")
     verdict = qa.check(Path(rendered["path"]), "long", lines=rendered.get("placed"), still_ok=rendered.get("still_ok"),
-                       context=ctx + " | ".join(p_["text"] for p_ in rendered.get("placed", [])))
+                       context=ctx + " | ".join(f"[{p_['start']:.1f}s] {p_['text']}" for p_ in rendered.get("placed", [])))
     results = {}
     awaiting = False
     if not verdict["pass"]:

@@ -755,6 +755,7 @@ def iter_clips(target_sec: int, max_attempts: int = 6, skip_providers: set | Non
                 ranges = [(a, b)]
                 start, end = a, b
             elif (tour.get("enabled", True) and c.kind == "gameplay" and c.duration
+                    and not (fmt or {}).get("continuous")
                     and c.duration >= n_slices * slice_len * 2):
                 # feature-tour format: several slices from different parts -> one reel
                 ranges, files = [], []
