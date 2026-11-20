@@ -611,6 +611,8 @@ def make_guide(kind: str, brand: str, used: set, state: dict) -> dict:
         return {"error": f"no topic for {kind} (no trend data yet)"}
     log.info("[guide] long video: %s", spec["subject"])
     clips = download(gather_guide(spec, used))
+    import authentic
+    clips = authentic.keep_real(clips, "[guide]")  # GTA V / mod footage uploaded as "GTA 6" is dropped here
     if len(clips) < 4:
         for m in clips:
             Path(m["path"]).unlink(missing_ok=True)
@@ -694,15 +696,17 @@ def _segment(src: Path, a: float, b: float, out: Path, silent_ok: bool = False, 
     return True
 
 
-def _jump_keep(src: Path, a: float, b: float, protect: float) -> list | None:
+def _jump_keep(src: Path, a: float, b: float, protect: float, freeze_only: bool = False) -> list | None:
     """Ranges to keep inside [a, b]: quiet stretches (no talking, no action sound) over 1 s are cut out,
-    except around the punchline. None = nothing worth cutting."""
-    if not _cfg().get("jump_cuts", True):
+    except around the punchline; frozen picture always. freeze_only: only the frozen parts (guides).
+    None = nothing worth cutting."""
+    if not _cfg().get("jump_cuts", True) and not freeze_only:
         return None
-    res = run(["ffmpeg", "-hide_banner", "-ss", f"{a:.3f}", "-t", f"{b - a:.3f}", "-i", str(src), "-vn", "-af",
-               "silencedetect=noise=-35dB:d=1.0", "-f", "null", "-"], timeout=120)
     quiet = []
-    for st, en in zip(re.findall(r"silence_start: ([\d.]+)", res.stderr), re.findall(r"silence_end: ([\d.]+)", res.stderr)):
+    res = run(["ffmpeg", "-hide_banner", "-ss", f"{a:.3f}", "-t", f"{b - a:.3f}", "-i", str(src), "-vn", "-af",
+               "silencedetect=noise=-35dB:d=1.0", "-f", "null", "-"], timeout=120) if not freeze_only else None
+    for st, en in zip(re.findall(r"silence_start: ([\d.]+)", res.stderr), re.findall(r"silence_end: ([\d.]+)", res.stderr)) \
+            if res else []:
         x, y = a + float(st) + 0.3, a + float(en) - 0.3  # keep a little air around each cut
         if y - x >= 0.7 and not (x - 1.5 <= protect <= y + 1.5):
             quiet.append((x, y))
@@ -733,7 +737,8 @@ def _jump_keep(src: Path, a: float, b: float, protect: float) -> list | None:
     kept = sum(y - x for x, y in keep)
     if kept < 10 or len(keep) > 8:
         return None
-    log.info("[cut] jump cuts: %.1fs -> %.1fs (%d dead part(s) removed)", b - a, kept, len(quiet))
+    log.info("[cut] %s: %.1fs -> %.1fs (%d part(s) removed)", "frozen parts" if freeze_only else "jump cuts",
+             b - a, kept, len(quiet))
     return keep
 
 
@@ -895,7 +900,7 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str, mode: str = "momen
     n_all = len(moments)
     for i, m in enumerate(moments):
         out = LONG_DIR / f"seg_{i:02d}.mp4"
-        keep = None if guide else _jump_keep(m["path"], m["a"], m["b"], m["best_t"])
+        keep = _jump_keep(m["path"], m["a"], m["b"], m["best_t"], freeze_only=guide)
         if not _segment(m["path"], m["a"], m["b"], out, keep=keep, silent_ok=guide,
                         mute=guide and m.get("has_narrator", True)):
             log.warning("[long] could not prepare %s - dropped", m["key"])

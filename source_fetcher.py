@@ -684,6 +684,7 @@ def _fill_metadata(c: Candidate, cfg: dict) -> bool:
     if res.returncode != 0:
         if c.provider == "youtube" and _is_blocked(res.stderr):
             raise PermissionError("youtube-blocked")
+        log.info("[sources] no video info for '%s': %s", c.title[:50], res.stderr.strip()[-160:])
         return False
     try:
         meta = json.loads(res.stdout)

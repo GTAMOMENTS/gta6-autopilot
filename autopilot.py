@@ -276,6 +276,19 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
             mark_rejected(c, "choppy")
             section.unlink(missing_ok=True)
             continue
+        if c.provider in ("youtube", "dailymotion", "x_account", "extra") and \
+                cfg.get("authenticity", {}).get("enabled", True):
+            # "GTA 6" uploads are often GTA V / mods: one focused check on sharp frames before anything else
+            import authentic
+            real = authentic.check([section])
+            if real is None or not real[0]["ok"]:
+                why = ("no AI could check it is really GTA 6" if real is None else
+                       f"not GTA 6 ({real[0]['game']} {real[0]['confidence'] * 100:.0f}%: {real[0]['evidence']})")
+                log.info("[gate] ✋ rejected '%s': %s", c.title[:60], why)
+                if real is not None:
+                    mark_rejected(c, "not GTA VI footage")
+                section.unlink(missing_ok=True)
+                continue
         energy = energy_curve(section)
         copy = write_clip_copy(section, c.title, src.credit, c.provider, c.kind, energy_hints(energy, 30, 3),
                                tour=src.is_reel, fmt=fmt)
