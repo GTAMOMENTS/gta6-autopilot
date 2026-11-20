@@ -360,13 +360,17 @@ def _whisper_cuts(full: Path, texts: list[str]) -> list[tuple[float, float]] | N
         if spans[i][0] <= spans[i - 1][1]:
             raise _SplitError("narration lines overlap / out of order")
     dur = probe(full)["duration"]
-    cuts = []  # boundary between line i-1 and i: the longest pause between their matched words
+    # boundary between line i-1 and i: the longest pause between their matched words. Each piece runs from
+    # its first spoken word to its last (tight - a piece that starts with the pause makes the voice come
+    # late against the captions; QA measured +0.8-1.3 s)
+    starts, ends = [max(0.0, heard[spans[0][0]]["start"] - 0.08)], []
     for i in range(1, len(spans)):
         lo, hi = spans[i - 1][1], spans[i][0]
         j = max(range(lo, hi), key=lambda x: heard[x + 1]["start"] - heard[x]["end"])
-        cuts.append((heard[j]["end"] + heard[j + 1]["start"]) / 2)
-    starts = [max(0.0, heard[spans[0][0]]["start"] - 0.12)] + cuts
-    ends = cuts + [min(dur, heard[spans[-1][1]]["end"] + 0.2)]
+        gap_mid = (heard[j]["end"] + heard[j + 1]["start"]) / 2
+        ends.append(min(gap_mid, heard[j]["end"] + 0.15))
+        starts.append(max(gap_mid, heard[j + 1]["start"] - 0.08))
+    ends.append(min(dur, heard[spans[-1][1]]["end"] + 0.18))
     return list(zip(starts, ends))
 
 
@@ -748,4 +752,5 @@ def render(clip: Path, clip_id: str, banner: str, commentary: list[dict],
     log.info("[render] %s (%.1fs, %.1f MB, %d voice lines)", out.name, total, out.stat().st_size / 1e6, len(lines))
     return {"path": str(out), "duration": total,
             "lines": [{"t": round(ln["start"], 1), "text": ln["text"]} for ln in lines],
-            "placed": [{"text": ln["text"], "start": ln["start"], "dur": ln["dur"]} for ln in lines]}
+            "placed": [{"text": ln["text"], "start": ln["start"], "dur": ln["dur"], "path": str(ln["path"])}
+                       for ln in lines]}

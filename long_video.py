@@ -727,7 +727,7 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str) -> dict | None:
     log.info("[long] %s: %.0fs, %d moments, narration %s, thumbnail %s", out.name, total, len(cards),
              "yes" if voiced else "no", "yes" if thumb else "no")
     return {"path": str(out), "duration": total, "thumbnail": str(thumb) if thumb else "", "chapters": chapters,
-            "placed": [{"text": v["text"], "start": v["t"], "dur": v["dur"]} for v in voiced],
+            "placed": [{"text": v["text"], "start": v["t"], "dur": v["dur"], "path": str(v["path"])} for v in voiced],
             "still_ok": [(outro_at, total)] + [(x["start"], x["end"]) for x in inserts if x["label"] == "REACTION"],
             "inserts": inserts,
             "credits": credits, "moments": [{"n": cd["n"], "key": cd["m"]["key"], "label": cd["label"],
