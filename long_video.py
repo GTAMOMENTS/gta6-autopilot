@@ -1063,7 +1063,15 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str, mode: str = "momen
         return None
     outro_at = cursor
     frame = LONG_DIR / "outro.jpg"
-    run(["ffmpeg", "-y", "-ss", f"{top['best_t']:.2f}", "-i", str(top["path"]), "-frames:v", "1", str(frame)], timeout=60)
+    frame.unlink(missing_ok=True)
+    top_dur = probe(Path(top["path"]))["duration"] or 0
+    for ft in (min(max(0.0, float(top["best_t"])), max(0.0, top_dur - 0.5)), top_dur / 2, 0.5):
+        # the AI's best_t can be past the clip's end -> no frame -> no end card (QA: "ends abruptly")
+        run(["ffmpeg", "-y", "-ss", f"{ft:.2f}", "-i", str(top["path"]), "-frames:v", "1", str(frame)], timeout=60)
+        if frame.exists():
+            break
+    if not frame.exists():
+        log.warning("[long] could not grab a frame for the end card")
     outro = LONG_DIR / "seg_outro.mp4"
     outro_len = float(c.get("outro_sec", 7.0))
     if frame.exists():

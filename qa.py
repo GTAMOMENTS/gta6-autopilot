@@ -92,6 +92,10 @@ def _norm_words(text: str) -> list[str]:
     return _norm_tokens(text.replace("*", ""))
 
 
+_FILLER = {"the", "a", "an", "and", "to", "of", "in", "on", "it", "is", "you", "your", "this", "that", "so", "but",
+           "just", "now", "then", "at", "for", "with", "i", "we", "he", "she", "they", "be", "are", "was", "if", "or"}
+
+
 def _narration_stem(path: Path, lines: list[dict]) -> Path | None:
     """The narration alone, placed exactly as in the final mix (same delays, same length) - so Whisper checks
     what the narrator says and WHEN, without the streamer / game sound talking over it."""
@@ -145,12 +149,16 @@ def voice_check(path: Path, lines: list[dict]) -> list[dict]:
         # timing: when the line's FIRST words are actually heard vs when the line (and its caption) starts.
         # (The old estimate assumed an even speed over the whole line - "Number fourteen." + pause made every
         # line look ~1 s late.)
+        # the first real word of the line (not "the" / "you" ... - those also end the previous line) and the
+        # occurrence closest to where it should be
+        k = next((i for i, x in enumerate(want[:4]) if x not in _FILLER), None)
         spoken = None
-        for w in heard:
-            if ln["start"] - 1.0 <= w["start"] <= ln["start"] + 2.5 and set(_norm_words(w["text"])) & set(want[:2]):
-                spoken = w["start"]
-                break
-        if spoken is not None and abs(spoken - ln["start"]) > tol:
+        if k is not None:
+            expect = ln["start"] + 0.32 * k
+            hits = [w["start"] for w in heard if ln["start"] - 1.0 <= w["start"] <= ln["start"] + 2.5
+                    and want[k] in _norm_words(w["text"])]
+            spoken = min(hits, key=lambda t: abs(t - expect)) - 0.32 * k if hits else None
+        if spoken is not None and abs(spoken - ln["start"]) > tol + (0.25 if k else 0):
             issues.append({"severity": "high", "type": "voice_out_of_sync", "at": round(ln["start"], 1),
                            "detail": f"spoken {spoken - ln['start']:+.2f}s off the captions: \"{ln['text'][:50]}\""})
     return issues
