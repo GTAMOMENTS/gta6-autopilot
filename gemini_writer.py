@@ -317,11 +317,22 @@ TASKS
      the feeling, the joke or the why ("He took a pickup to the beach like the cops wouldn't notice. They
      noticed."). No emojis, hashtags or stage directions. Say "GTA 6", never "GTA VI", at most twice.
      Never invent facts - if unsure what something means, react to it instead of explaining it.
-   - youtube_title: max 70 characters, curiosity-driven, no hashtags.
-   - caption: 1-2 short sentences for Instagram/TikTok ending with a question, no hashtags.
-   - x_text: max 200 characters punchy post for X to go with the clip, no hashtags, no links.
-   - hashtags: 4 relevant hashtags (strings starting with #), always include #GTA6. Never company or brand
-     tags (no #RockstarGames, #PlayStation, #Xbox, #ad) - no sponsored-looking content.
+   PACKAGING - people find Shorts by SEARCHING: search words first, and promise only what this clip shows.
+   {seo_note}
+   - youtube_title: max 70 characters. START with "GTA 6" + the search phrase people type for this clip
+     ("GTA 6 Police Chase ...", "GTA 6 Money Tip: ...", "GTA 6 Funny Moments: ..."), then the curiosity hook.
+     Max 2 CAPITALISED power words, no hashtags, no emojis. Never words that sound like cheats or glitches
+     (hack, glitch, exploit, cheat, mod, trick, unlimited / infinite money) - above all in money videos: say
+     tip / way / method instead.
+   - caption: TikTok/Instagram text, 1-2 short sentences: the first names the topic with the search words
+     ("GTA 6" + topic), the last is a question that makes people comment. No hashtags.
+   - description: 2 sentences for the YouTube description: the first starts with "GTA 6" + the main search
+     phrase and says what the video shows; the second adds one specific detail from the clip. No hashtags/links.
+   - x_text: one short punchy line for X (max 140 characters): a reaction or hot take about the clip, not the
+     title again. No hashtags, no links.
+   - hashtags: 4 (strings starting with #): #GTA6 + 3 specific ones people search (#GTA6Money, #GTA6Funny,
+     #ViceCity...). Never company, console or car brands (no #RockstarGames, #PlayStation, #PS5, #Xbox,
+     #Lamborghini, #ad) - no sponsored-looking content.
 
 Return ONLY JSON with exactly these keys:
 {{"is_gta6_footage": bool, "unsafe": bool, "has_facecam": bool, "has_narrator": bool, "is_spoiler": bool,
@@ -329,7 +340,7 @@ Return ONLY JSON with exactly these keys:
  "scene_summary": str, "clip_start": number, "clip_end": number, "payoff_t": number,
  "content_type": "explainer" | "action" | "scenic",
  "banner": str, "commentary": [{{"t": number, "line": str}}], "youtube_title": str, "caption": str,
- "x_text": str, "hashtags": [str]}}"""
+ "description": str, "x_text": str, "hashtags": [str]}}"""
 
 
 TOUR_PROMPT = """You are the editor AND narrator of "{brand}", a viral faceless channel posting Grand Theft Auto 6
@@ -396,16 +407,26 @@ TASKS
      "This is Jason's house. It's pretty small, but it's better than nothing."
 4. angle: "top_moments" | "listicle" | "funny_moments" | "how_it_works" | "first_look".
    banner: max 6 words, ALL CAPS, states the angle (e.g. "5 THINGS GTA 5 COULDN'T DO", "ROBBING STORES IS DIFFERENT NOW").
-   youtube_title: max 70 characters, like the top channels: "5 CRAZY Things In GTA 6 You CAN'T Do In GTA 5",
-   "Robbing Stores in GTA 6 Works Differently To GTA 5", "GTA 6 Is FINALLY Here! First Gameplay". No hashtags. caption: 1-2 sentences ending with a
-   question, no hashtags. x_text: max 200 characters, no hashtags, no links. hashtags: 4, include #GTA6, never
-   company or brand tags (no #RockstarGames, #PlayStation, #Xbox, #ad).
+   PACKAGING - people find Shorts by SEARCHING: search words first, and promise only what the video shows.
+   {seo_note}
+   youtube_title: max 70 characters, "GTA 6" + the search phrase in the first 40 characters, like the top
+   channels: "GTA 6: 5 CRAZY Things You CAN'T Do In GTA 5", "GTA 6 Robbing Stores Works Differently To GTA 5",
+   "GTA 6 Money Tip: ...". The number must match the items you narrate. Max 2 CAPITALISED words, no hashtags.
+   Never words that sound like cheats or glitches (hack, glitch, exploit, cheat, mod, trick, unlimited money),
+   above all in money videos - say tips / ways / methods.
+   caption: 1-2 sentences for TikTok/Instagram: the first names the topic with the search words ("GTA 6" +
+   topic), the last is a question that makes people comment. No hashtags.
+   description: 2 sentences for YouTube: the first starts with "GTA 6" + the main search phrase and says what
+   the video shows, the second adds one specific detail. No hashtags, no links.
+   x_text: one short punchy line for X (max 140 characters), not the title again, no hashtags, no links.
+   hashtags: 4, #GTA6 + 3 specific ones people search; never company, console or car brands (no #RockstarGames,
+   #PlayStation, #PS5, #Xbox, #Lamborghini, #ad).
 
 Return ONLY JSON with exactly these keys:
 {{"is_gta6_footage": bool, "unsafe": bool, "has_facecam": bool, "has_narrator": bool, "is_spoiler": bool,
  "fits_format": bool, "shows_required": bool, "required_t": number | null, "hype_score": int,
  "scene_summary": str, "angle": str, "shots": [{{"start": number, "line": str}}], "banner": str, "youtube_title": str, "caption": str,
- "x_text": str, "hashtags": [str]}}"""
+ "description": str, "x_text": str, "hashtags": [str]}}"""
 
 
 STREAM_NOTE = """THIS IS A STREAM CLIP: a streamer playing GTA 6 live, usually with a facecam and loud reactions.
@@ -438,6 +459,7 @@ def write_clip_copy(clip: Path, title: str, credit: str, provider: str, kind: st
         hints=", ".join(f"{a}-{b}s" for a, b in (hints or [])) or "unknown",
         kind_note=STREAM_NOTE if kind == "stream" else "",
         format_note=formats.prompt_note(fmt, tour),
+        seo_note=packaging_note(fmt),
     )
     template = TOUR_PROMPT if tour else CLIP_PROMPT
 
@@ -501,7 +523,7 @@ def write_clip_copy(clip: Path, title: str, credit: str, provider: str, kind: st
     out = _clean_copy(data, clip_dur)
     out["ai_source"] = ai_source
     if out["verified_by_video"] and ai_source not in ("built-in", "text-only"):
-        out.update(polish_packaging(out, out.get("scene_summary", "") + " | " + out.get("script", "")))
+        out.update(polish_packaging(out, out.get("scene_summary", "") + " | " + out.get("script", ""), fmt, tour))
     if ai_source == "built-in":
         out["commentary_raw"] = []
     log.info("[ai] copy written by: %s", ai_source)
@@ -706,14 +728,46 @@ def _commentary(d: dict, clip_dur: float, keep_times: bool = False) -> list[dict
     return lines
 
 
-def polish_packaging(copy: dict, context: str) -> dict:
-    """Second opinion from the critic AI on title / banner / caption (see critic.py)."""
+def polish_packaging(copy: dict, context: str, fmt: dict | None = None, tour: bool = False) -> dict:
+    """Second opinion from the critic AI on title / banner / caption / X text (see critic.py), then the packaging
+    rules on every copy field: "GTA 6" first in the title, the real countdown number, money never sounds like
+    cheats, the format's search words are kept."""
     import critic
-    fields = {k: copy.get(k, "") for k in ("youtube_title", "banner", "caption") if copy.get(k)}
-    better = critic.polish(fields, {"youtube_title": 70, "banner": 40, "caption": 220}, context)
+    fmt = fmt or {}
+    money = fmt.get("id") == "money_tips" or critic.is_money(fmt.get("keywords", ""), copy.get("youtube_title", ""),
+                                                             copy.get("banner", ""), copy.get("caption", ""))
+    count = int(fmt["countdown"]) if tour and str(fmt.get("countdown", "")).isdigit() else None
+    keep = critic.keyword_phrases(fmt.get("keywords", ""))
+    fields = {k: copy.get(k, "") for k in ("youtube_title", "banner", "caption", "x_text") if copy.get(k)}
+    better = critic.polish(fields, {"youtube_title": 70, "banner": 40, "caption": 220, "x_text": 200}, context,
+                           money=money, keep=keep, count=count)
+    title = better.get("youtube_title", "")
+    if fmt.get("id") == "money_tips" and title and not (critic.has_term(title, "money") or critic.has_term(title, "cash")):
+        rest = re.sub(r"^GTA 6\s*[:\-–|]?\s*", "", title)  # "money" is what people search: a Money Tip title says it
+        better["youtube_title"] = critic.trim(f"GTA 6 Money Tip: {rest}", 70)
+    if copy.get("description"):  # not worth a critic call, but the rules apply
+        better.update(critic.apply_rules({"description": copy["description"]}, money))
     if "banner" in better:
         better["banner"] = re.sub(r"[^A-Z0-9 !?'.,-]", "", better["banner"].upper())[:48].strip() or copy.get("banner", "")
     return better
+
+
+def packaging_note(fmt: dict | None) -> str:
+    """Search words for the title / caption: the format's main search phrase + what GTA 6 players type into
+    search right now (trend radar), only the phrases that fit this format."""
+    import critic
+    fmt = fmt or {}
+    about = " ".join(str(fmt.get(k) or "") for k in ("keywords", "topic", "name"))
+    phrases = critic.relevant_searches(about, limit=6, min_cover=0.5) if about.strip() else []
+    if len(phrases) < 3:
+        phrases += [p for p in critic.top_searches(8) if p not in phrases][: 6 - len(phrases)]
+    bits = []
+    if fmt.get("keywords"):
+        bits.append(f'Main search phrase of this format: "{fmt["keywords"]}".')
+    if phrases:
+        bits.append("GTA 6 players search for these right now: " + "; ".join(f'"{p}"' for p in phrases)
+                    + " - use one word for word in youtube_title / caption ONLY if it honestly fits what the clip shows.")
+    return ("SEARCH WORDS: " + " ".join(bits)) if bits else ""
 
 
 def _clean_copy(d: dict, clip_dur: float = 48) -> dict:
@@ -755,6 +809,7 @@ def _clean_copy(d: dict, clip_dur: float = 48) -> dict:
         "youtube_title": _strip_brands(s("youtube_title", "This GTA 6 moment is unreal"), "This GTA 6 moment is unreal")[:80],
         "caption": _strip_brands(s("caption", "This GTA 6 moment goes crazy. Would you try this?"), "This GTA 6 moment goes crazy. Would you try this?"),
         "x_text": _strip_brands(s("x_text", "This GTA 6 moment goes crazy"), "This GTA 6 moment goes crazy")[:240],
+        "description": _strip_brands(s("description"), "")[:500],
         "hashtags": list(dict.fromkeys(tags))[:5],
     }
 
@@ -804,12 +859,13 @@ def fallback_clip_copy(clip_dur: float = 48) -> dict:
 # --------------------------------------------------------------------------- X text posts
 
 TEXT_KINDS = {
-    "x_text_morning": "a good-morning engagement post: a fun question or hot take about GTA 6 gameplay, "
-                      "missions, Leonida, cars or characters that people will want to reply to",
+    "x_text_morning": "a good-morning engagement post: ONE fun question or hot take about GTA 6 gameplay (Leonida, "
+                      "cars, money, cops, side activities, characters) that people want to reply to - best about a "
+                      "hot topic below",
     "x_question_nostalgia": "a nostalgia post comparing a GTA memory (GTA III, Vice City, San Andreas, GTA IV, GTA V) "
                             "with GTA 6, ending with a question, OR a 'this or that' poll-style question",
-    "x_daily_recap": "an end-of-day recap post for our followers summarising today's GTA 6 hype and the clips we posted, "
-                     "ending with a teaser for tomorrow",
+    "x_daily_recap": "an end-of-day recap post for our followers: today's GTA 6 vibe in one line + the best clip we "
+                     "posted (only from the list below - never made-up clips), ending with a teaser for tomorrow",
 }
 
 _TEXT_FALLBACK = {
@@ -852,20 +908,31 @@ def write_text_post(kind: str, recent_texts: list[str], todays_clips: list[str])
         hot = ""
     hot = f"\nWHAT PLAYERS TALK ABOUT TODAY: {hot} (use it if it fits - a question or poll about a hot topic gets " \
           "the most replies)" if hot else ""
+    import critic
+    searches = critic.top_searches(8)
+    searches = f"\n- if one of these search phrases fits naturally, use its words (people search them): {'; '.join(searches)}" \
+        if searches else ""
     prompt = f"""You run the X account of "{load_config().get('brand', {}).get('display_name', 'GTA VI Top Moments')}".
 CONTEXT: {_game_context()}{hot}
 Write {TEXT_KINDS[kind]}.
 Clips we posted today: {todays_clips or 'none yet'}.
-Rules: max 230 characters, conversational, at most 1-2 emojis, at most 1 hashtag, NO links,
-never invent news, leaks, prices or release details. Must be clearly different from these recent posts:
+Rules (X rewards short, punchy posts that start a conversation):
+- max 200 characters (best 70-150); the first words are the hook; conversational, like a real GTA fan
+- at most 1-2 emojis, NO hashtags (we add them), NO links, no @mentions
+- say "GTA 6", never "GTA VI"; no story spoilers (plot, mission outcomes, endings, character deaths)
+- never invent news, leaks, prices, numbers or release details; no glitch / exploit / mod talk{searches}
+Must be clearly different from these recent posts:
 {recent_texts[-12:]}
 Return ONLY JSON: {{"text": "..."}}"""
     data = _generate_json(prompt, temperature=1.0)
     if data is None and ai_fallback.available():
         data = ai_fallback.chat_json(prompt, temperature=1.0)
     text = re.sub(r"\s+", " ", str((data or {}).get("text", ""))).strip()
-    text = re.sub(r"https?://\S+", "", text).strip()
-    if 15 <= len(text) <= 280 and text not in recent_texts:
+    text = critic.norm_gta(re.sub(r"https?://\S+|www\.\S+", "", text)).strip()
+    bad = critic.spoiler_words(text, story_only=True) + [w for w in critic.cheat_words(text) if not w.startswith("cheat")]
+    if bad:
+        log.info("[text] AI post dropped (%s): %s", ", ".join(bad), text)
+    elif 15 <= len(text) <= 240 and text not in recent_texts:
         return text
     pool = [t for t in _TEXT_FALLBACK[kind] if t not in recent_texts] or _TEXT_FALLBACK[kind]
     return random.choice(pool)
