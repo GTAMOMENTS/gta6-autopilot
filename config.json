@@ -110,7 +110,12 @@
     ],
     "_paused_note": "2026-11-20: Instagram flagged the account ('content may not be original to you' - not recommended to non-followers). Owner's choice: pause Instagram until there is original footage; request the review later. Remove 'instagram' from this list to resume.",
     "min_hashtags": 3,
-    "default_hashtags": ["#GTA6", "#GTAVI", "#GTA6Gameplay", "#ViceCity"],
+    "default_hashtags": [
+      "#GTA6",
+      "#GTAVI",
+      "#GTA6Gameplay",
+      "#ViceCity"
+    ],
     "title_keyword_within": 40,
     "shorts_hashtag": true,
     "shorts_tag_in_title": false,
@@ -1031,7 +1036,24 @@
           "mod menu",
           "duplicat",
           "money cheat"
-        ]
+        ],
+        "tutorial": true,
+        "evidence_terms": [
+          "$",
+          "cash",
+          "money",
+          "dollar",
+          "paid",
+          "payout",
+          "earn",
+          "sold",
+          "sale",
+          "reward",
+          "counter",
+          "wallet",
+          "bank"
+        ],
+        "_evidence_note": "The AI must describe the concrete proof on screen (e.g. 'HUD cash goes from $1,200 to $3,600 after opening the safe'). A posted Money Tip (2026-11-21) was mostly a bike chase with vague cash lines."
       },
       {
         "id": "trending",

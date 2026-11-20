@@ -355,7 +355,7 @@ TASKS
 
 Return ONLY JSON with exactly these keys:
 {{"is_gta6_footage": bool, "unsafe": bool, "has_facecam": bool, "has_narrator": bool, "is_spoiler": bool,
- "fits_format": bool, "shows_required": bool, "required_t": number | null, "hype_score": int,
+ "fits_format": bool, "shows_required": bool, "required_t": number | null, "required_evidence": str, "hype_score": int,
  "scene_summary": str, "clip_start": number, "clip_end": number, "payoff_t": number,
  "content_type": "explainer" | "action" | "scenic",
  "banner": str, "commentary": [{{"t": number, "line": str}}], "youtube_title": str, "caption": str,
@@ -443,7 +443,7 @@ TASKS
 
 Return ONLY JSON with exactly these keys:
 {{"is_gta6_footage": bool, "unsafe": bool, "has_facecam": bool, "has_narrator": bool, "is_spoiler": bool,
- "fits_format": bool, "shows_required": bool, "required_t": number | null, "hype_score": int,
+ "fits_format": bool, "shows_required": bool, "required_t": number | null, "required_evidence": str, "hype_score": int,
  "scene_summary": str, "angle": str, "shots": [{{"start": number, "line": str}}], "banner": str, "youtube_title": str, "caption": str,
  "description": str, "x_text": str, "hashtags": [str]}}"""
 
@@ -815,6 +815,7 @@ def _clean_copy(d: dict, clip_dur: float = 48) -> dict:
         "fits_format": bool(d.get("fits_format", True)),
         "shows_required": d.get("shows_required") is True,
         "required_t": d.get("required_t") if isinstance(d.get("required_t"), (int, float)) else None,
+        "required_evidence": re.sub(r"\s+", " ", str(d.get("required_evidence") or "")).strip()[:200],
         "content_type": str(d.get("content_type", "action")).lower(),
         "hype_score": int(d.get("hype_score") or 6),
         "scene_summary": s("scene_summary"),

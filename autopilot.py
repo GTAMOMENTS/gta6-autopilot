@@ -111,6 +111,10 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
     backup_hype = int(gate.get("backup_hype_score", min_hype - 1))
     budget_end = time.time() + int(scfg.get("time_budget_min", 25)) * 60
 
+    def _evidence_ok(ev: str, f: dict) -> bool:
+        ev = (ev or "").lower()
+        return len(ev) >= 15 and any(t in ev for t in f.get("evidence_terms", []))
+
     def _mute(copy) -> float | None:
         """Footage with another YouTuber talking (allowed for some formats): their voice is muted."""
         return 0.0 if (fmt or {}).get("allow_narrated") and copy.get("has_narrator") else None
@@ -123,7 +127,11 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
                       "category) - flag 'not GTA 6' only if you clearly see GTA V places or characters. ")
         muted_note = ("The original creator's voice-over is muted on purpose (so there is no game sound) - only our "
                       "narrator speaks. " if _mute(copy) == 0.0 else "")
-        style_note = ("INTENTIONAL EDIT (not errors): the banner pops in at the top on the first frame, captions show "
+        tutorial_note = ("THIS IS A HOW-TO / MONEY TIP: flag as HIGH if the video does not clearly SHOW money being "
+                         "earned (cash counter going up, payout or sale screen, picking up cash) or does not explain a "
+                         "specific method a viewer can repeat, or if lines are vague filler that the footage doesn't "
+                         "show. " if (fmt or {}).get("tutorial") else "")
+        style_note = tutorial_note + ("INTENTIONAL EDIT (not errors): the banner pops in at the top on the first frame, captions show "
                       "the narration 2-4 words at a time with the spoken word highlighted, zoom punch-ins / a short shake "
                       "and flash on the big moment, and when the last line is a question it also appears as a card with a "
                       "call to action. ")
@@ -395,6 +403,10 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
                 reason = f"doesn't fit the '{fmt['name']}' format"
             elif fmt and fmt.get("must_show") and not copy.get("shows_required"):
                 reason = f"doesn't show {fmt.get('must_show_short', 'what the format needs')}"
+            elif fmt and fmt.get("evidence_terms") and not _evidence_ok(copy.get("required_evidence", ""), fmt):
+                # a posted Money Tip was mostly a bike chase with vague "grab the cash" lines: the proof must be concrete
+                reason = (f"no concrete proof of {fmt.get('must_show_short', 'the format')} "
+                          f"(AI: \"{copy.get('required_evidence', '')[:60]}\")")
             if reason:
                 log.info("[gate] ✋ rejected '%s': %s | %s", c.title[:60], reason, copy["scene_summary"])
                 mark_rejected(c, reason)
