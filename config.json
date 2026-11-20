@@ -108,7 +108,14 @@
     "paused_platforms": [
       "instagram"
     ],
-    "_paused_note": "2026-11-20: Instagram flagged the account ('content may not be original to you' - not recommended to non-followers). Owner's choice: pause Instagram until there is original footage; request the review later. Remove 'instagram' from this list to resume."
+    "_paused_note": "2026-11-20: Instagram flagged the account ('content may not be original to you' - not recommended to non-followers). Owner's choice: pause Instagram until there is original footage; request the review later. Remove 'instagram' from this list to resume.",
+    "min_hashtags": 3,
+    "default_hashtags": ["#GTA6", "#GTAVI", "#GTA6Gameplay", "#ViceCity"],
+    "title_keyword_within": 40,
+    "shorts_hashtag": true,
+    "shorts_tag_in_title": false,
+    "x_text_max": 200,
+    "_packaging_note": "Captions per platform (publisher.build_captions): YouTube title = search words first ('GTA 6' within title_keyword_within characters) + numbered series, no hashtags in the title (shorts_tag_in_title=true puts #Shorts back); description = AI description (2 keyword-rich sentences) + question + series/keywords + credit + 3-5 hashtags incl. #Shorts (shorts_hashtag). TikTok/Instagram: first line carries 'GTA 6' + topic, then 3-5 hashtags. X: one line of at most x_text_max characters, no links, credit, 3 hashtags. Every post has min_hashtags..5 hashtags (padded from default_hashtags); brand / cheat / low-value hashtags are always dropped."
   },
   "sources": {
     "providers": [
@@ -1229,7 +1236,10 @@
   },
   "critic": {
     "enabled": true,
-    "_note": "A second free AI (GPT-4.1 via GitHub Models first) rewrites titles / banners / hooks for more clicks without inventing anything; originals are kept if a rewrite breaks the rules."
+    "_note": "A second free AI (GPT-4.1 via GitHub Models first) rewrites titles / banners / hooks for more clicks without inventing anything; originals are kept if a rewrite breaks the rules.",
+    "max_caps_words": 2,
+    "keep_terms": [],
+    "_rules_note": "A rewrite is rejected if it adds numbers/names not in the video, cheat-sounding words (critic.CHEAT_WORDS; set cheat_words to replace the list - money videos may not use them at all, the AI's own 'Money Hacks' becomes 'Money Tips'), spoiler words, emojis, hashtags, links, 'GTA VI', more than max_caps_words CAPS words, or drops a search keyword the original had (critic.KEEP_TERMS + keep_terms + today's top searches). Titles always get 'GTA 6' near the front and the true countdown number."
   },
   "_schedule_note": "Owner's plan (2026-11-20): Video A (rotation) 19:40 TRT -> Instagram, X, YouTube Shorts (from week 2); Video B (GTA 6 Money Tip) 01:40 TRT -> Instagram, X, TikTok, YouTube Shorts; X texts 16:50 / 22:10 / 04:20; long video every 3 days (15:10 TRT, owner publishes). Viral stream clips are part of Video A (no separate posts). Times must match the crons in .github/workflows/main.yml.",
   "qa": {
