@@ -23,30 +23,30 @@ Written 2026-11-19 by the previous assistant. Repo: https://github.com/GTAMOMENT
 | Brands | Naming cars/brands in scripts/titles is **OK** (`quality_gate.block_brand_names=false`). Brand **hashtags** (#RockstarGames, #PS5...) stay removed (Instagram flagged "branded content" once). |
 | Length | **No minimum length** for Shorts (a 1:15 minimum was tried and rejected - it dropped good short clips). |
 | Streamers | **Only famous English-speaking streamers** (no Turkish/Spanish/etc.). |
-| Schedule | **1 Short every 2 days + 1 long YouTube video every 3 days** (first long video published BY HAND by the owner on 2026-11-19; `not_before` 2026-11-22 16:00 UTC) (owner's choice after YouTube's upload limit, `every_days` in config) + viral stream clips (TikTok/IG/X) + 3 X text posts. |
+| Schedule | **Owner's plan (2026-11-20), see section 8**: Video A (rotation) + Video B (GTA 6 Money Tip) every day, 3 X text posts, 1 long YouTube video every 3 days (owner publishes long videos himself). Viral stream clips are part of Video A. |
 | Quality | Must not post junk: script gate (>=4 lines/35 words, written by an AI that saw the clip), hype gate, choppy-clip filter. |
 | Merging | Test (dry run in Actions) then merge. The assistant's permission classifier blocks `gh pr merge` unless the owner literally says "merge" in that message. The owner also merges PRs himself sometimes. |
 
 ---------------------------------------------------------------------------------------------------------
 ## 2. What runs automatically
 
-### Workflow `.github/workflows/main.yml` ("GTA6 Top Moments 24/7 Autopilot") - one queue (concurrency group `gta6-autopilot`)
+### Workflow `.github/workflows/main.yml` ("GTA6 Top Moments 24/7 Autopilot") - one queue for real runs
 | TRT | UTC cron | Slot | What |
 |---|---|---|---|
-| 09:50 | 50 6 | x_text_morning | X text post |
-| 16:20 | 20 13 | x_question_nostalgia | X text post |
-| 20:10 | 10 17 | **long_video** (every 3 days) | 5-10 min 16:9 YouTube countdown of the day's best stream moments; a refused upload is kept in `queue/pending_long/` and retried on every run |
-| 22:20 | 20 19 | x_daily_recap | X text post |
-| 23:40 | 40 20 | vertical_clip (every 2 days) | Short -> YouTube Shorts, Instagram, TikTok, X |
-Manual runs: Actions -> Run workflow -> `slot` (check_setup, voice_samples, vertical_clip, x_video_clip, test_all, remake,
-stream_clip, long_video, text slots), `dry_run` (true = render only, artifacts), `format`, `remake_clip`, `providers`.
-**Careful:** GitHub allows 1 running + 1 pending per group; dispatching while a scheduled run is pending CANCELS the scheduled one.
-GitHub cron is often 30-60 min late and sometimes skips runs.
+| 15:10 | 10 12 | **long_video** (every 3 days) | 16:9 long video, rotation: stream-moments countdown <-> money guide (trend guide when streams are quiet). Never auto-published: QA pass -> waits for the owner (slot `approve_long` or upload by hand) |
+| 16:50 | 50 13 | x_text_morning | X text: question / poll (uses today's trends) |
+| 19:40 | 40 16 | vertical_clip = **Video A** | rotation format -> Instagram, X, YouTube Shorts (YouTube only from 2026-11-27, `platform_from`) |
+| 22:10 | 10 19 | x_question_nostalgia | X text: hot take / this-or-that |
+| 01:40 | 40 22 | money_clip = **Video B** | "GTA 6 Money Tip #N" (format `money_tips`) -> Instagram, X, TikTok, YouTube Shorts |
+| 04:20 | 20 1 | x_daily_recap | X text: recap |
+Manual runs: Actions -> Run workflow -> `slot` (check_setup, voice_samples, vertical_clip, money_clip, trends, test_all, remake,
+stream_clip, long_video, approve_long, text slots), `dry_run`, `format` (Shorts formats, or long kinds moments / money_guide /
+trend_guide), `remake_clip`, `providers`. **Dry runs get their own queue** (they never save state) - they no longer block or
+cancel scheduled runs. Real runs: 1 running + 1 pending. GitHub cron is often 30-60 min late and sometimes skips runs.
 
-### Workflow `.github/workflows/streams.yml` ("GTA6 Viral Stream Clips") - own queue + own cache (`queue_streams/`)
-Every 30 min (`7,37 * * * *`): `python stream_clips.py` -> finds the fastest-rising GTA 6 clip from famous English streamers and
-posts it with the **streamer's real voice + Whisper subtitles + hook banner** (no AI voice) to TikTok/Instagram/X (not YouTube -
-quota). Max 4/day, 90 min apart, never the same moment twice.
+### Workflow `.github/workflows/streams.yml` ("GTA6 Viral Stream Clips")
+No longer on a timer (owner's plan 2026-11-20): viral stream clips are posted as Video A (format `stream_reactions` ->
+`stream_clips.run_for_slot`). Can still be run by hand.
 
 ---------------------------------------------------------------------------------------------------------
 ## 3. Code map
@@ -58,13 +58,14 @@ quota). Max 4/day, 90 min apart, never the same moment twice.
 | `gemini_writer.py` | Gemini: watches clips (video+audio upload), writes copy (prompts CLIP_PROMPT, TOUR_PROMPT), model discovery (Flash, Flash-Lite, Pro), retries, `polish_packaging` (critic) |
 | `ai_fallback.py` | free backup AIs (frames only, no audio): **GitHub Models** (gpt-4.1 via workflow token, `permissions: models: read`), **Gemma** on the Gemini key, OpenRouter, NVIDIA, Groq, Mistral |
 | `critic.py` | second AI rewrites titles/banners/captions/long-video title+thumbnail text for CTR; rejects invented numbers/names |
-| `formats.py` | Short format rotation (top5_funny, car_chases, top5_things_to_do, secrets, stunts_crashes, stream_reactions) + **learning** (favours best-performing formats once each has 2+ videos with stats) + series numbers |
+| `formats.py` | Video A rotation (top5_funny, car_chases, top5_things_to_do, secrets, stunts_crashes, stream_reactions, trending) + **learning** + series numbers; slot formats (Video B = `money_tips`, `slot_only`), money topic rotation, `trending` filled from the trend radar, stream-health switch |
+| `trends.py` | **trend radar** (free): YouTube/Google autocomplete, this week's biggest GTA 6 YouTube videos, Reddit, Twitch viewers -> AI topics in `queue/trends.json` (6 h cache); `stream_health()`, `pick()`, `context_line()` for X posts |
 | `analytics.py` | reads YouTube views/likes/comments of recent videos with yt-dlp (free) for learning; marks deleted videos |
 | `video_processor.py` | Gemini TTS (Fenrir; one request + alignment, per-line fallback, length checks), vertical render (blurred bg, zoom, ASS captions, cold open, zoom punch-in, generated whoosh/boom SFX, optional `music/`), `place_lines` |
 | `highlight.py` | energy curve, best window, `cut_segments` |
 | `publisher.py` | YouTube API upload (+ first comment, custom thumbnail), Zernio (IG/TikTok), X browser/API, Upload-Post; captions per platform (3-5 hashtags, keywords, series) |
 | `stream_clips.py` | viral stream clips: Twitch top live streams + their clips (official API), Kick top English live channels + channel clips (public web API via curl_cffi), YouTube streamers' recordings (most-replayed peak), X clip accounts (IShowSpeedHQ); `is_famous`, `smoothness` (choppy check), AI review, render, post |
-| `long_video.py` | daily long video: gather (famous English, max 2/streamer) -> download (+no-sound/choppy filter) -> AI review in batches of 6 (Pro first) -> Whisper smart cuts -> package (title/thumbnail text/intro + critic) -> 16:9 render (cold open, title cards, Fenrir lines, whoosh, outro) -> YouTube upload + thumbnail + chapters/credits |
+| `long_video.py` | long video, kinds `moments` (below) and `money_guide` / `trend_guide` (gather_guide -> review_guide -> package_guide -> render_long mode guide); moments: gather (famous English, max 2/streamer) -> download (+no-sound/choppy filter) -> AI review in batches of 6 (Pro first) -> Whisper smart cuts -> package (title/thumbnail text/intro + critic) -> 16:9 render (cold open, title cards, Fenrir lines, whoosh, outro) -> YouTube upload + thumbnail + chapters/credits |
 | `transcribe.py` | **Whisper** (faster-whisper "small", local on runner, model cached via actions/cache `~/.cache/huggingface`): word timestamps, censoring, language detection, `smart_cut` (sentence/scene aligned cuts) |
 | `x_source.py` | reads X accounts' media tab with Playwright + X_COOKIES (GraphQL parse, fallback: post links from the page + yt-dlp); cached |
 | `x_browser.py` | posts to X through a logged-in headless browser (X_COOKIES) |
@@ -147,3 +148,19 @@ charm pack, learning, stream clips, long video, English-only + choppy filter, Ge
 - Run time: a long-video run is ~40-60 min (40 downloads + 7 Gemini review batches + render + QA). Dry run 2 hit the old
   60 min job limit -> downloads run 4 at a time (`long_video.download_workers`), a Gemini model that answers 503/504
   is skipped for 8 min (`gemini.busy_cooldown_sec`), job timeout is 120 min (repo is public: Actions minutes are free).
+
+## 8. Owner's views plan + trend radar (2026-11-20, branch `claude/money-trends-schedule`)
+- Schedule above (Video A + Video B daily, X texts 16:50 / 22:10 / 04:20, long every 3 days). The first **money guide** long
+  video was made as a dry run on 2026-11-20 for the owner to publish by hand; `not_before` = 2026-11-23, then every 3 days.
+- **Money Tip (Video B)**: format `money_tips` (`slot_only`): one money method per Short, topics rotate (config `topics`),
+  a hot money trend (demand >= 7) goes first; amounts only if visible on screen; no story missions / glitches; series
+  "GTA 6 Money Tip #N". Footage = "no commentary" gameplay (narrated footage is rejected by the gate).
+- **Trend radar** (`trends.py`): refreshed every 6 h on any run. Feeds: format `trending` (Video A), money topics, long
+  `trend_guide`, X text prompts. **Stream health**: Twitch English GTA 6 viewers < 20k or < 35% of the 7-day peak = weak ->
+  `stream_reactions` becomes `trending`, long `moments` becomes `trend_guide`. If no viral stream clip passes, Video A
+  follows a trend instead.
+- **Guide long videos**: footage = YouTube/Dailymotion GTA 6 gameplay videos (one ~110 s section each, glitch/mod/GTA 5
+  titles filtered, max 2 per channel); the AI researches each clip (item, facts, 3-5 narration lines, usefulness, has_narrator);
+  lines with numbers the clip never showed are dropped; the same item from several creators is merged (counts as
+  confirmed); countdown weakest -> best; other creators' voices muted, Fenrir explains; credits in the description.
+- Test: `slot=trends` prints today's topics; `slot=long_video format=money_guide dry_run=true`; `slot=money_clip dry_run=true`.
