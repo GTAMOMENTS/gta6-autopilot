@@ -205,8 +205,15 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         else:
             end = min(end, sec_dur, start + max_len)
             log.info("[editor] AI picked %.0f-%.0fs of the slice (%.0fs)", start, end, end - start)
+        need_t = copy.get("required_t") if fmt and fmt.get("must_show") else None
+        if need_t is not None and 0 <= need_t <= sec_dur and not start <= need_t <= end:
+            # the proof (e.g. the cash counter going up) must be in the video: move the window over it
+            length = end - start
+            start = max(0.0, min(need_t - length * 0.6, sec_dur - length))
+            end = min(sec_dur, start + length)
+            log.info("[editor] moved the part to %.0f-%.0fs so it shows %s", start, end, fmt.get("must_show_short", ""))
         # the big moment: AI's payoff_t, else the most intense second of the picked part
-        payoff = copy.get("payoff_t")
+        payoff = need_t if need_t is not None and start <= need_t <= end else copy.get("payoff_t")
         if payoff is None or not start <= payoff <= end:
             part = energy[int(start):int(end)] or [0]
             payoff = start + part.index(max(part)) + 0.5
@@ -292,6 +299,8 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
                 reason = f"low hype ({copy['hype_score']})"
             elif fmt and not copy.get("fits_format", True):
                 reason = f"doesn't fit the '{fmt['name']}' format"
+            elif fmt and fmt.get("must_show") and not copy.get("shows_required"):
+                reason = f"doesn't show {fmt.get('must_show_short', 'what the format needs')}"
             if reason:
                 log.info("[gate] ✋ rejected '%s': %s | %s", c.title[:60], reason, copy["scene_summary"])
                 mark_rejected(c, reason)

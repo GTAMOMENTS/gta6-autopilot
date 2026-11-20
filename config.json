@@ -115,7 +115,7 @@
       "youtube"
     ],
     "launch_date": "2026-11-19",
-    "only_after_launch": false,
+    "only_after_launch": true,
     "extra_urls": [],
     "search_queries": [
       "GTA 6 funny moments",
@@ -527,7 +527,8 @@
       "Game Informer",
       "VGC",
       "IGN Entertainment"
-    ]
+    ],
+    "_launch_note": "Only footage uploaded after GTA 6 came out: older 'GTA 6' videos are fakes made in GTA V / mods (the owner caught a GTA V train clip in a test)."
   },
   "quality_gate": {
     "min_hype_score": 7,
@@ -877,7 +878,7 @@
         "slot_only": true,
         "use_trends": true,
         "trend_min_demand": 7,
-        "brief": "A GTA 6 MONEY TIP: explain the ONE way to make money that this footage actually shows - what the player does and where, step by step, in 'you' form, so viewers can copy it. Amounts ONLY if the cash / HUD number is visible on screen or said in the footage - never invent numbers, prices or payouts. Never story missions, story heists or spoilers; no glitches or exploits. Line 1 is the hook that names the payoff ('This is the easiest money in GTA 6 right now'). End with a question ('How much did you make?').",
+        "brief": "A GTA 6 MONEY TIP: explain the ONE way to make money that this footage actually shows - what the player does and where, step by step, in 'you' form, so viewers can copy it. Amounts ONLY if the cash / HUD number is visible on screen or said in the footage - never invent numbers, prices or payouts. Never story missions, story heists or spoilers; no glitches or exploits. Only call it a money method if the footage shows the money arriving (cash counter / payout screen) - that moment is the payoff. Line 1 is the hook that names the payoff ('This is the easiest money in GTA 6 right now'). End with a question ('How much did you make?').",
         "banner_example": "GTA 6 MONEY TIP: SELL CARS",
         "title_example": "GTA 6 Money Tip: The EASIEST Cash Right Now",
         "queries": [
@@ -969,7 +970,9 @@
               "GTA 6 wasted money no commentary"
             ]
           }
-        ]
+        ],
+        "must_show": "the player actually EARNING money: the cash / money counter on the HUD going up, a payout / sale / reward screen, or picking up cash. Stealing, crashing or destroying things without getting paid on screen does NOT count",
+        "must_show_short": "money being earned on screen"
       },
       {
         "id": "trending",

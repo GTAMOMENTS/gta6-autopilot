@@ -210,4 +210,9 @@ def prompt_note(fmt: dict | None, tour: bool) -> str:
         lines.append(f'Banner like: "{fmt["banner_example"]}". YouTube title like: "{fmt.get("title_example", "")}".')
     lines.append("Pick the shots/part that fit this format best. If this footage really cannot honestly make "
                  "this format, set fits_format=false (and still fill everything in with the closest angle).")
+    if fmt.get("must_show"):
+        lines.append(f"REQUIRED FOR THIS FORMAT: the footage must clearly show {fmt['must_show']}. Set "
+                     "shows_required=true ONLY if you actually see it happen, and give required_t = the second "
+                     "(within this footage) where it happens; otherwise shows_required=false and required_t=null. "
+                     "Your part must include that second.")
     return "\n".join(lines)

@@ -88,6 +88,13 @@ def _fetch_one(x: dict) -> tuple[dict | None, str | None]:
                      provider=x["platform"] if whole else f"{x['platform']}_clip", duration=x["duration"],
                      kind="gameplay" if whole else "stream", media_url=x.get("media_url") or None)
     a0, b0 = x.get("section") or (0, int(x["duration"]) + 1)
+    if x["platform"] == "youtube":  # "GTA 6" videos uploaded before launch are fakes (GTA V / mods)
+        from source_fetcher import _fill_metadata
+        try:
+            if not _fill_metadata(cand, load_config()):
+                return None, "old / no info (before launch)"
+        except Exception:  # noqa: BLE001
+            return None, "download failed (youtube)"
     try:
         ok = _download(cand, a0, b0, path)
     except Exception as exc:  # noqa: BLE001
@@ -382,6 +389,9 @@ def guide_spec(kind: str) -> dict | None:
                 "queries": c.get("money_queries", ["GTA 6 how to make money", "GTA 6 money making guide",
                                                    "GTA 6 money making no commentary", "GTA 6 fast money",
                                                    "GTA 6 best money method", "GTA 6 make money early"]),
+                "proof": ("the money actually being EARNED on screen: the HUD cash counter going up, a payout / "
+                          "sale / reward screen, or picking up cash (stealing or wrecking things without getting "
+                          "paid on screen does not count)"),
                 "hashtags": "#GTA6 #GTA6Money #GTA6Tips",
                 "outro": "WHICH ONE WILL YOU TRY?\\N\\NSUBSCRIBE FOR MORE GTA 6 MONEY TIPS",
                 "comment": "Which money method are you trying first? 👇"}
@@ -458,9 +468,10 @@ For EACH clip judge honestly:
 - trim_start / trim_end: seconds WITHIN that clip of the part that shows it best (20-45 seconds)
 - best_t: second within the clip with the most eye-catching frame (for the thumbnail)
 - has_narrator: true if someone talks over the clip (we mute it and use our own narrator)
+{proof_rule}
 Return ONLY JSON: {{"clips": [{{"clip": number, "is_gta6_footage": bool, "broken": bool, "is_spoiler": bool,
  "unsafe": bool, "is_glitch": bool, "shows_item": bool, "item": str, "facts": str, "lines": [str], "usefulness": int,
- "trim_start": number, "trim_end": number, "best_t": number, "has_narrator": bool}}]}}"""
+ "trim_start": number, "trim_end": number, "best_t": number, "has_narrator": bool, "proof_t": number | null}}]}}"""
 
 
 def _nums(text: str) -> set:
@@ -479,7 +490,10 @@ def review_guide(clips: list[dict], spec: dict, brand: str) -> list[dict]:
     import difflib
     out = []
     for bi, (batch, pairs) in enumerate(_batch_verdicts(clips, lambda k, ranges: GUIDE_REVIEW_PROMPT.format(
-            brand=brand, subject=spec["subject"], noun=spec["noun"], k=k, ranges=ranges, game=_game_facts())), 1):
+            brand=brand, subject=spec["subject"], noun=spec["noun"], k=k, ranges=ranges, game=_game_facts(),
+            proof_rule=(f"- proof_t: the second within the clip where you SEE {spec['proof']}; null if the clip "
+                        "never shows it (then shows_item must be false)" if spec.get("proof")
+                        else "- proof_t: null"))), 1):
         passed = 0
         for m, v in pairs:
             if not v:
@@ -491,10 +505,14 @@ def review_guide(clips: list[dict], spec: dict, brand: str) -> list[dict]:
                 if ln and not (_nums(ln) - _nums(facts) - {"6"}):  # a number the clip never showed = made up
                     lines.append(ln)
             item = re.sub(r"\s+", " ", str(v.get("item") or "")).strip(" .")[:50]
+            proof_t = v.get("proof_t") if isinstance(v.get("proof_t"), (int, float)) else None
+            if spec.get("proof") and proof_t is None:
+                v["shows_item"] = False  # no money visibly earned = not a money method
             reason = ("not GTA 6" if not v.get("is_gta6_footage") else "broken picture" if v.get("broken")
                       else "spoiler" if v.get("is_spoiler")
                       else "unsafe" if v.get("unsafe") else "glitch / exploit" if v.get("is_glitch")
-                      else "doesn't show one" if not v.get("shows_item") else "no explanation"
+                      else ("no money earned on screen" if spec.get("proof") and proof_t is None else "doesn't show one")
+                      if not v.get("shows_item") else "no explanation"
                       if not item or len(lines) < 2 else None)
             if reason:
                 log.info("[guide] ✋ %s (%s): %s", m["key"], m["streamer"], reason)
@@ -508,6 +526,10 @@ def review_guide(clips: list[dict], spec: dict, brand: str) -> list[dict]:
                 a, e = max(0.0, min(a, m["dur"] - 40)), min(m["dur"], max(a, 0) + 40)
             if e - a < 12:
                 continue
+            if proof_t is not None and 0 <= proof_t <= m["dur"] and not a <= proof_t <= e:
+                length = e - a  # the proof must be in the video: move the part over it
+                a = max(0.0, min(proof_t - length * 0.6, m["dur"] - length))
+                e = min(m["dur"], a + length)
             try:
                 useful = max(1, min(10, int(v.get("usefulness") or 0)))
             except (TypeError, ValueError):
