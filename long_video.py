@@ -422,7 +422,7 @@ def gather_guide(spec: dict, used: set) -> list[dict]:
             found += fn()
         except Exception as exc:  # noqa: BLE001
             log.warning("[guide] %s search failed: %.150s", name, exc)
-    pool, per = [], {}
+    pool, per = _guide_stream_clips(c, used), {}
     # footage without someone talking over it keeps its game sound (muted voice-overs feel empty) -> first
     for x in sorted(found, key=lambda x: ("no commentary" in (x.title or "").lower(), x.views), reverse=True):
         dur = float(x.duration or 0)
@@ -439,11 +439,49 @@ def gather_guide(spec: dict, used: set) -> list[dict]:
             sec = (st, st + int(c.get("guide_section_sec", 110)))
         pool.append({"key": x.key, "url": x.url, "title": x.title, "streamer": ch, "platform": x.provider,
                      "duration": dur, "section": sec, "views": int(x.views or 0), "created": 0})
-        if len(pool) >= int(c.get("guide_candidates", 24)):
+        if len(pool) >= int(c.get("guide_candidates", 24)) + int(c.get("guide_stream_clips", 18)):
             break
     log.info("[guide] %d videos found, %d candidates: %s", len(found), len(pool),
              [f"{x['streamer']}: {x['title'][:40]} ({x['views']}v)" for x in pool[:8]])
     return pool
+
+
+_MONEYISH = re.compile(r"money|cash|\$|rich|million|bank|rob|heist|sell|sold|stash|safe|loot|paid|pay|job|hustle|"
+                       r"business|buy|bought|price|dollar|grand\b|\d+k\b", re.I)
+
+
+def _guide_stream_clips(c: dict, used: set) -> list[dict]:
+    """GTA VI-category clips from famous English streamers (Twitch / Kick): guaranteed real GTA 6 gameplay
+    (most "GTA 6" YouTube uploads are still GTA V / mods). Clips whose title sounds like money come first."""
+    import stream_clips as sc
+    n = int(c.get("guide_stream_clips", 18))
+    if n <= 0:
+        return []
+    scfg = {**load_config().get("stream_clips", {}), "window_hours": float(c.get("window_hours", 24)) * 2,
+            "top_streams": int(c.get("top_streams", 15))}
+    clips = []
+    for fn in (sc.twitch_clips, sc.kick_clips):
+        try:
+            clips += fn(scfg)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[guide] %s failed: %.150s", fn.__name__, exc)
+    langs = set(scfg.get("languages", ["en"]))
+    pool = [x for x in clips if x["key"] not in used and sc.is_famous(x["streamer"], scfg)
+            and 15 <= x["duration"] <= 180 and not (x["platform"] == "twitch" and langs and x["language"]
+                                                     and x["language"] not in langs)]
+    pool.sort(key=lambda x: (bool(_MONEYISH.search(x["title"] or "")), x["views"]), reverse=True)
+    out, per = [], {}
+    for x in pool:
+        s = x["streamer"].lower()
+        if per.get(s, 0) >= 3:
+            continue
+        per[s] = per.get(s, 0) + 1
+        out.append({**x, "trusted": True})
+        if len(out) >= n:
+            break
+    log.info("[guide] %d GTA 6 stream clips (trusted, %d sound like money): %s", len(out),
+             sum(1 for x in out if _MONEYISH.search(x["title"] or "")), [f"{x['streamer']}: {x['title'][:30]}" for x in out[:6]])
+    return out
 
 
 GUIDE_REVIEW_PROMPT = """You are the researcher and editor of "{brand}", a GTA 6 channel. GAME FACTS (newer than your

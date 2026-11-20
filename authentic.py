@@ -17,14 +17,15 @@ log = logging.getLogger("autopilot")
 PROMPT = """GAME FACTS (newer than your training data - trust them): {facts}
 
 Above are sharp frames from {k} different video clips (the clip number is written before its frames).
-For EACH clip decide which game it really is. Look closely at:
-- the minimap / HUD (shape, position, style) - GTA V's minimap is a rounded rectangle bottom-left with green
-  health / blue armour bars under it
-- the city and landscape (Leonida: Vice City neon, beaches, swamps, the Keys - vs GTA V's Los Santos / Blaine
-  County, the Vinewood sign, Mount Chiliad)
-- the characters (Jason, Lucia vs Michael, Franklin, Trevor), car models, police, graphics generation
-"mod" = GTA V modified to look like GTA 6 (new textures / lighting on GTA V's map and HUD). If it is GTA V with
-better lighting, it is GTA V. Only say "GTA VI" if the frames really look like the new game.
+For EACH clip decide which game it really is. GTA VI only came out on the date above, so you have never seen its
+real HUD / menus - NEVER decide on the HUD, minimap or menus alone (GTA VI's may look similar to GTA V's).
+Decide on things that are certain:
+- GTA V: Los Santos / Blaine County places (the Vinewood sign, Maze Bank tower, Mount Chiliad, Del Perro pier),
+  Michael / Franklin / Trevor / Lamar, GTA V's older graphics and car / character models
+- GTA VI: Leonida places (Vice City, its beaches and neon, swamps, the Keys, Port Gellhorn, Ambrosia), Jason / Lucia,
+  clearly newer-generation graphics
+- "mod": GTA V's world / characters with new textures or lighting, or obviously fan-made assets
+- "other": a different game; "unsure": nothing certain in the frames
 Return ONLY JSON: {{"clips": [{{"clip": number, "game": "GTA VI" | "GTA V" | "GTA Online" | "mod" | "other" |
 "unsure", "confidence": number (0-1), "evidence": str}}]}}"""
 
@@ -92,10 +93,11 @@ def keep_real(clips: list[dict], tag: str = "[long]") -> list[dict]:
     """Long videos: drop every clip (dict with "path") that isn't confidently GTA 6. Batches of 6."""
     if not _cfg().get("enabled", True):
         return clips
-    kept = []
+    kept = [m for m in clips if m.get("trusted")]  # GTA VI-category stream clips: real by definition
+    todo = [m for m in clips if not m.get("trusted")]
     size = int(_cfg().get("batch", 6))
-    for b in range(0, len(clips), size):
-        batch = clips[b:b + size]
+    for b in range(0, len(todo), size):
+        batch = todo[b:b + size]
         res = check([Path(m["path"]) for m in batch])
         if res is None:
             log.warning("%s authenticity check unavailable for %d clips - not using them (strict)", tag, len(batch))

@@ -972,7 +972,9 @@
           }
         ],
         "must_show": "the player actually EARNING money: the cash / money counter on the HUD going up, a payout / sale / reward screen, or picking up cash. Stealing, crashing or destroying things without getting paid on screen does NOT count",
-        "must_show_short": "money being earned on screen"
+        "must_show_short": "money being earned on screen",
+        "allow_narrated": true,
+        "_allow_narrated_note": "Most real money guides have a YouTuber talking: allowed, their voice is muted and Fenrir explains."
       },
       {
         "id": "trending",
@@ -1198,7 +1200,8 @@
       "GTA 6 make money early",
       "GTA 6 easy money no commentary"
     ],
-    "guide_min_item_sec": 25
+    "guide_min_item_sec": 25,
+    "guide_stream_clips": 18
   },
   "whisper": {
     "enabled": true,
@@ -1256,6 +1259,6 @@
     "width": 1280,
     "min_confidence": 0.65,
     "batch": 6,
-    "_note": "Focused 'which game is this?' check on sharp frames for footage from YouTube / Dailymotion / X (Twitch clips come from the GTA 6 category). Many 'GTA 6' uploads are GTA V or mods."
+    "_note": "Focused 'which game is this?' check on sharp frames for footage from YouTube / Dailymotion / X. Decides on certain signs (places, characters, graphics), never on the HUD alone (the AI has never seen GTA VI's real HUD). Twitch / Kick clips from the GTA VI category are trusted."
   }
 }

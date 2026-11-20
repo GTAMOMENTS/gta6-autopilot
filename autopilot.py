@@ -111,11 +111,17 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
     backup_hype = int(gate.get("backup_hype_score", min_hype - 1))
     budget_end = time.time() + int(scfg.get("time_budget_min", 25)) * 60
 
+    def _mute(copy) -> float | None:
+        """Footage with another YouTuber talking (allowed for some formats): their voice is muted."""
+        return 0.0 if (fmt or {}).get("allow_narrated") and copy.get("has_narrator") else None
+
     def publish_and_record(src, copy, clip_id, rendered, ranges) -> tuple[bool, dict] | None:
         from formats import bump_series, series_label
         import qa
         c = src.candidate
-        teaser_note = ("The first ~1.2 s is an intentional cold open: a quick flash of the big moment, which then "
+        muted_note = ("The original creator's voice-over is muted on purpose (so there is no game sound) - only our "
+                      "narrator speaks. " if _mute(copy) == 0.0 else "")
+        teaser_note = muted_note + ("The first ~1.2 s is an intentional cold open: a quick flash of the big moment, which then "
                        "plays again at its real place in the clip - that repeat is NOT a montage error. "
                        if float(vcfg.get("fx", {}).get("teaser_sec", 0)) > 0 and not src.is_reel else "")
         verdict = qa.check(Path(rendered["path"]), "short", lines=rendered.get("placed"),
@@ -187,7 +193,7 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         if cuts:
             fx["sfx"].append({"t": cuts[-1], "kind": "boom"})
             fx["zoom"].append((cuts[-1], cuts[-1] + 1.0))
-        rendered = render(clip, clip_id, copy["banner"], copy["commentary"], voiced=kept, fx=fx)
+        rendered = render(clip, clip_id, copy["banner"], copy["commentary"], voiced=kept, fx=fx, game_volume=_mute(copy))
         if not rendered:
             return None
         return publish_and_record(src, copy, clip_id, rendered, segments)
@@ -246,7 +252,7 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
             return None
 
         clip_id = "gta6_" + now_local().strftime("%Y%m%d_%H%M") + "_" + hashlib.md5(c.key.encode()).hexdigest()[:6]
-        rendered = render(clip, clip_id, copy["banner"], commentary, fx=fx)
+        rendered = render(clip, clip_id, copy["banner"], commentary, fx=fx, game_volume=_mute(copy))
         if not rendered:
             return None
         return publish_and_record(src, copy, clip_id, rendered, [list(x) for x in segs])
@@ -304,7 +310,8 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
                 reason = "not GTA VI footage"
             elif copy.get("is_spoiler") and gate.get("reject_spoilers", True):
                 reason = "story spoiler"
-            elif copy.get("has_narrator") and gate.get("reject_narrator", True) and c.kind != "stream":
+            elif copy.get("has_narrator") and gate.get("reject_narrator", True) and c.kind != "stream" \
+                    and not (fmt or {}).get("allow_narrated"):
                 reason = "someone already talks over this footage"
             elif copy["has_facecam"] and gate.get("reject_facecam", True) and c.kind != "stream":
                 reason = "facecam / overlay"
