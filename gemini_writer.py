@@ -28,6 +28,7 @@ log = logging.getLogger("autopilot")
 
 _client_obj = None
 _unavailable_until = 0.0  # skip Gemini for the rest of the run after repeated overloads
+_busy_until: dict[str, float] = {}  # model -> time: a model that just said 503/504 is skipped for a few minutes
 
 
 # --------------------------------------------------------------------------- client
@@ -157,6 +158,12 @@ def _generate_json(contents, temperature: float = 0.9, prefer_pro: bool = False)
     for attempt in (1, 2):
         overloaded = False
         models = list(dict.fromkeys((_pro_models() if prefer_pro else []) + _models()))
+        if attempt == 1:
+            # a model that was overloaded a few minutes ago is skipped (each 503/504 costs up to ~50s)
+            fresh = [m for m in models if _busy_until.get(m, 0) <= time.time()]
+            if fresh and len(fresh) < len(models):
+                overloaded = True  # if the fresh ones fail too, the 2nd round tries the busy ones again
+                models = fresh
         for model in models:
             data, busy = _try_model(types, model, contents, temperature)
             if data:
@@ -196,7 +203,10 @@ def _try_model(types, model: str, contents, temperature: float) -> tuple[dict | 
                                   "RESOURCE_EXHAUSTED")):
             _dead_models.add(model)  # gone or out of quota for today - don't try it again this run
             return None, False
-        return None, any(x in msg for x in ("503", "504", "UNAVAILABLE", "DEADLINE_EXCEEDED", "high demand"))
+        busy = any(x in msg for x in ("503", "504", "UNAVAILABLE", "DEADLINE_EXCEEDED", "high demand"))
+        if busy:
+            _busy_until[model] = time.time() + float(load_config().get("gemini", {}).get("busy_cooldown_sec", 480))
+        return None, busy
     return None, False
 
 
@@ -260,6 +270,8 @@ TASKS
    - has_facecam: true if a streamer webcam / face overlay or a big channel watermark covers the video.
    - has_narrator: true if a YouTuber / commentator talks over the footage in their own voice
      (NOT game characters, NOT music). Only judge this if you can hear the audio; else false.
+   - unsafe: true for nudity or sexual content - IN-GAME TOO (strip clubs, lap dances, topless / naked characters,
+     sex or shower scenes) - or slurs / hate speech, real-world violence. In-game violence and crime are fine.
    - is_spoiler: true if the footage (or the part you pick) shows STORY SPOILERS - story cutscenes,
      plot reveals, character deaths or betrayals, mission outcomes, endings, late-game locations/unlocks.
      Normal free-roam gameplay, chases, stunts, funny moments and the world itself are NOT spoilers.
@@ -312,7 +324,7 @@ TASKS
      tags (no #RockstarGames, #PlayStation, #Xbox, #ad) - no sponsored-looking content.
 
 Return ONLY JSON with exactly these keys:
-{{"is_gta6_footage": bool, "has_facecam": bool, "has_narrator": bool, "is_spoiler": bool, "fits_format": bool, "hype_score": int,
+{{"is_gta6_footage": bool, "unsafe": bool, "has_facecam": bool, "has_narrator": bool, "is_spoiler": bool, "fits_format": bool, "hype_score": int,
  "scene_summary": str, "clip_start": number, "clip_end": number, "payoff_t": number,
  "content_type": "explainer" | "action" | "scenic",
  "banner": str, "commentary": [{{"t": number, "line": str}}], "youtube_title": str, "caption": str,
@@ -335,6 +347,8 @@ TASKS
    - has_facecam: true if a webcam / face overlay or big channel watermark covers the video.
    - has_narrator: true if a YouTuber talks over the footage in their own voice (not game characters).
      Only judge this if you can hear the audio; else false.
+   - unsafe: true for nudity or sexual content - IN-GAME TOO (strip clubs, lap dances, topless / naked characters,
+     sex or shower scenes) - or slurs / hate speech, real-world violence. In-game violence and crime are fine.
    - is_spoiler: true if the footage (or the part you pick) shows STORY SPOILERS - story cutscenes,
      plot reveals, character deaths or betrayals, mission outcomes, endings, late-game locations/unlocks.
      Normal free-roam gameplay, chases, stunts, funny moments and the world itself are NOT spoilers.
@@ -387,7 +401,7 @@ TASKS
    company or brand tags (no #RockstarGames, #PlayStation, #Xbox, #ad).
 
 Return ONLY JSON with exactly these keys:
-{{"is_gta6_footage": bool, "has_facecam": bool, "has_narrator": bool, "is_spoiler": bool, "fits_format": bool, "hype_score": int,
+{{"is_gta6_footage": bool, "unsafe": bool, "has_facecam": bool, "has_narrator": bool, "is_spoiler": bool, "fits_format": bool, "hype_score": int,
  "scene_summary": str, "angle": str, "shots": [{{"start": number, "line": str}}], "banner": str, "youtube_title": str, "caption": str,
  "x_text": str, "hashtags": [str]}}"""
 
@@ -722,6 +736,7 @@ def _clean_copy(d: dict, clip_dur: float = 48) -> dict:
         "has_facecam": bool(d.get("has_facecam", False)),
         "has_narrator": bool(d.get("has_narrator", False)),
         "is_spoiler": bool(d.get("is_spoiler", False)),
+        "unsafe": d.get("unsafe") is True,
         "fits_format": bool(d.get("fits_format", True)),
         "content_type": str(d.get("content_type", "action")).lower(),
         "hype_score": int(d.get("hype_score") or 6),

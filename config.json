@@ -11,7 +11,7 @@
   "timezone": "Europe/Istanbul",
   "game": {
     "launch_date": "2026-11-19",
-    "facts": "GTA VI is set in the state of Leonida (including Vice City) and stars Jason and Lucia. Platforms at launch: PS5 and Xbox Series X|S."
+    "facts": "GTA VI is OUT (real gameplay exists since launch day). It is set in the state of Leonida (Vice City neon and beaches, Florida-like swamps, the Keys) and stars Jason and Lucia; it has a new HUD and minimap. Platforms: PS5 and Xbox Series X|S. NOT GTA VI: GTA V's Los Santos / Blaine County (Vinewood sign, Michael / Franklin / Trevor, GTA V's minimap), GTA Online, mods, other games."
   },
   "schedule": [
     {
@@ -538,7 +538,8 @@
     "max_total_sec": 240,
     "fallback_frames": 8,
     "tour_frames": 12,
-    "use_pro": true
+    "use_pro": true,
+    "busy_cooldown_sec": 480
   },
   "voice": {
     "engine": "gemini",
@@ -1012,7 +1013,8 @@
       "Robcdee",
       "ohnePixel"
     ],
-    "_famous_note": "Only famous English-speaking streamers: this list, the X clip accounts, or a top English live stream with famous_min_viewers+ viewers right now. The AI also rejects non-English clips."
+    "_famous_note": "Only famous English-speaking streamers: this list, the X clip accounts, or a top English live stream with famous_min_viewers+ viewers right now. The AI also rejects non-English clips.",
+    "facecam_layout": true
   },
   "long_video": {
     "enabled": true,
@@ -1030,7 +1032,15 @@
     "outro_sec": 7.0,
     "preset": "veryfast",
     "crf": 21,
-    "max_repeated_frames": 0.2
+    "max_repeated_frames": 0.2,
+    "require_approval": true,
+    "jump_cuts": true,
+    "punchline_inserts": true,
+    "replays": 3,
+    "intro_sting": true,
+    "music_volume": 0.07,
+    "_approval_note": "Long videos are never auto-published: after QA passes they wait for the owner (download from Artifacts, then upload by hand or run the workflow with slot approve_long).",
+    "download_workers": 4
   },
   "whisper": {
     "enabled": true,
@@ -1042,5 +1052,17 @@
     "enabled": true,
     "_note": "A second free AI (GPT-4.1 via GitHub Models first) rewrites titles / banners / hooks for more clicks without inventing anything; originals are kept if a rewrite breaks the rules."
   },
-  "_schedule_note": "Owner's choice (2026-11-19, after YouTube's upload limit): 1 Short every 2 days (23:40 slot), 1 long video every 3 days (20:10 slot). every_days counts from the last successful post."
+  "_schedule_note": "Owner's choice (2026-11-19, after YouTube's upload limit): 1 Short every 2 days (23:40 slot), 1 long video every 3 days (20:10 slot). every_days counts from the last successful post.",
+  "qa": {
+    "enabled": true,
+    "require_ai_review": true,
+    "min_score": 7,
+    "max_av_diff": 0.12,
+    "silence_db": -45,
+    "silence_sec": 2.5,
+    "max_repeated_frames": 0.15,
+    "min_word_match": 0.6,
+    "max_voice_offset": 0.6,
+    "_note": "Strict QA before every publish: technical checks, Whisper voice-vs-captions, AI editor watching the final video. Any high-severity issue = not published."
+  }
 }

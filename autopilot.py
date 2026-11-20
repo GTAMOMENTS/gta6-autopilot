@@ -111,9 +111,24 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
     backup_hype = int(gate.get("backup_hype_score", min_hype - 1))
     budget_end = time.time() + int(scfg.get("time_budget_min", 25)) * 60
 
-    def publish_and_record(src, copy, clip_id, rendered, ranges) -> tuple[bool, dict]:
+    def publish_and_record(src, copy, clip_id, rendered, ranges) -> tuple[bool, dict] | None:
         from formats import bump_series, series_label
+        import qa
         c = src.candidate
+        trust_note = ("FOOTAGE SOURCE: it passed a separate GTA VI authenticity check (or comes from the Twitch GTA VI "
+                      "category) - flag 'not GTA 6' only if you clearly see GTA V places or characters. ")
+        teaser_note = trust_note + ("The first ~1.2 s is an intentional cold open: a quick flash of the big moment, which then "
+                       "plays again at its real place in the clip - that repeat is NOT a montage error. "
+                       if float(vcfg.get("fx", {}).get("teaser_sec", 0)) > 0 and not src.is_reel else "")
+        verdict = qa.check(Path(rendered["path"]), "short", lines=rendered.get("placed"),
+                           context=f"{teaser_note}Format: {(fmt or {}).get('name', '')}. Banner: {copy.get('banner')}. "
+                                   f"Narration lines (also burned in as captions): "
+                                   + " | ".join(ln["text"] for ln in rendered.get("placed", [])))
+        if not verdict["pass"]:
+            qa_problems.append(verdict["report"].splitlines()[1] if len(verdict["report"].splitlines()) > 1 else "QA failed")
+            mark_rejected(c, "failed QA")
+            log.warning("[qa] ✋ not publishing this Short - trying the next clip")
+            return None
         mark_used(src)
         if fmt:
             copy["format_tags"] = list(fmt.get("hashtags", []))
@@ -232,6 +247,7 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         return publish_and_record(src, copy, clip_id, rendered, [list(x) for x in segs])
 
     script_problems: list[str] = []  # clips skipped because no proper AI script could be written
+    qa_problems: list[str] = []  # finished videos that failed the strict QA
     backup = None  # best "almost good enough" clip, used only if nothing reaches min_hype
     skip: set[str] = set()
     if fmt:
@@ -245,6 +261,16 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         c = src.candidate
         section = src.clip_path                     # the whole downloaded slice (~2 min)
         sec_dur = probe(section)["duration"]
+        try:  # laggy / frozen source footage looks broken (QA rejected such Shorts) - skip it before the AI
+            import stream_clips
+            rep = stream_clips.smoothness(section)
+        except Exception:  # noqa: BLE001
+            rep = 0.0
+        if rep > float(gate.get("max_repeated_frames", 0.18)):
+            log.info("[gate] ✋ rejected '%s': choppy footage (%.0f%% repeated frames)", c.title[:60], rep * 100)
+            mark_rejected(c, "choppy")
+            section.unlink(missing_ok=True)
+            continue
         energy = energy_curve(section)
         copy = write_clip_copy(section, c.title, src.credit, c.provider, c.kind, energy_hints(energy, 30, 3),
                                tour=src.is_reel, fmt=fmt)
@@ -260,6 +286,8 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
                 reason = "not GTA VI footage"
             elif copy.get("is_spoiler") and gate.get("reject_spoilers", True):
                 reason = "story spoiler"
+            elif copy.get("unsafe"):
+                reason = "nudity / unsafe content"
             elif copy.get("has_narrator") and gate.get("reject_narrator", True) and c.kind != "stream":
                 reason = "someone already talks over this footage"
             elif copy["has_facecam"] and gate.get("reject_facecam", True) and c.kind != "stream":
@@ -315,6 +343,8 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
             return False, {"error": f"human voice unavailable, nothing posted: {exc}"}
         if result:
             return result
+    if qa_problems:
+        return False, {"error": "nothing posted - every finished video failed QA: " + "; ".join(qa_problems[:3])}
     if script_problems:
         return False, {"error": "nothing posted - no proper AI script could be written (AI busy / out of quota?): "
                                 + "; ".join(dict.fromkeys(script_problems))}
@@ -477,6 +507,18 @@ def main() -> int:
     if args.slot == "voice_samples":
         from video_processor import voice_samples
         return voice_samples()
+    if args.slot == "approve_long":  # the owner watched the long video in the Artifacts and approves it
+        from long_video import retry_pending
+        res = retry_pending(False, approve=True)
+        if not res:
+            log.error("No long video is waiting for approval.")
+            return 1
+        if res.get("ok"):
+            record_history("approve_long", {"type": "long_video_upload", "manual": True}, True, res)
+            log.info("Long video published: %s", res["results"]["youtube"].get("url"))
+            return 0
+        log.error("Upload refused: %s", res.get("error"))
+        return 1
     if args.slot == "stream_clip":  # manual test of the viral stream clips (normally streams.yml)
         import stream_clips
         return stream_clips.run_once(args.dry_run)

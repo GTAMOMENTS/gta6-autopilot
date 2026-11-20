@@ -308,6 +308,72 @@ def _align_cuts(segs: list[tuple[float, float]], words: list[int]) -> list[tuple
     return pieces
 
 
+_NUM = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve",
+        "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty"]
+
+
+def _norm_tokens(text: str) -> list[str]:
+    """Words for matching script vs Whisper: lower case, no punctuation, small numbers as words ("15" = "fifteen")."""
+    out = []
+    for tok in re.findall(r"[a-z0-9']+", text.lower().replace(".", "")):
+        tok = tok.strip("'")
+        if tok.isdigit() and int(tok) <= 20:
+            tok = _NUM[int(tok)]
+        if tok:
+            out.append(tok)
+    return out
+
+
+def _whisper_cuts(full: Path, texts: list[str]) -> list[tuple[float, float]] | None:
+    """Exact cut points: Whisper listens to the one-take narration and finds where every script line is
+    spoken. None = Whisper not available (caller uses pauses + word counts). Raises _SplitError if a line
+    can't be found (the caller then records the lines one by one)."""
+    import difflib
+    import transcribe
+    if transcribe._get_model() is None:
+        return None
+    heard, _ = transcribe.words(full)
+    if not heard:
+        raise _SplitError("Whisper heard no speech in the narration")
+    h_tok, h_idx = [], []
+    for i, w in enumerate(heard):
+        for t in _norm_tokens(w["text"]):
+            h_tok.append(t)
+            h_idx.append(i)
+    s_tok, s_line = [], []
+    for li, t in enumerate(texts):
+        for tok in _norm_tokens(t):
+            s_tok.append(tok)
+            s_line.append(li)
+    match = {}
+    for a, b, size in difflib.SequenceMatcher(None, s_tok, h_tok, autojunk=False).get_matching_blocks():
+        for k in range(size):
+            match[a + k] = b + k
+    spans = []  # (first heard word index, last heard word index) per line
+    for li, text in enumerate(texts):
+        idx = [k for k in range(len(s_tok)) if s_line[k] == li]
+        got = [h_idx[match[k]] for k in idx if k in match]
+        if not idx or len(got) < 0.6 * len(idx):
+            raise _SplitError(f"Whisper could not find the line '{text[:40]}' in the narration")
+        spans.append((min(got), max(got)))
+    for i in range(1, len(spans)):
+        if spans[i][0] <= spans[i - 1][1]:
+            raise _SplitError("narration lines overlap / out of order")
+    dur = probe(full)["duration"]
+    # boundary between line i-1 and i: the longest pause between their matched words. Each piece runs from
+    # its first spoken word to its last (tight - a piece that starts with the pause makes the voice come
+    # late against the captions; QA measured +0.8-1.3 s)
+    starts, ends = [max(0.0, heard[spans[0][0]]["start"] - 0.08)], []
+    for i in range(1, len(spans)):
+        lo, hi = spans[i - 1][1], spans[i][0]
+        j = max(range(lo, hi), key=lambda x: heard[x + 1]["start"] - heard[x]["end"])
+        gap_mid = (heard[j]["end"] + heard[j + 1]["start"]) / 2
+        ends.append(min(gap_mid, heard[j]["end"] + 0.15))
+        starts.append(max(gap_mid, heard[j + 1]["start"] - 0.08))
+    ends.append(min(dur, heard[spans[-1][1]]["end"] + 0.18))
+    return list(zip(starts, ends))
+
+
 def _gemini_all_lines(lines: list[dict], paths: list[Path], model: str, voice: str | None = None) -> None:
     """ONE Gemini TTS request with the whole script (natural flow, saves quota), then cut into lines at the
     pauses that match the script. Every piece is checked against its line; any doubt -> _SplitError and the
@@ -324,9 +390,15 @@ def _gemini_all_lines(lines: list[dict], paths: list[Path], model: str, voice: s
         expected = sum(words) / 2.6
         if not 0.55 * expected <= speech <= 1.6 * expected + 2:
             raise _SplitError(f"{speech:.0f}s of speech for {sum(words)} words - doesn't match the script")
-        pieces = _align_cuts(segs, words)
-        if not pieces:
-            raise _SplitError(f"could not split Gemini audio into {len(lines)} lines (found {len(segs)} parts)")
+        # Whisper hears where each line is actually spoken (cutting by word counts drifted on long scripts:
+        # half a sentence ended up on the next clip - found by QA)
+        pieces = _whisper_cuts(full, texts) if len(lines) > 1 else None
+        if pieces:
+            log.info("[voice] Whisper split the narration into %d lines", len(pieces))
+        else:  # Whisper not available: pauses + word counts
+            pieces = _align_cuts(segs, words)
+            if not pieces:
+                raise _SplitError(f"could not split Gemini audio into {len(lines)} lines (found {len(segs)} parts)")
         rate = speech / sum(words)  # this take's real seconds per word
         for (a, b), text, w in zip(pieces, texts, words):
             if not (0.5 * w * rate - 0.4 <= b - a <= 1.7 * w * rate + 1.0):
@@ -453,7 +525,7 @@ def _group_words(words: list[dict], max_words: int = 3, max_chars: int = 16) -> 
     return groups
 
 
-def build_ass(path: Path, banner: str, words: list[dict], total: float, cta: str) -> None:
+def build_ass(path: Path, banner: str, words: list[dict], total: float, cta: str, banner_v: int = 190) -> None:
     vcfg = load_config().get("video", {})
     font = vcfg.get("font", "Montserrat")
     hl = vcfg.get("highlight_color_ass", "&H0000F0FF")  # BGR -> yellow
@@ -467,7 +539,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Banner,{font},76,&H00FFFFFF,&H00FFFFFF,&H00000000,&HC0000000,-1,0,0,0,100,100,1,0,3,18,0,8,60,60,190,1
+Style: Banner,{font},76,&H00FFFFFF,&H00FFFFFF,&H00000000,&HC0000000,-1,0,0,0,100,100,1,0,3,18,0,8,60,60,{banner_v},1
 Style: Caption,{font},92,&H00FFFFFF,&H00FFFFFF,&H00000000,&H90000000,-1,0,0,0,100,100,1,0,1,7,3,5,40,40,0,1
 Style: CTA,{font},46,&H00FFFFFF,&H00FFFFFF,&H00000000,&HA0000000,-1,0,0,0,100,100,1,0,3,14,0,2,60,60,150,1
 
@@ -563,11 +635,20 @@ def render(clip: Path, clip_id: str, banner: str, commentary: list[dict],
         words = caption_words
 
     ass = VO_DIR / f"{clip_id}.ass"
-    build_ass(ass, banner, words, total, vcfg.get("cta_text", "FOLLOW FOR DAILY GTA 6 MOMENTS"))
+    build_ass(ass, banner, words, total, vcfg.get("cta_text", "FOLLOW FOR DAILY GTA 6 MOMENTS"),
+              banner_v=640 if (fx or {}).get("facecam") else 190)
     out = READY_DIR / f"{clip_id}.mp4"
 
     vertical_src = info["height"] > info["width"]
-    if vertical_src:
+    cam = (fx or {}).get("facecam")
+    if cam and not vertical_src:
+        # pro stream-clip layout: streamer's facecam on top, gameplay below - both big
+        cx, cy, cw, ch = cam
+        video_chain = (
+            f"[0:v]split=2[a][b];[a]crop=iw*{cw}:ih*{ch}:iw*{cx}:ih*{cy},"
+            "scale=1080:720:force_original_aspect_ratio=increase,crop=1080:720,setsar=1[cam];"
+            "[b]scale=-2:1200,crop=1080:1200,setsar=1[game];[cam][game]vstack=inputs=2,setsar=1[base]")
+    elif vertical_src:
         video_chain = "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1[base]"
     else:
         zoom = float(fg_zoom or vcfg.get("foreground_zoom", 1.3))
@@ -654,8 +735,9 @@ def render(clip: Path, clip_id: str, banner: str, commentary: list[dict],
     vin = ["-stream_loop", "-1", "-i", str(clip)] if info["duration"] < total else ["-i", str(clip)]
     zoom = _zoom_filter([w for w in fx.get("zoom", []) if w[0] < total], float(fxcfg.get("zoom_amount", 0.22))) \
         if fxcfg.get("zoom", True) else ""
-    fc = (f"{video_chain};[base]fps=30{zoom},ass='{ass_escaped}',format=yuv420p[vout];"
-          f"[1:a]{norm},aresample=48000[aout]")
+    grade = "eq=contrast=1.05:saturation=1.1,unsharp=5:5:0.4:5:5:0.0,"
+    fc = (f"{video_chain};[base]fps=30{zoom},{grade}ass='{ass_escaped}',format=yuv420p[vout];"
+          f"[1:a]{norm},alimiter=limit=0.95,aresample=48000,apad[aout]")
     cmd = ["ffmpeg", "-y", "-hide_banner", *vin, "-i", str(mix_wav),
            "-filter_complex", fc, "-map", "[vout]", "-map", "[aout]",
            "-c:v", "libx264", "-preset", vcfg.get("preset", "veryfast"), "-crf", str(vcfg.get("crf", 20)),
@@ -668,4 +750,7 @@ def render(clip: Path, clip_id: str, banner: str, commentary: list[dict],
         log.error("[render] FFmpeg failed: %s", res.stderr[-1200:])
         return None
     log.info("[render] %s (%.1fs, %.1f MB, %d voice lines)", out.name, total, out.stat().st_size / 1e6, len(lines))
-    return {"path": str(out), "duration": total, "lines": [{"t": round(ln["start"], 1), "text": ln["text"]} for ln in lines]}
+    return {"path": str(out), "duration": total,
+            "lines": [{"t": round(ln["start"], 1), "text": ln["text"]} for ln in lines],
+            "placed": [{"text": ln["text"], "start": ln["start"], "dur": ln["dur"], "path": str(ln["path"])}
+                       for ln in lines]}

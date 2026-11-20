@@ -14,6 +14,7 @@ import logging
 import math
 import re
 import shutil
+import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -77,42 +78,78 @@ def gather(c: dict, used: set) -> list[dict]:
     return picked
 
 
-def download(cands: list[dict]) -> list[dict]:
+def _fetch_one(x: dict) -> tuple[dict | None, str | None]:
+    """Download + check one candidate. Returns (clip, None) or (None, reason it was skipped)."""
     import stream_clips as sc
     from source_fetcher import Candidate, _download
+    path = RAW_DIR / f"long_{re.sub(r'[^a-zA-Z0-9]', '_', x['key'])[:50]}.mp4"
+    cand = Candidate(key=x["key"], url=x["url"], title=x["title"], uploader=x["streamer"],
+                     provider=f"{x['platform']}_clip", duration=x["duration"], kind="stream",
+                     media_url=x.get("media_url") or None)
+    try:
+        ok = _download(cand, 0, int(x["duration"]) + 1, path)
+    except Exception as exc:  # noqa: BLE001
+        log.info("[long] download failed %s: %.100s", x["key"], exc)
+        ok = False
+    if not ok:
+        return None, f"download failed ({x['platform']})"
+    info = probe(path)
+    if min(info["width"], info["height"]) < 480 or info["duration"] < 6:
+        path.unlink(missing_ok=True)
+        return None, (f"low res ({x['platform']} {info['width']}x{info['height']})" if info["duration"] >= 6
+                      else "too short")
+    if not _has_audio(path):
+        path.unlink(missing_ok=True)
+        return None, "no sound"
+    errs = _decode_errors(path)
+    if errs > int(_cfg().get("max_decode_errors", 30)):
+        log.info("[long] ✋ %s (%s, %s) is corrupted: %d decoding errors", x["key"], x["streamer"], x["platform"], errs)
+        path.unlink(missing_ok=True)
+        return None, "corrupted"
+    rep = sc.smoothness(path)
+    if rep > float(_cfg().get("max_repeated_frames", 0.2)):
+        log.info("[long] ✋ %s (%s, %s) is choppy: %.0f%% repeated frames", x["key"], x["streamer"], x["platform"],
+                 rep * 100)
+        path.unlink(missing_ok=True)
+        return None, "choppy"
+    return {**x, "path": path, "dur": info["duration"], "repeat": rep}, None
+
+
+def _decode_errors(path: Path) -> int:
+    """Broken video data (pixel garbage / green-purple smears come from it): count the decoder's error lines."""
+    res = run(["ffmpeg", "-v", "error", "-i", str(path), "-map", "0:v:0", "-f", "null", "-"], timeout=300)
+    return len([ln for ln in res.stderr.splitlines() if ln.strip()])
+
+
+def _region_ok(src: Path, t: float, box: list) -> bool:
+    """Is there a real picture (a face cam) in this part of the frame? A blank / one-colour area = no.
+    (QA found a REACTION close-up that showed only an empty black/red area: wrong webcam coordinates.)"""
+    x, y, w, h = box
+    res = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(0.0, t):.2f}", "-i", str(src), "-frames:v", "1",
+                          "-vf", f"crop=iw*{w:.3f}:ih*{h:.3f}:iw*{x:.3f}:ih*{y:.3f},scale=48:48,format=gray",
+                          "-f", "rawvideo", "-"], capture_output=True, timeout=60)
+    px = res.stdout
+    if res.returncode != 0 or len(px) < 48 * 48:
+        return False
+    mean = sum(px) / len(px)
+    std = (sum((p - mean) ** 2 for p in px) / len(px)) ** 0.5
+    return std >= float(_cfg().get("facecam_min_contrast", 18)) and 15 <= mean <= 240
+
+
+def download(cands: list[dict]) -> list[dict]:
+    """Downloads + checks the candidates a few at a time (one by one took ~18 min for 40 clips).
+    The result keeps the candidates' order (most viewed first)."""
+    from concurrent.futures import ThreadPoolExecutor
     RAW_DIR.mkdir(parents=True, exist_ok=True)
+    workers = max(1, int(_cfg().get("download_workers", 4)))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        results = list(pool.map(_fetch_one, cands))
     out, why = [], {}
-    for x in cands:
-        path = RAW_DIR / f"long_{re.sub(r'[^a-zA-Z0-9]', '_', x['key'])[:50]}.mp4"
-        cand = Candidate(key=x["key"], url=x["url"], title=x["title"], uploader=x["streamer"],
-                         provider=f"{x['platform']}_clip", duration=x["duration"], kind="stream",
-                         media_url=x.get("media_url") or None)
-        try:
-            ok = _download(cand, 0, int(x["duration"]) + 1, path)
-        except Exception as exc:  # noqa: BLE001
-            log.info("[long] download failed %s: %.100s", x["key"], exc)
-            ok = False
-        if not ok:
-            why[f"download failed ({x['platform']})"] = why.get(f"download failed ({x['platform']})", 0) + 1
-            continue
-        info = probe(path)
-        if min(info["width"], info["height"]) < 480 or info["duration"] < 6:
-            r = f"low res ({x['platform']} {info['width']}x{info['height']})" if info["duration"] >= 6 else "too short"
-            why[r] = why.get(r, 0) + 1
-            path.unlink(missing_ok=True)
-            continue
-        if not _has_audio(path):
-            why["no sound"] = why.get("no sound", 0) + 1
-            path.unlink(missing_ok=True)
-            continue
-        rep = sc.smoothness(path)
-        if rep > float(_cfg().get("max_repeated_frames", 0.2)):
-            why["choppy"] = why.get("choppy", 0) + 1
-            log.info("[long] ✋ %s (%s, %s) is choppy: %.0f%% repeated frames", x["key"], x["streamer"], x["platform"],
-                     rep * 100)
-            path.unlink(missing_ok=True)
-            continue
-        out.append({**x, "path": path, "dur": info["duration"], "repeat": rep})
+    for clip, reason in results:
+        if clip:
+            out.append(clip)
+        elif reason:
+            why[reason] = why.get(reason, 0) + 1
     log.info("[long] downloaded %d/%d clips (skipped: %s)", len(out), len(cands), why)
     return out
 
@@ -123,21 +160,58 @@ REVIEW_PROMPT = """You are the editor of "{brand}", a GTA 6 channel. The attache
 clips joined one after another. Clip time ranges in this video:
 {ranges}
 For EACH clip judge honestly and write:
-- is_gta6_footage: true only if the game shown is real Grand Theft Auto VI.
+- is_gta6_footage: true only if real Grand Theft Auto VI GAMEPLAY is on screen for most of the clip. A streamer
+  only talking / eating / reacting at the desk with no game visible = false.
+- broken: true if the picture is corrupted (pixelated blocks, green / purple smears, glitching image), mostly
+  frozen or black.
 - is_spoiler: true for story spoilers (story cutscenes, plot reveals, endings, character deaths).
 - is_english: true if the streamer speaks English (or nobody talks); false for any other language.
-- unsafe: true ONLY for nudity, slurs / hate speech, real-world violence, doxxing - things YouTube removes.
-  In-game violence, crime, police chases and the streamer swearing are normal GTA content and are NOT unsafe.
+- unsafe: true for nudity or sexual content - IN-GAME TOO (strip clubs, lap dances, topless / naked characters,
+  sex scenes, shower scenes) - and for slurs / hate speech, real-world violence, doxxing: things YouTube
+  age-restricts or removes. In-game violence, crime, police chases and the streamer swearing are normal GTA
+  content and are NOT unsafe.
 - hype_score 1-10: how funny / wild / shareable the moment and the streamer's reaction are (strict).
 - label: max 6 words, Title Case, what happens ("Kai Cenat Vs The Yacht"). No spoilers of the punchline.
 - line: what our narrator says right before it plays: 8-20 words, casual YouTuber voice, names the streamer,
-  builds curiosity without giving away the punchline ("Number seven, Kai thought a jet ski could outrun a police
-  helicopter. It could not.").  Say "GTA 6", never "GTA VI".
+  builds curiosity without giving away the punchline ("Kai thought a jet ski could outrun a police helicopter.
+  It could not."). NO numbers or rankings in the line (the countdown number is added later). Say "GTA 6".
 - trim_start / trim_end: seconds WITHIN that clip (0 = start of the clip) of the best part, 10-45 seconds.
-- best_t: second within the clip with the most eye-catching frame (for the thumbnail).
-Return ONLY JSON: {{"clips": [{{"clip": number, "is_gta6_footage": bool, "is_spoiler": bool, "unsafe": bool,
- "is_english": bool, "hype_score": int, "label": str, "line": str, "trim_start": number, "trim_end": number,
- "best_t": number}}]}}"""
+- best_t: second within the clip with the most eye-catching frame / the punchline (for the replay + thumbnail).
+- facecam: [x, y, w, h] as fractions of the frame (0-1) where the streamer's webcam is, or null if there is none.
+Return ONLY JSON: {{"clips": [{{"clip": number, "is_gta6_footage": bool, "broken": bool, "is_spoiler": bool,
+ "unsafe": bool, "is_english": bool, "hype_score": int, "label": str, "line": str, "trim_start": number, "trim_end": number,
+ "best_t": number, "facecam": [number, number, number, number] | null}}]}}"""
+
+
+def _bbox(v) -> list | None:
+    """AI facecam box [x, y, w, h] (fractions) -> validated, or None."""
+    try:
+        x, y, w, h = (float(t) for t in v)
+    except (TypeError, ValueError):
+        return None
+    if max(x, y, w, h) > 1.5:  # pixels or percent -> assume percent
+        x, y, w, h = (t / 100 for t in (x, y, w, h))
+    if not (0 <= x < 1 and 0 <= y < 1 and 0.08 <= w <= 0.6 and 0.08 <= h <= 0.6 and x + w <= 1.02 and y + h <= 1.02):
+        return None
+    return [round(x, 3), round(y, 3), round(min(w, 1 - x), 3), round(min(h, 1 - y), 3)]
+
+
+_NUM_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
+              "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty"]
+
+
+def _strip_rank(line: str) -> str:
+    """Remove any 'Number seven,' / '#7:' / 'At number 3' the AI put in - the real rank is added at render time."""
+    pat = r"^\s*(at\s+)?(number|no\.?|#)\s*(\d+|" + "|".join(_NUM_WORDS) + r")\b[\s,.:;!-]*"
+    return re.sub(pat, "", line, flags=re.I).strip()
+
+
+def _ranked(n: int, line: str) -> str:
+    """The narrator says the SAME number the title card shows."""
+    word = _NUM_WORDS[n] if n < len(_NUM_WORDS) else str(n)
+    body = _strip_rank(line)
+    body = body[:1].upper() + body[1:]
+    return f"Number {word}. {body}" if body else ""
 
 
 def _proxy(path: Path, out: Path) -> bool:
@@ -203,7 +277,8 @@ def review(moments: list[dict], brand: str) -> list[dict]:
             v = verdicts.get(i)
             if not v:
                 continue
-            reason = ("not GTA 6" if not v.get("is_gta6_footage") else "spoiler" if v.get("is_spoiler")
+            reason = ("not GTA 6" if not v.get("is_gta6_footage") else "broken picture" if v.get("broken")
+                      else "spoiler" if v.get("is_spoiler")
                       else "not English" if v.get("is_english") is False else "unsafe" if v.get("unsafe") else None)
             if reason:
                 log.info("[long] ✋ %s (%s): %s", m["key"], m["streamer"], reason)
@@ -217,9 +292,13 @@ def review(moments: list[dict], brand: str) -> list[dict]:
                 a, e = 0.0, min(m["dur"], 45.0)
             if e - a < 10:
                 continue
+            cam = _bbox(v.get("facecam"))
+            if cam and not _region_ok(m["path"], float(v.get("best_t") or (a + e) / 2), cam):
+                log.info("[long] %s: the AI's webcam position shows no picture - no facecam for this clip", m["key"])
+                cam = None
             reviewed.append({**m, "hype": int(v.get("hype_score") or 0), "label": str(v.get("label") or m["title"])[:60],
                              "line": str(v.get("line") or "").strip(), "a": a, "b": min(e, a + 45),
-                             "best_t": float(v.get("best_t") or (a + e) / 2)})
+                             "best_t": float(v.get("best_t") or (a + e) / 2), "facecam": cam})
         reel.unlink(missing_ok=True)
         log.info("[long] batch %d: %d/%d clips passed", b // size + 1,
                  sum(1 for r in reviewed if r["key"] in {m["key"] for m in batch}), len(batch))
@@ -273,7 +352,11 @@ def package(moments: list[dict], brand: str) -> dict:
 
 FIT = ("split=2[a][b];[a]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,boxblur=20:2,"
        "eq=brightness=-0.15[bg];[b]scale=1920:1080:force_original_aspect_ratio=decrease[fg];"
-       "[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1,fps=30,format=yuv420p")
+       "[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1,fps=30,eq=contrast=1.06:saturation=1.12,"
+       "unsharp=5:5:0.45:5:5:0.0,format=yuv420p")
+# (5) audio polish: rumble cut, light noise reduction, compression, even loudness, limiter (no distortion)
+AUDIO_POLISH = ("highpass=f=70,afftdn=nr=8:nf=-42,acompressor=threshold=-20dB:ratio=3:attack=5:release=120,"
+                "loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000,alimiter=limit=0.95")
 ENC = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2"]
 
 
@@ -283,25 +366,83 @@ def _has_audio(path: Path) -> bool:
     return bool(res.stdout.strip())
 
 
-def _segment(src: Path, a: float, b: float, out: Path, silent_ok: bool = False) -> bool:
-    """One piece of the video: 1920x1080/30fps, even loudness. Audio and video are cut to EXACTLY the same
-    length (whole frames) - otherwise tiny differences add up over 15 clips and the sound drifts out of sync."""
-    d = round((b - a) * 30) / 30
-    vchain = f"[0:v]{FIT},trim=duration={d:.4f},setpts=PTS-STARTPTS[v]"
+def _segment(src: Path, a: float, b: float, out: Path, silent_ok: bool = False, keep: list | None = None,
+             speed: float = 1.0, crop: list | None = None) -> bool:
+    """One piece of the video: 1920x1080/30fps, polished audio. Audio and video are cut to EXACTLY the same
+    length (whole frames) - otherwise tiny differences add up over 15 clips and the sound drifts out of sync.
+    keep: [(x, y)] source ranges to keep (jump cuts); speed < 1 = slow motion; crop = [x, y, w, h] fractions."""
+    pre_v, pre_a = "", ""
+    if keep:  # jump cuts: drop the quiet / dead parts, timestamps rebuilt so sound stays in sync
+        expr = "+".join(f"between(t,{x - a:.3f},{y - a:.3f})" for x, y in keep)
+        pre_v = f"select='{expr}',setpts=N/(30*TB),"
+        pre_a = f"aselect='{expr}',asetpts=N/SR/TB,"
+        d = round(sum(y - x for x, y in keep) * 30) / 30
+    else:
+        d = round((b - a) * 30) / 30
+    slow_v, slow_a = "", ""
+    if speed != 1.0:
+        slow_v, slow_a = f",setpts=PTS/{speed}", f"atempo={speed},"
+        d = round(d / speed * 30) / 30
+    crop_v = (f"crop=iw*{crop[2]:.3f}:ih*{crop[3]:.3f}:iw*{crop[0]:.3f}:ih*{crop[1]:.3f},"
+              "scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,") if crop else ""
+    vchain = f"[0:v]fps=30,{pre_v}{crop_v}{FIT}{slow_v},trim=duration={d:.4f},setpts=PTS-STARTPTS[v]"
     if _has_audio(src):
-        achain = (f"[0:a]aresample=48000,aformat=channel_layouts=stereo,loudnorm=I=-16:TP=-1.5:LRA=11,"
-                  f"aresample=48000,apad,atrim=duration={d:.4f},asetpts=PTS-STARTPTS[a]")
+        achain = (f"[0:a]aresample=48000,aformat=channel_layouts=stereo,{pre_a}{slow_a}{AUDIO_POLISH},"
+                  f"apad,atrim=duration={d:.4f},asetpts=PTS-STARTPTS[a]")
     elif silent_ok:
         achain = f"anullsrc=r=48000:cl=stereo,atrim=duration={d:.4f}[a]"
     else:
         log.info("[long] %s has no sound - not used", src.name)
         return False
-    res = run(["ffmpeg", "-y", "-ss", f"{a:.3f}", "-t", f"{d + 0.5:.3f}", "-i", str(src), "-filter_complex",
+    res = run(["ffmpeg", "-y", "-ss", f"{a:.3f}", "-t", f"{(b - a) + 0.5:.3f}", "-i", str(src), "-filter_complex",
                f"{vchain};{achain}", "-map", "[v]", "-map", "[a]", *ENC, str(out)], timeout=600)
     if res.returncode != 0 or not out.exists() or probe(out)["duration"] < 1:
         log.warning("[long] could not prepare %s: %.300s", src.name, res.stderr[-300:])
         return False
     return True
+
+
+def _jump_keep(src: Path, a: float, b: float, protect: float) -> list | None:
+    """Ranges to keep inside [a, b]: quiet stretches (no talking, no action sound) over 1 s are cut out,
+    except around the punchline. None = nothing worth cutting."""
+    if not _cfg().get("jump_cuts", True):
+        return None
+    res = run(["ffmpeg", "-hide_banner", "-ss", f"{a:.3f}", "-t", f"{b - a:.3f}", "-i", str(src), "-vn", "-af",
+               "silencedetect=noise=-35dB:d=1.0", "-f", "null", "-"], timeout=120)
+    quiet = []
+    for st, en in zip(re.findall(r"silence_start: ([\d.]+)", res.stderr), re.findall(r"silence_end: ([\d.]+)", res.stderr)):
+        x, y = a + float(st) + 0.3, a + float(en) - 0.3  # keep a little air around each cut
+        if y - x >= 0.7 and not (x - 1.5 <= protect <= y + 1.5):
+            quiet.append((x, y))
+    # frozen picture in the stream itself (lag) - always cut out
+    fr = run(["ffmpeg", "-hide_banner", "-ss", f"{a:.3f}", "-t", f"{b - a:.3f}", "-i", str(src), "-an", "-vf",
+              "scale=320:-2,freezedetect=n=0.003:d=0.8", "-f", "null", "-"], timeout=180)
+    fs = re.findall(r"freeze_start: ([\d.]+)", fr.stderr)
+    fe = re.findall(r"freeze_end: ([\d.]+)", fr.stderr) + [str(b - a)] * 3
+    for st, en in zip(fs, fe):
+        quiet.append((a + float(st) - 0.05, a + float(en) + 0.05))
+    quiet = sorted(quiet)
+    merged = []
+    for x, y in quiet:  # overlapping cuts -> one
+        if merged and x <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], y))
+        else:
+            merged.append((max(a, x), min(b, y)))
+    quiet = merged
+    if not quiet:
+        return None
+    keep, cur = [], a
+    for x, y in quiet:
+        if x > cur:
+            keep.append((cur, x))
+        cur = y
+    if cur < b:
+        keep.append((cur, b))
+    kept = sum(y - x for x, y in keep)
+    if kept < 10 or len(keep) > 8:
+        return None
+    log.info("[cut] jump cuts: %.1fs -> %.1fs (%d dead part(s) removed)", b - a, kept, len(quiet))
+    return keep
 
 
 def _join(segs: list[Path], out: Path) -> bool:
@@ -338,7 +479,8 @@ def _t(sec: float) -> str:
     return f"{int(h)}:{int(m):02d}:{s:05.2f}"
 
 
-def _build_ass(path: Path, title: str, cards: list[dict], outro_at: float, total: float, handle: str) -> None:
+def _build_ass(path: Path, title: str, cards: list[dict], outro_at: float, total: float, handle: str,
+               inserts: list | None = None, brand: str = "") -> None:
     font = load_config().get("video", {}).get("font", "Montserrat")
     head = f"""[Script Info]
 ScriptType: v4.00+
@@ -355,6 +497,8 @@ Style: Label,{font},64,&H00FFFFFF,&H00FFFFFF,&H00000000,&HA0000000,-1,0,0,0,100,
 Style: Who,{font},40,&H0000F0FF,&H00FFFFFF,&H00000000,&HA0000000,-1,0,0,0,100,100,1,0,3,12,0,7,70,70,320,1
 Style: Outro,{font},90,&H00FFFFFF,&H00FFFFFF,&H00000000,&HB0000000,-1,0,0,0,100,100,1,0,3,22,0,5,80,80,0,1
 Style: Handle,{font},34,&H90FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,1,0,1,3,0,3,40,40,30,1
+Style: Brand,{font},110,&H0000F0FF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,4,0,1,10,5,5,80,80,0,1
+Style: Tag,{font},70,&H00FFFFFF,&H00FFFFFF,&H000000C0,&H000000C0,-1,0,0,0,100,100,3,0,3,18,0,9,70,70,60,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -362,8 +506,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     import textwrap
     short = re.sub(r"\s*[\(\[].*?[\)\]]", "", title).strip().upper()  # drop "(IShowSpeed, Kai...)"
     wrapped = "\\N".join(textwrap.wrap(_ass_text(short), 26)[:3])
-    ev = [f"Dialogue: 2,{_t(0)},{_t(cards[0]['start'] if cards else 4)},Title,,0,0,0,,{{\\fad(200,200)}}"
-          f"{wrapped}"]
+    ev = []
+    if brand:  # 1.4 s branded sting before the title
+        ev.append(f"Dialogue: 4,{_t(0)},{_t(1.4)},Brand,,0,0,0,,{{\\fad(80,250)\\fscx60\\fscy60"
+                  f"\\t(0,220,\\fscx105\\fscy105)\\t(220,380,\\fscx100\\fscy100)}}{_ass_text(brand.upper())}")
+    ev.append(f"Dialogue: 2,{_t(1.2 if brand else 0)},{_t(cards[0]['start'] if cards else 4)},Title,,0,0,0,,"
+              f"{{\\fad(200,200)}}{wrapped}")
+    for ins in inserts or []:
+        ev.append(f"Dialogue: 4,{_t(ins['start'] + 0.1)},{_t(ins['end'] - 0.1)},Tag,,0,0,0,,{{\\fad(100,150)}}"
+                  f"{_ass_text(ins['label'])}")
     for cd in cards:
         a, b = cd["start"] + 0.2, cd["start"] + 4.5
         pop = "{\\fad(150,250)\\fscx70\\fscy70\\t(0,180,\\fscx100\\fscy100)}"
@@ -385,7 +536,7 @@ def _font_file() -> str:
     return "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
 
-def thumbnail(src: Path, t: float, text: str, out: Path) -> Path | None:
+def thumbnail(src: Path, t: float, text: str, out: Path, cam: list | None = None) -> Path | None:
     """1280x720 thumbnail: the #1 moment's best frame, punchier colours, huge text with a thick outline."""
     words = text.split()
     lines = [text]
@@ -405,6 +556,10 @@ def thumbnail(src: Path, t: float, text: str, out: Path) -> Path | None:
                     f":borderw={max(8, size // 12)}:bordercolor=black:x=(w-text_w)/2:y={y}")
     vf = "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,eq=saturation=1.4:contrast=1.12," \
          "drawbox=x=0:y=ih*0.45:w=iw:h=ih*0.55:color=black@0.35:t=fill," + ",".join(draw)
+    if cam:  # the streamer's reaction, big, top-right with a white frame (classic pro thumbnail)
+        cx, cy, cw, ch = cam
+        vf = (f"split=2[m][c];[c]crop=iw*{cw}:ih*{ch}:iw*{cx}:ih*{cy},scale=-2:380,pad=iw+16:ih+16:8:8:white[cam];"
+              f"[m]{vf}[base];[base][cam]overlay=W-w-30:30")
     dur = probe(src)["duration"] or 0
     t = min(max(0.0, t), max(0.0, dur - 0.5))  # the AI's "best frame" can point past the end of the clip
     plain = "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,eq=saturation=1.4:contrast=1.12"
@@ -424,8 +579,35 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str) -> dict | None:
     READY_DIR.mkdir(parents=True, exist_ok=True)
     c = _cfg()
     top = moments[-1]  # #1 (moments are in countdown order: worst first)
-    # narration first (Fenrir): its lengths decide the cold-open length; the video still works without it
-    texts = [pkg["intro_line"]] + [m.get("line") or "" for m in moments] + [pkg["outro_line"]]
+    # 1) prepare every moment (jump cuts) + the punchline inserts first, so the final countdown numbers are known
+    prepared = []
+    n_all = len(moments)
+    for i, m in enumerate(moments):
+        out = LONG_DIR / f"seg_{i:02d}.mp4"
+        keep = _jump_keep(m["path"], m["a"], m["b"], m["best_t"])
+        if not _segment(m["path"], m["a"], m["b"], out, keep=keep):
+            log.warning("[long] could not prepare %s - dropped", m["key"])
+            continue
+        ins, label = None, ""
+        if i >= n_all - int(c.get("replays", 3)) and c.get("punchline_inserts", True):
+            ins = LONG_DIR / f"ins_{i:02d}.mp4"
+            bt = min(max(m["best_t"], 1.2), m["dur"] - 1.6)
+            if m.get("facecam") and _region_ok(m["path"], bt, m["facecam"]) and \
+                    _segment(m["path"], bt - 0.6, bt + 1.8, ins, crop=m["facecam"]):
+                label = "REACTION"
+            elif _segment(m["path"], bt - 1.0, bt + 0.9, ins, speed=0.55):
+                label = "REPLAY"
+            else:
+                ins = None
+        prepared.append({"m": m, "seg": out, "ins": ins, "label": label})
+    if len(prepared) < 3:
+        return None
+    n = len(prepared)
+    for k, pr in enumerate(prepared):  # the narrator says exactly the number the card shows
+        pr["n"] = n - k
+        pr["line"] = _ranked(pr["n"], pr["m"].get("line") or "")
+    # 2) narration (Fenrir) with the final numbers; its lengths decide the cold-open length
+    texts = [pkg["intro_line"]] + [pr["line"] for pr in prepared] + [pkg["outro_line"]]
     voice_by_text: dict[str, dict] = {}
     try:
         spoken = [t for t in texts if t.strip()]
@@ -434,8 +616,8 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str) -> dict | None:
     except HumanVoiceUnavailable as exc:
         log.warning("[long] narration skipped: %s", exc)
     intro_v = voice_by_text.get(pkg["intro_line"])
-    segs, cards, voiced = [], [], []
-    # cold open: #1 around its best frame, long enough for the intro line
+    segs, cards, voiced, inserts = [], [], [], []
+    # 3) cold open: #1 around its best frame, long enough for the intro line
     teaser = LONG_DIR / "seg_teaser.mp4"
     t_len = min(9.0, max(float(c.get("teaser_sec", 4.0)), (intro_v["dur"] + 0.8) if intro_v else 0))
     ta = max(0.0, min(top["best_t"] - t_len / 2, top["dur"] - t_len))
@@ -444,26 +626,23 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str) -> dict | None:
     cursor = sum(_vdur(s) for s in segs)
     if intro_v and segs:
         voiced.append({**intro_v, "t": 0.3})
-    n = len(moments)
-    for i, m in enumerate(moments):
-        out = LONG_DIR / f"seg_{i:02d}.mp4"
-        if not _segment(m["path"], m["a"], m["b"], out):
-            log.warning("[long] could not prepare %s - dropped", m["key"])
-            continue
-        d = _vdur(out)
-        num = n - i
-        cards.append({"start": cursor, "n": num, "label": m["label"],
+    # 4) timeline: card + voice line + moment (+ REPLAY / REACTION insert)
+    for pr in prepared:
+        m, d = pr["m"], _vdur(pr["seg"])
+        cards.append({"start": cursor, "n": pr["n"], "label": m["label"],
                       "who": f"{m['streamer']} on {m['platform'].title()}", "m": m})
-        v = voice_by_text.get(m.get("line") or "")
+        v = voice_by_text.get(pr["line"])
         if v and v["dur"] < d - 0.6:  # a line longer than its moment would talk over the next one
             voiced.append({**v, "t": cursor + 0.35})
-        segs.append(out)
+        segs.append(pr["seg"])
         cursor += d
+        if pr["ins"] is not None:
+            di = _vdur(pr["ins"])
+            inserts.append({"start": cursor, "end": cursor + di, "label": pr["label"]})
+            segs.append(pr["ins"])
+            cursor += di
     if len(cards) < 3:
         return None
-    # renumber if some segments were dropped
-    for k, cd in enumerate(cards):
-        cd["n"] = len(cards) - k
     outro_at = cursor
     frame = LONG_DIR / "outro.jpg"
     run(["ffmpeg", "-y", "-ss", f"{top['best_t']:.2f}", "-i", str(top["path"]), "-frames:v", "1", str(frame)], timeout=60)
@@ -487,7 +666,8 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str) -> dict | None:
 
     ass = LONG_DIR / f"{clip_id}.ass"
     handle = load_config().get("brand", {}).get("handles", {}).get("youtube", "")
-    _build_ass(ass, pkg["title"], cards, outro_at, total, handle)
+    _build_ass(ass, pkg["title"], cards, outro_at, total, handle, inserts,
+               brand=load_config().get("brand", {}).get("display_name", "") if c.get("intro_sting", True) else "")
 
     inputs, chains, labels = ["-i", str(body)], [], []
     k = 1
@@ -497,15 +677,26 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str) -> dict | None:
         chains.append(f"[{k}:a]aresample=48000,aformat=channel_layouts=stereo,volume=1.35,adelay={ms}|{ms}[v{k}]")
         labels.append(f"[v{k}]")
         k += 1
-    sfx = _sfx("whoosh")
     sfx_labels = []
-    if sfx:
-        for cd in cards[1:] + ([{"start": outro_at}] if outro.exists() else []):
-            ms = int(max(0.0, cd["start"] - 0.25) * 1000)
-            inputs += ["-i", str(sfx)]
-            chains.append(f"[{k}:a]aresample=48000,aformat=channel_layouts=stereo,volume=0.5,adelay={ms}|{ms}[x{k}]")
-            sfx_labels.append(f"[x{k}]")
-            k += 1
+    events = [("whoosh", cd["start"] - 0.25, 0.5) for cd in cards[1:]] + \
+        ([("whoosh", outro_at - 0.25, 0.5)] if outro.exists() else []) + \
+        [("boom", ins["start"], 0.6) for ins in inserts] + ([("boom", 0.05, 0.55)] if c.get("intro_sting", True) else [])
+    for kind, at, vol in events:
+        f = _sfx(kind)
+        if not f:
+            continue
+        ms = int(max(0.0, at) * 1000)
+        inputs += ["-i", str(f)]
+        chains.append(f"[{k}:a]aresample=48000,aformat=channel_layouts=stereo,volume={vol},adelay={ms}|{ms}[x{k}]")
+        sfx_labels.append(f"[x{k}]")
+        k += 1
+    from video_processor import _music_track
+    music = _music_track()
+    if music:  # optional royalty-free bed from music/ (owner's tracks), ducked under everything
+        inputs += ["-stream_loop", "-1", "-i", str(music)]
+        chains.append(f"[{k}:a]aresample=48000,aformat=channel_layouts=stereo,volume={c.get('music_volume', 0.07)}[x{k}]")
+        sfx_labels.append(f"[x{k}]")
+        k += 1
     if labels:
         voice = "".join(labels) + f"amix=inputs={len(labels)}:normalize=0:duration=longest,apad[vo];[vo]asplit=2[vo1][vo2];"
         duck = "[0:a][vo1]sidechaincompress=threshold=0.03:ratio=5:attack=20:release=500[g];"
@@ -514,7 +705,7 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str) -> dict | None:
         voice, duck, mix_in, n_in = "", "[0:a]anull[g];", "[g]", 1
     afc = (";".join(chains) + ";" if chains else "") + voice + duck + \
         f"{mix_in}{''.join(sfx_labels)}amix=inputs={n_in + len(sfx_labels)}:normalize=0:duration=first," \
-        "loudnorm=I=-14:TP=-1.5:LRA=11[aout]"
+        "loudnorm=I=-14:TP=-1.5:LRA=11,alimiter=limit=0.95,apad[aout]"
     ass_esc = str(ass).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
     out = READY_DIR / f"{clip_id}.mp4"
     res = run(["ffmpeg", "-y", "-hide_banner", *inputs, "-filter_complex", f"[0:v]ass='{ass_esc}'[vout];{afc}",
@@ -524,13 +715,23 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str) -> dict | None:
     if res.returncode != 0 or not out.exists():
         log.error("[long] final render failed: %s", res.stderr[-1200:])
         return None
-    thumb = thumbnail(top["path"], top["best_t"], pkg["thumbnail_text"], READY_DIR / f"{clip_id}_thumb.jpg")
+    thumb = thumbnail(top["path"], top["best_t"], pkg["thumbnail_text"], READY_DIR / f"{clip_id}_thumb.jpg",
+                      cam=top.get("facecam"))
+    # two more thumbnails for YouTube Studio's "Test & Compare" (A/B test - pick all 3 there)
+    second = moments[-2] if len(moments) > 1 else top
+    thumbnail(second["path"], second["best_t"], pkg["thumbnail_text"], READY_DIR / f"{clip_id}_thumb2.jpg",
+              cam=second.get("facecam"))
+    alt = " ".join(top["label"].upper().split()[:3])
+    thumbnail(top["path"], max(0.0, top["best_t"] - 0.7), alt, READY_DIR / f"{clip_id}_thumb3.jpg")
     chapters = ["0:00 Intro"] + [f"{int(cd['start'] // 60)}:{int(cd['start'] % 60):02d} #{cd['n']} {cd['label']} "
                                  f"({cd['m']['streamer']})" for cd in cards]
     credits = [f"#{cd['n']} {cd['m']['streamer']} ({cd['m']['platform'].title()}): {cd['m']['url']}" for cd in cards]
     log.info("[long] %s: %.0fs, %d moments, narration %s, thumbnail %s", out.name, total, len(cards),
              "yes" if voiced else "no", "yes" if thumb else "no")
     return {"path": str(out), "duration": total, "thumbnail": str(thumb) if thumb else "", "chapters": chapters,
+            "placed": [{"text": v["text"], "start": v["t"], "dur": v["dur"], "path": str(v["path"])} for v in voiced],
+            "still_ok": [(outro_at, total)] + [(x["start"], x["end"]) for x in inserts if x["label"] == "REACTION"],
+            "inserts": inserts,
             "credits": credits, "moments": [{"n": cd["n"], "key": cd["m"]["key"], "label": cd["label"],
                                              "streamer": cd["m"]["streamer"], "hype": cd["m"]["hype"]} for cd in cards]}
 
@@ -540,7 +741,7 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str) -> dict | None:
 PENDING_DIR = STATE_DIR / "pending_long"  # saved with the Actions state cache until YouTube accepts it
 
 
-def _keep_for_retry(rendered: dict, caps: dict, clip_id: str) -> None:
+def _keep_for_retry(rendered: dict, caps: dict, clip_id: str, awaiting_approval: bool = False) -> None:
     """YouTube refused the upload (e.g. uploadLimitExceeded): keep the finished video and retry on the next runs."""
     PENDING_DIR.mkdir(parents=True, exist_ok=True)
     for f in PENDING_DIR.glob("*"):
@@ -549,14 +750,18 @@ def _keep_for_retry(rendered: dict, caps: dict, clip_id: str) -> None:
     if rendered.get("thumbnail"):
         shutil.copy(rendered["thumbnail"], PENDING_DIR / "thumb.jpg")
     save_json(PENDING_DIR / "meta.json", {"clip_id": clip_id, "caps": caps, "at": time.time(),
-                                          "moments": rendered.get("moments", []), "duration": rendered["duration"]})
+                                          "moments": rendered.get("moments", []), "duration": rendered["duration"],
+                                          "awaiting_approval": awaiting_approval})
     log.info("[long] kept the finished video - the upload is retried on the next runs")
 
 
-def retry_pending(dry_run: bool) -> dict | None:
-    """Upload a long video YouTube refused earlier. Returns a history-style result, or None if nothing pending."""
+def retry_pending(dry_run: bool, approve: bool = False) -> dict | None:
+    """Upload a long video YouTube refused earlier, or (approve=True) the one waiting for the owner's approval.
+    Returns a history-style result, or None if nothing to do."""
     meta_f = PENDING_DIR / "meta.json"
     if dry_run or not meta_f.exists() or not (PENDING_DIR / "video.mp4").exists():
+        return None
+    if load_json(meta_f, {}).get("awaiting_approval") and not approve:
         return None
     from publisher import _available, youtube_api_upload, youtube_set_thumbnail
     if not _available("youtube_api", "youtube"):
@@ -647,8 +852,28 @@ def run_long(dry_run: bool) -> tuple[bool, dict]:
         "TITLE:\n" + caps["youtube_title"] + "\n\nDESCRIPTION:\n" + caps["youtube_description"] + "\n\nTAGS:\n"
         + ", ".join(dict.fromkeys(caps["tags"])) + "\n\nPINNED COMMENT:\n" + caps["first_comment"]
         + "\n\nTHUMBNAIL: " + Path(rendered.get("thumbnail") or "none").name + "\n", encoding="utf-8")
+    # strict QA: technical checks, Whisper voice-vs-captions check, AI editor watching the final video
+    import qa
+    verdict = qa.check(Path(rendered["path"]), "long", lines=rendered.get("placed"), still_ok=rendered.get("still_ok"),
+                       context="FOOTAGE SOURCE VERIFIED: every clip comes from streamers playing GTA VI live on "
+                               "Twitch / Kick (the GTA VI category) - it IS GTA VI, do not judge which game it is. "
+                               "16:9 countdown of GTA 6 livestream moments. Title cards show '#N  label  streamer'; "
+                               "after the top moments a REPLAY (slow motion) or REACTION (facecam close-up) insert is "
+                               "intentional; the last seconds are a static 'subscribe' card. Narration lines: "
+                               + " | ".join(p_["text"] for p_ in rendered.get("placed", [])))
     results = {}
-    if not dry_run:
+    awaiting = False
+    if not verdict["pass"]:
+        log.error("[long] ✋ the long video FAILED QA - not publishing it (report + video are in the run's Artifacts)")
+        results["youtube"] = {"ok": False, "error": "failed QA: " + " / ".join(verdict["report"].splitlines()[1:4]),
+                              "provider": "qa"}
+    elif not dry_run and c.get("require_approval", True):
+        # the owner watches it first: video, thumbnails, upload text + QA report are in the Artifacts;
+        # publish by hand, or run the workflow with slot "approve_long" to let the bot upload it
+        _keep_for_retry(rendered, caps, clip_id, awaiting_approval=True)
+        awaiting = True
+        log.info("[long] ✅ passed QA - waiting for the owner's approval (slot approve_long, or upload by hand)")
+    elif not dry_run:
         try:
             yt = youtube_api_upload(Path(rendered["path"]), caps)
             if rendered["thumbnail"] and yt.get("id"):
@@ -658,18 +883,20 @@ def run_long(dry_run: bool) -> tuple[bool, dict]:
             results["youtube"] = {"ok": False, "error": str(exc)[:300], "provider": "youtube_api"}
             log.error("[long] YouTube upload failed: %.400s", exc)
             _keep_for_retry(rendered, caps, clip_id)
-    ok = dry_run or results.get("youtube", {}).get("ok", False)
-    record = {"id": clip_id, "slot": "long_video", "format_id": "long_daily",
+    ok = (dry_run and verdict["pass"]) or awaiting or results.get("youtube", {}).get("ok", False)
+    record = {"id": clip_id, "slot": "long_video", "format_id": "long_daily", "qa": verdict["report"],
               "created_at": datetime.now(timezone.utc).isoformat(), "copy": {**pkg, "banner": pkg["title"]},
               "rendered": rendered["path"], "duration": rendered["duration"], "moments": rendered["moments"],
               "thumbnail": rendered["thumbnail"], "results": results, "dry_run": dry_run,
-              "status": "published" if ok and not dry_run else ("dry_run" if dry_run else "failed"),
+              "status": ("awaiting_approval" if awaiting else "published" if ok and not dry_run
+                         else ("dry_run" if dry_run else "failed")),
               "source": {"title": pkg["title"], "url": "", "credit": ", ".join(m["streamer"] for m in chosen),
                          "provider": "stream_clips", "section": [], "segments": []}}
     if ok and not dry_run:
         from source_fetcher import load_manifest, save_manifest
         mf = load_manifest()
-        mf["items"].append(record)
+        if not awaiting:
+            mf["items"].append(record)
         save_manifest(mf)
         state["used"] = (state.get("used", []) + [m["key"] for m in chosen])[-2000:]
         state["videos"] = (state.get("videos", []) + [{"id": clip_id, "at": time.time(),
