@@ -836,8 +836,15 @@ _TEXT_FALLBACK = {
 
 def write_text_post(kind: str, recent_texts: list[str], todays_clips: list[str]) -> str:
     kind = kind if kind in TEXT_KINDS else "x_text_morning"
+    try:  # what GTA 6 players search for / talk about today (trend radar) - posts that join the conversation
+        import trends
+        hot = trends.context_line()
+    except Exception:  # noqa: BLE001
+        hot = ""
+    hot = f"\nWHAT PLAYERS TALK ABOUT TODAY: {hot} (use it if it fits - a question or poll about a hot topic gets " \
+          "the most replies)" if hot else ""
     prompt = f"""You run the X account of "{load_config().get('brand', {}).get('display_name', 'GTA VI Top Moments')}".
-CONTEXT: {_game_context()}
+CONTEXT: {_game_context()}{hot}
 Write {TEXT_KINDS[kind]}.
 Clips we posted today: {todays_clips or 'none yet'}.
 Rules: max 230 characters, conversational, at most 1-2 emojis, at most 1 hashtag, NO links,

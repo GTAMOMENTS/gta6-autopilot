@@ -15,46 +15,63 @@
   },
   "schedule": [
     {
-      "time": "09:50",
+      "time": "16:50",
       "type": "x_text_morning",
       "platforms": [
         "x"
-      ]
+      ],
+      "_note": "X text: question / poll (US morning)"
     },
     {
-      "time": "16:20",
+      "time": "19:40",
+      "type": "vertical_clip",
+      "platforms": [
+        "instagram",
+        "x",
+        "youtube"
+      ],
+      "platform_from": {
+        "youtube": "2026-11-27T00:00:00Z"
+      },
+      "_note": "Video A: normal rotation (11:40 New York). YouTube Shorts from week 2 (upload limit)."
+    },
+    {
+      "time": "22:10",
       "type": "x_question_nostalgia",
       "platforms": [
         "x"
-      ]
+      ],
+      "_note": "X text: hot take / this-or-that poll"
     },
     {
-      "time": "20:10",
+      "time": "01:40",
+      "type": "money_clip",
+      "format": "money_tips",
+      "platforms": [
+        "instagram",
+        "x",
+        "tiktok",
+        "youtube"
+      ],
+      "_note": "Video B: GTA 6 Money Tip #N (17:40 New York, US prime time)"
+    },
+    {
+      "time": "04:20",
+      "type": "x_daily_recap",
+      "platforms": [
+        "x"
+      ],
+      "_note": "X text: daily recap"
+    },
+    {
+      "time": "15:10",
       "type": "long_video",
       "platforms": [
         "youtube"
       ],
       "every_days": 3,
-      "not_before": "2026-11-22T16:00:00Z",
-      "_note": "First long video published by hand on 2026-11-19; automatic ones start 2026-11-22 20:10 TRT, then every 3 days."
-    },
-    {
-      "time": "22:20",
-      "type": "x_daily_recap",
-      "platforms": [
-        "x"
-      ]
-    },
-    {
-      "time": "23:40",
-      "type": "vertical_clip",
-      "platforms": [
-        "instagram",
-        "tiktok",
-        "youtube",
-        "x"
-      ],
-      "every_days": 2
+      "not_before": "2026-11-23T11:00:00Z",
+      "_note": "Long video every 3 days, ready ~17:00 TRT for the owner to publish ~22:00 TRT (never auto-published). The money guide of 2026-11-20 is published by hand; the next automatic one is 2026-11-23."
     }
   ],
   "publishing": {
@@ -663,7 +680,7 @@
   ],
   "formats": {
     "enabled": true,
-    "_note": "Every video run makes the NEXT format in this list (position saved in queue/format_rotation.json). Set \"enabled\": false on one to skip it.",
+    "_note": "Video A makes the NEXT format in this list (+ learning + trends); formats with slot_only (the Money Tip) are made only by their own slot (Video B). 'trending' follows the trend radar (trends.py). Position in queue/format_rotation.json.",
     "rotation": [
       {
         "id": "top5_funny",
@@ -852,6 +869,124 @@
           "#GTA6Stream",
           "#GTA6Funny"
         ]
+      },
+      {
+        "id": "money_tips",
+        "name": "GTA 6 Money Tip",
+        "kind": "gameplay",
+        "slot_only": true,
+        "use_trends": true,
+        "trend_min_demand": 7,
+        "brief": "A GTA 6 MONEY TIP: explain the ONE way to make money that this footage actually shows - what the player does and where, step by step, in 'you' form, so viewers can copy it. Amounts ONLY if the cash / HUD number is visible on screen or said in the footage - never invent numbers, prices or payouts. Never story missions, story heists or spoilers; no glitches or exploits. Line 1 is the hook that names the payoff ('This is the easiest money in GTA 6 right now'). End with a question ('How much did you make?').",
+        "banner_example": "GTA 6 MONEY TIP: SELL CARS",
+        "title_example": "GTA 6 Money Tip: The EASIEST Cash Right Now",
+        "queries": [
+          "GTA 6 how to make money",
+          "GTA 6 money making no commentary",
+          "GTA 6 fast money gameplay",
+          "GTA 6 make money early no commentary",
+          "GTA 6 easy money"
+        ],
+        "title_terms": [
+          "money",
+          "cash",
+          "rich",
+          "earn",
+          "make money",
+          "sell",
+          "selling",
+          "payout",
+          "robbery",
+          "business"
+        ],
+        "series": "GTA 6 Money Tip",
+        "keywords": "GTA 6 money tip how to make money fast",
+        "hashtags": [
+          "#GTA6Money",
+          "#GTA6Tips"
+        ],
+        "topics": [
+          {
+            "topic": "Fastest Early-Game Money",
+            "angle": "the quickest way to get cash in your first hours, no story spoilers",
+            "queries": [
+              "GTA 6 how to make money early",
+              "GTA 6 early game money no commentary",
+              "GTA 6 first money gameplay"
+            ]
+          },
+          {
+            "topic": "Selling Cars For Cash",
+            "angle": "stealing and selling cars - where it works and what you get",
+            "queries": [
+              "GTA 6 selling cars",
+              "GTA 6 sell stolen car no commentary",
+              "GTA 6 car selling gameplay"
+            ]
+          },
+          {
+            "topic": "Best Side Jobs",
+            "angle": "side jobs / activities in the open world that pay well",
+            "queries": [
+              "GTA 6 side jobs money",
+              "GTA 6 side activities money no commentary",
+              "GTA 6 side hustle"
+            ]
+          },
+          {
+            "topic": "Store Robberies",
+            "angle": "robbing stores in the open world: how it works and what you get",
+            "queries": [
+              "GTA 6 store robbery",
+              "GTA 6 robbing stores no commentary",
+              "GTA 6 robbery gameplay"
+            ]
+          },
+          {
+            "topic": "Collectibles Worth Money",
+            "angle": "things to find or pick up that are worth money",
+            "queries": [
+              "GTA 6 collectibles money",
+              "GTA 6 collectibles no commentary",
+              "GTA 6 hidden money"
+            ]
+          },
+          {
+            "topic": "Best First Things To Buy",
+            "angle": "what to spend your first money on (shown in game)",
+            "queries": [
+              "GTA 6 what to buy first",
+              "GTA 6 buying property no commentary",
+              "GTA 6 best things to buy"
+            ]
+          },
+          {
+            "topic": "Money Mistakes To Avoid",
+            "angle": "ways players lose money (death, cops, wasted cars) and how to avoid them",
+            "queries": [
+              "GTA 6 losing money",
+              "GTA 6 hospital bill",
+              "GTA 6 wasted money no commentary"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "trending",
+        "name": "Trending now",
+        "kind": "gameplay",
+        "min_demand": 5,
+        "brief": "A video about what GTA 6 players are searching for RIGHT NOW (today's topic below). Show it, explain it in 'you' form, only claim what the footage shows. No story spoilers.",
+        "banner_example": "EVERYONE IS SEARCHING THIS",
+        "title_example": "Everyone Is Searching For This In GTA 6",
+        "queries": [],
+        "title_terms": [],
+        "series": "",
+        "keywords": "GTA 6",
+        "hashtags": [
+          "#GTA6Tips",
+          "#GTA6Gameplay"
+        ]
       }
     ]
   },
@@ -1010,7 +1145,9 @@
       "ohnePixel"
     ],
     "_famous_note": "Only famous English-speaking streamers: this list, the X clip accounts, or a top English live stream with famous_min_viewers+ viewers right now. The AI also rejects non-English clips.",
-    "facecam_layout": true
+    "facecam_layout": true,
+    "in_main_schedule": true,
+    "_main_schedule_note": "Owner's plan 2026-11-20: viral stream clips are part of Video A (format stream_reactions) instead of separate posts; streams.yml no longer runs on a timer."
   },
   "long_video": {
     "enabled": true,
@@ -1036,7 +1173,29 @@
     "intro_sting": true,
     "music_volume": 0.07,
     "_approval_note": "Long videos are never auto-published: after QA passes they wait for the owner (download from Artifacts, then upload by hand or run the workflow with slot approve_long).",
-    "download_workers": 4
+    "download_workers": 4,
+    "rotation": [
+      "moments",
+      "money_guide"
+    ],
+    "_rotation_note": "Long videos take turns: stream-moments countdown, then a money guide (and so on). When GTA 6 streams are quiet a trend guide (today's hottest topic) replaces the moments countdown. Each kind falls back to the others if there is not enough material.",
+    "guide_candidates": 24,
+    "guide_section_sec": 110,
+    "guide_max_items": 8,
+    "guide_min_items": 4,
+    "guide_min_usefulness": 5,
+    "guide_max_per_channel": 2,
+    "trend_min_demand": 5,
+    "money_queries": [
+      "GTA 6 how to make money",
+      "GTA 6 money making guide",
+      "GTA 6 money making no commentary",
+      "GTA 6 fast money",
+      "GTA 6 best money method",
+      "GTA 6 make money early",
+      "GTA 6 easy money no commentary"
+    ],
+    "guide_min_item_sec": 25
   },
   "whisper": {
     "enabled": true,
@@ -1048,7 +1207,7 @@
     "enabled": true,
     "_note": "A second free AI (GPT-4.1 via GitHub Models first) rewrites titles / banners / hooks for more clicks without inventing anything; originals are kept if a rewrite breaks the rules."
   },
-  "_schedule_note": "Owner's choice (2026-11-19, after YouTube's upload limit): 1 Short every 2 days (23:40 slot), 1 long video every 3 days (20:10 slot). every_days counts from the last successful post.",
+  "_schedule_note": "Owner's plan (2026-11-20): Video A (rotation) 19:40 TRT -> Instagram, X, YouTube Shorts (from week 2); Video B (GTA 6 Money Tip) 01:40 TRT -> Instagram, X, TikTok, YouTube Shorts; X texts 16:50 / 22:10 / 04:20; long video every 3 days (15:10 TRT, owner publishes). Viral stream clips are part of Video A (no separate posts). Times must match the crons in .github/workflows/main.yml.",
   "qa": {
     "enabled": true,
     "require_ai_review": true,
@@ -1060,5 +1219,32 @@
     "min_word_match": 0.6,
     "max_voice_offset": 0.6,
     "_note": "Strict QA before every publish: technical checks, Whisper voice-vs-captions, AI editor watching the final video. Any high-severity issue = not published."
+  },
+  "trends": {
+    "enabled": true,
+    "refresh_hours": 6,
+    "topics": 12,
+    "topic_cooldown_days": 4,
+    "stream_min_viewers": 20000,
+    "stream_weak_ratio": 0.35,
+    "subreddits": [
+      "GTA6",
+      "GTA"
+    ],
+    "seeds": [
+      "gta 6",
+      "gta 6 how to",
+      "gta 6 best",
+      "gta 6 money",
+      "gta 6 where",
+      "gta 6 secret",
+      "gta 6 cars",
+      "gta 6 funny",
+      "gta 6 tips",
+      "gta 6 new",
+      "gta 6 hidden",
+      "gta 6 vs"
+    ],
+    "_note": "Trend radar (free): YouTube/Google autocomplete, this week's biggest GTA 6 videos, Reddit, Twitch viewers. Streams count as 'weak' below stream_min_viewers or below stream_weak_ratio x the 7-day peak -> trend formats take over."
   }
 }

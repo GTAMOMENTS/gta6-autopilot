@@ -24,7 +24,7 @@ from common import (HISTORY_FILE, READY_DIR, env, load_config, load_json, now_lo
                     setup_logging, tz, write_summary)
 
 log = logging.getLogger("autopilot")
-VIDEO_TYPES = ("vertical_clip", "x_video_clip", "test_all")
+VIDEO_TYPES = ("vertical_clip", "money_clip", "x_video_clip", "test_all")
 SEARCH_PROVIDERS = {"dailymotion", "youtube", "twitch_clip", "twitch_vod", "x_account"}  # need the AI check
 
 
@@ -459,6 +459,9 @@ def summarize(slot: dict, sid: str, ok: bool, detail: dict, dry_run: bool) -> No
                   f"**AI check:** {cp.get('content_type', '?')}, hype {cp['hype_score']}, verified={cp['verified_by_video']} by {cp.get('ai_source', '?')} — {cp['scene_summary']}  ",
                   "**Voice lines:** " + " · ".join(f"[{ln['t']}s] {ln['text']}" for ln in
                                                    (detail.get('voice_lines') or cp.get('commentary', [])))]
+    if detail.get("streamer") and "copy" not in detail:  # Video A as a viral stream clip
+        lines.append(f"**Stream clip:** {detail.get('banner', '')} — {detail['streamer']} [{detail.get('url', '')}]"
+                     f"({detail.get('url', '')})  ")
     for plat, r in (detail.get("results") or {}).items():
         lines.append(f"- {plat}: {'✅' if r.get('ok') else '❌'} {r.get('provider', '')} {r.get('url') or r.get('error') or ''}")
     for key in ("error", "skipped"):
@@ -502,6 +505,9 @@ def main() -> int:
             return 0
         log.error("Upload refused: %s", res.get("error"))
         return 1
+    if args.slot == "trends":  # manual check of the trend radar (prints today's hot topics)
+        import trends
+        return trends.main()
     if args.slot == "stream_clip":  # manual test of the viral stream clips (normally streams.yml)
         import stream_clips
         return stream_clips.run_once(args.dry_run)
@@ -556,7 +562,22 @@ def main() -> int:
                 log.info("%s posted %.0f h ago - this slot runs every %g days, skipping", slot["type"], gap_h, every)
                 return 0
 
+    # a platform can start later (e.g. Video A goes to YouTube Shorts only from week 2: upload limit)
+    starts = slot.get("platform_from") or {}
+    if starts:
+        now_utc = datetime.now(timezone.utc)
+        later = [p for p in slot["platforms"] if starts.get(p)
+                 and now_utc < datetime.fromisoformat(starts[p].replace("Z", "+00:00"))]
+        if later:
+            log.info("%s: %s start later (%s)", slot["type"], later, {p: starts[p] for p in later})
+            slot = {**slot, "platforms": [p for p in slot["platforms"] if p not in later]}
+
     READY_DIR.mkdir(parents=True, exist_ok=True)
+    try:  # trend radar: what people search for / watch now (cached for a few hours, never breaks a run)
+        import trends
+        trends.refresh()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[trends] skipped: %.150s", exc)
     try:  # learn from views: refresh recent videos' YouTube stats (cheap, a few per run)
         import analytics
         analytics.refresh_stats()
@@ -565,17 +586,29 @@ def main() -> int:
             log.info("[learn] format scores: %s", {k: (v["score"], v["n"]) for k, v in scores.items()})
     except Exception as exc:  # noqa: BLE001
         log.warning("[learn] stats refresh skipped: %.150s", exc, exc_info=True)
-    if slot["type"] == "long_video":  # daily 5-10 min YouTube countdown of the day's best stream moments
+    if slot["type"] == "long_video":  # long YouTube video: stream-moments countdown or a guide (money / trend)
         from long_video import run_long
         ok, detail = run_long(args.dry_run)
     elif slot["type"] in VIDEO_TYPES:
-        from formats import advance_format, current_format
-        fmt = current_format(cfg)
-        ok, detail = run_video_slot(slot, args.dry_run, fmt)
+        from formats import advance_format, current_format, format_by_id, mark_topic, specialize
+        fmt = current_format(cfg, slot)
+        if fmt and fmt["id"] == "stream_reactions" and cfg.get("stream_clips", {}).get("in_main_schedule", True):
+            # the most viral famous-streamer clip right now (streamer's own voice + subtitles)
+            import stream_clips
+            ok, detail = stream_clips.run_for_slot(slot["platforms"], args.dry_run)
+            if not ok and detail.get("no_stream_clip"):
+                log.info("[streams] no viral stream clip today - following a trend instead")
+                fmt = specialize(format_by_id("trending", cfg)) or specialize(format_by_id("top5_funny", cfg)) or fmt
+                ok, detail = run_video_slot(slot, args.dry_run, fmt)
+        else:
+            ok, detail = run_video_slot(slot, args.dry_run, fmt)
         if fmt:
             detail.setdefault("format", fmt["name"])
             if not args.dry_run and "skipped" not in detail:
-                advance_format(fmt, ok)
+                if not slot.get("format"):  # Video B (fixed Money Tip) doesn't move Video A's rotation
+                    advance_format(fmt, ok)
+                if ok:
+                    mark_topic(fmt)
     else:
         ok, detail = run_text_slot(slot, args.dry_run)
 

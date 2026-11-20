@@ -3,9 +3,9 @@ name: GTA6 Viral Stream Clips
 # Every 30 min: find GTA 6 stream clips (Twitch, Kick, YouTube stream recordings) that are going viral
 # right now and post the best one with the streamer's real voice + subtitles (no AI voice-over).
 # Separate from the main schedule (own state cache + own concurrency group), so neither blocks the other.
+# Owner's plan (2026-11-20): viral stream clips are now part of Video A on the main schedule (no separate posts),
+# so this workflow no longer runs on a timer - it can still be started by hand.
 on:
-  schedule:
-    - cron: '7,37 * * * *'
   workflow_dispatch:
     inputs:
       dry_run:
