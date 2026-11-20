@@ -115,8 +115,11 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         from formats import bump_series, series_label
         import qa
         c = src.candidate
+        teaser_note = ("The first ~1.2 s is an intentional cold open: a quick flash of the big moment, which then "
+                       "plays again at its real place in the clip - that repeat is NOT a montage error. "
+                       if float(vcfg.get("fx", {}).get("teaser_sec", 0)) > 0 and not src.is_reel else "")
         verdict = qa.check(Path(rendered["path"]), "short", lines=rendered.get("placed"),
-                           context=f"Format: {(fmt or {}).get('name', '')}. Banner: {copy.get('banner')}. "
+                           context=f"{teaser_note}Format: {(fmt or {}).get('name', '')}. Banner: {copy.get('banner')}. "
                                    f"Narration lines (also burned in as captions): "
                                    + " | ".join(ln["text"] for ln in rendered.get("placed", [])))
         if not verdict["pass"]:
@@ -256,6 +259,16 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         c = src.candidate
         section = src.clip_path                     # the whole downloaded slice (~2 min)
         sec_dur = probe(section)["duration"]
+        try:  # laggy / frozen source footage looks broken (QA rejected such Shorts) - skip it before the AI
+            import stream_clips
+            rep = stream_clips.smoothness(section)
+        except Exception:  # noqa: BLE001
+            rep = 0.0
+        if rep > float(gate.get("max_repeated_frames", 0.18)):
+            log.info("[gate] ✋ rejected '%s': choppy footage (%.0f%% repeated frames)", c.title[:60], rep * 100)
+            mark_rejected(c, "choppy")
+            section.unlink(missing_ok=True)
+            continue
         energy = energy_curve(section)
         copy = write_clip_copy(section, c.title, src.credit, c.provider, c.kind, energy_hints(energy, 30, 3),
                                tour=src.is_reel, fmt=fmt)

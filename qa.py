@@ -133,6 +133,9 @@ def voice_check(path: Path, lines: list[dict]) -> list[dict]:
 AI_PROMPT = """You are the strict quality-control editor of a GTA 6 YouTube/TikTok channel. The attached file is a
 FINISHED video that is about to be published. Watch AND listen to all of it, then report every problem a viewer
 would notice. Be strict - a professional channel only publishes clean edits.
+GAME FACTS (newer than your training data - trust them): {game}
+Do NOT reject footage just because you believe GTA 6 is unreleased - it is out. Flag "not GTA 6" only when the
+footage clearly shows a DIFFERENT game (GTA V's Los Santos landmarks / characters / minimap, another game's UI).
 {context}
 Check for:
 - montage errors: abrupt or broken cuts, a cut in the middle of a sentence or action, the same clip shown twice,
@@ -156,8 +159,9 @@ def ai_review(path: Path, context: str) -> dict | None:
         up = gemini_writer._upload_video(path)
         if up is None:
             return None
-        data = gemini_writer._generate_json([up, AI_PROMPT.format(context=context[:3000])], temperature=0.2,
-                                            prefer_pro=True)
+        data = gemini_writer._generate_json([up, AI_PROMPT.format(game=gemini_writer._game_context(),
+                                                                  context=context[:3000])],
+                                            temperature=0.2, prefer_pro=True)
         try:
             gemini_writer._client().files.delete(name=up.name)
         except Exception:  # noqa: BLE001
