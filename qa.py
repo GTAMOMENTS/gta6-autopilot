@@ -9,7 +9,6 @@ Verdict: pass / fail with a list of issues (+ timestamps). A report is written n
 """
 from __future__ import annotations
 
-import difflib
 import json
 import logging
 import re
@@ -88,7 +87,9 @@ def technical(path: Path, still_ok: list[tuple[float, float]] | None = None) -> 
 
 
 def _norm_words(text: str) -> list[str]:
-    return re.findall(r"[a-z0-9']+", text.lower().replace("*", ""))
+    """Same normalisation as the narration split: Whisper writes "14", the script says "fourteen"."""
+    from video_processor import _norm_tokens
+    return _norm_tokens(text.replace("*", ""))
 
 
 def _narration_stem(path: Path, lines: list[dict]) -> Path | None:
@@ -136,22 +137,22 @@ def voice_check(path: Path, lines: list[dict]) -> list[dict]:
         a, b = ln["start"] - 1.5, ln["start"] + ln.get("dur", 3) + 1.5
         got = [w for w in heard if a <= w["start"] <= b]
         got_words = _norm_words(" ".join(w["text"] for w in got))
-        match = difflib.SequenceMatcher(None, want, got_words).find_longest_match(0, len(want), 0, len(got_words))
-        ratio = difflib.SequenceMatcher(None, want, got_words).ratio() if got_words else 0.0
         covered = sum(1 for w in want if w in got_words) / len(want)
         if covered < float(c.get("min_word_match", 0.6)):
             issues.append({"severity": "high", "type": "voice_mismatch", "at": round(ln["start"], 1),
                            "detail": f"line not heard properly ({covered:.0%} of the words): \"{ln['text'][:60]}\""})
             continue
-        # timing: when the first matched word is actually spoken vs when the line is placed
-        if match.size:
-            first = want[match.a]
-            spoken = next((w["start"] for w in got if _norm_words(w["text"])[:1] == [first]), None)
-            expect = ln["start"] + ln.get("dur", 3) * (match.a / max(1, len(want)))
-            if spoken is not None and abs(spoken - expect) > tol:
-                issues.append({"severity": "high", "type": "voice_out_of_sync", "at": round(ln["start"], 1),
-                               "detail": f"spoken {spoken - expect:+.2f}s off the captions: \"{ln['text'][:50]}\""})
-        _ = ratio
+        # timing: when the line's FIRST words are actually heard vs when the line (and its caption) starts.
+        # (The old estimate assumed an even speed over the whole line - "Number fourteen." + pause made every
+        # line look ~1 s late.)
+        spoken = None
+        for w in heard:
+            if ln["start"] - 1.0 <= w["start"] <= ln["start"] + 2.5 and set(_norm_words(w["text"])) & set(want[:2]):
+                spoken = w["start"]
+                break
+        if spoken is not None and abs(spoken - ln["start"]) > tol:
+            issues.append({"severity": "high", "type": "voice_out_of_sync", "at": round(ln["start"], 1),
+                           "detail": f"spoken {spoken - ln['start']:+.2f}s off the captions: \"{ln['text'][:50]}\""})
     return issues
 
 
