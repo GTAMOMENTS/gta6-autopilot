@@ -119,9 +119,11 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         from formats import bump_series, series_label
         import qa
         c = src.candidate
+        trust_note = ("FOOTAGE SOURCE: it passed a separate GTA VI authenticity check (or comes from the Twitch GTA VI "
+                      "category) - flag 'not GTA 6' only if you clearly see GTA V places or characters. ")
         muted_note = ("The original creator's voice-over is muted on purpose (so there is no game sound) - only our "
                       "narrator speaks. " if _mute(copy) == 0.0 else "")
-        teaser_note = muted_note + ("The first ~1.2 s is an intentional cold open: a quick flash of the big moment, which then "
+        teaser_note = trust_note + muted_note + ("The first ~1.2 s is an intentional cold open: a quick flash of the big moment, which then "
                        "plays again at its real place in the clip - that repeat is NOT a montage error. "
                        if float(vcfg.get("fx", {}).get("teaser_sec", 0)) > 0 and not src.is_reel else "")
         verdict = qa.check(Path(rendered["path"]), "short", lines=rendered.get("placed"),
@@ -310,6 +312,8 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
                 reason = "not GTA VI footage"
             elif copy.get("is_spoiler") and gate.get("reject_spoilers", True):
                 reason = "story spoiler"
+            elif copy.get("unsafe"):
+                reason = "nudity / unsafe content"
             elif copy.get("has_narrator") and gate.get("reject_narrator", True) and c.kind != "stream" \
                     and not (fmt or {}).get("allow_narrated"):
                 reason = "someone already talks over this footage"

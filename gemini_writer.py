@@ -270,6 +270,8 @@ TASKS
    - has_facecam: true if a streamer webcam / face overlay or a big channel watermark covers the video.
    - has_narrator: true if a YouTuber / commentator talks over the footage in their own voice
      (NOT game characters, NOT music). Only judge this if you can hear the audio; else false.
+   - unsafe: true for nudity or sexual content - IN-GAME TOO (strip clubs, lap dances, topless / naked characters,
+     sex or shower scenes) - or slurs / hate speech, real-world violence. In-game violence and crime are fine.
    - is_spoiler: true if the footage (or the part you pick) shows STORY SPOILERS - story cutscenes,
      plot reveals, character deaths or betrayals, mission outcomes, endings, late-game locations/unlocks.
      Normal free-roam gameplay, chases, stunts, funny moments and the world itself are NOT spoilers.
@@ -322,8 +324,8 @@ TASKS
      tags (no #RockstarGames, #PlayStation, #Xbox, #ad) - no sponsored-looking content.
 
 Return ONLY JSON with exactly these keys:
-{{"is_gta6_footage": bool, "has_facecam": bool, "has_narrator": bool, "is_spoiler": bool, "fits_format": bool,
- "shows_required": bool, "required_t": number | null, "hype_score": int,
+{{"is_gta6_footage": bool, "unsafe": bool, "has_facecam": bool, "has_narrator": bool, "is_spoiler": bool,
+ "fits_format": bool, "shows_required": bool, "required_t": number | null, "hype_score": int,
  "scene_summary": str, "clip_start": number, "clip_end": number, "payoff_t": number,
  "content_type": "explainer" | "action" | "scenic",
  "banner": str, "commentary": [{{"t": number, "line": str}}], "youtube_title": str, "caption": str,
@@ -346,6 +348,8 @@ TASKS
    - has_facecam: true if a webcam / face overlay or big channel watermark covers the video.
    - has_narrator: true if a YouTuber talks over the footage in their own voice (not game characters).
      Only judge this if you can hear the audio; else false.
+   - unsafe: true for nudity or sexual content - IN-GAME TOO (strip clubs, lap dances, topless / naked characters,
+     sex or shower scenes) - or slurs / hate speech, real-world violence. In-game violence and crime are fine.
    - is_spoiler: true if the footage (or the part you pick) shows STORY SPOILERS - story cutscenes,
      plot reveals, character deaths or betrayals, mission outcomes, endings, late-game locations/unlocks.
      Normal free-roam gameplay, chases, stunts, funny moments and the world itself are NOT spoilers.
@@ -398,8 +402,8 @@ TASKS
    company or brand tags (no #RockstarGames, #PlayStation, #Xbox, #ad).
 
 Return ONLY JSON with exactly these keys:
-{{"is_gta6_footage": bool, "has_facecam": bool, "has_narrator": bool, "is_spoiler": bool, "fits_format": bool,
- "shows_required": bool, "required_t": number | null, "hype_score": int,
+{{"is_gta6_footage": bool, "unsafe": bool, "has_facecam": bool, "has_narrator": bool, "is_spoiler": bool,
+ "fits_format": bool, "shows_required": bool, "required_t": number | null, "hype_score": int,
  "scene_summary": str, "angle": str, "shots": [{{"start": number, "line": str}}], "banner": str, "youtube_title": str, "caption": str,
  "x_text": str, "hashtags": [str]}}"""
 
@@ -734,6 +738,7 @@ def _clean_copy(d: dict, clip_dur: float = 48) -> dict:
         "has_facecam": bool(d.get("has_facecam", False)),
         "has_narrator": bool(d.get("has_narrator", False)),
         "is_spoiler": bool(d.get("is_spoiler", False)),
+        "unsafe": d.get("unsafe") is True,
         "fits_format": bool(d.get("fits_format", True)),
         "shows_required": d.get("shows_required") is True,
         "required_t": d.get("required_t") if isinstance(d.get("required_t"), (int, float)) else None,

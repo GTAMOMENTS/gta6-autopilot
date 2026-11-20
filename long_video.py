@@ -176,8 +176,10 @@ For EACH clip judge honestly and write:
   frozen or black.
 - is_spoiler: true for story spoilers (story cutscenes, plot reveals, endings, character deaths).
 - is_english: true if the streamer speaks English (or nobody talks); false for any other language.
-- unsafe: true ONLY for nudity, slurs / hate speech, real-world violence, doxxing - things YouTube removes.
-  In-game violence, crime, police chases and the streamer swearing are normal GTA content and are NOT unsafe.
+- unsafe: true for nudity or sexual content - IN-GAME TOO (strip clubs, lap dances, topless / naked characters,
+  sex scenes, shower scenes) - and for slurs / hate speech, real-world violence, doxxing: things YouTube
+  age-restricts or removes. In-game violence, crime, police chases and the streamer swearing are normal GTA
+  content and are NOT unsafe.
 - hype_score 1-10: how funny / wild / shareable the moment and the streamer's reaction are (strict).
 - label: max 6 words, Title Case, what happens ("Kai Cenat Vs The Yacht"). No spoilers of the punchline.
 - line: what our narrator says right before it plays: 8-20 words, casual YouTuber voice, names the streamer,
@@ -1305,12 +1307,17 @@ def run_long(dry_run: bool) -> tuple[bool, dict]:
     # strict QA: technical checks, Whisper voice-vs-captions check, AI editor watching the final video
     import qa
     if spec:
-        ctx = (f"16:9 countdown GUIDE: {spec['subject']}. Title cards show '#N  item  Gameplay: creator'; our narrator "
+        ctx = ("FOOTAGE SOURCE: every clip passed a separate GTA VI authenticity check or comes from streamers "
+               "playing GTA VI live (Twitch / Kick GTA VI category) - flag 'not GTA 6' only if you clearly see GTA V "
+               "places or characters (Los Santos landmarks, Franklin / Michael / Trevor). "
+               f"16:9 countdown GUIDE: {spec['subject']}. Title cards show '#N  item  Gameplay: creator'; our narrator "
                "explains each item over its footage (the original creators' voice-overs are muted on purpose, so "
                "some parts only have narration); the last seconds are a static 'subscribe' card. Check that each "
                "explanation matches what the footage shows. Narration lines: ")
     else:
-        ctx = ("16:9 countdown of GTA 6 livestream moments. Title cards show '#N  label  streamer'; after the top "
+        ctx = ("FOOTAGE SOURCE VERIFIED: every clip comes from streamers playing GTA VI live on Twitch / Kick (the "
+               "GTA VI category) - it IS GTA VI, do not judge which game it is. "
+               "16:9 countdown of GTA 6 livestream moments. Title cards show '#N  label  streamer'; after the top "
                "moments a REPLAY (slow motion) or REACTION (facecam close-up) insert is intentional; the last seconds "
                "are a static 'subscribe' card. Narration lines: ")
     verdict = qa.check(Path(rendered["path"]), "long", lines=rendered.get("placed"), still_ok=rendered.get("still_ok"),
