@@ -111,9 +111,19 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
     backup_hype = int(gate.get("backup_hype_score", min_hype - 1))
     budget_end = time.time() + int(scfg.get("time_budget_min", 25)) * 60
 
-    def publish_and_record(src, copy, clip_id, rendered, ranges) -> tuple[bool, dict]:
+    def publish_and_record(src, copy, clip_id, rendered, ranges) -> tuple[bool, dict] | None:
         from formats import bump_series, series_label
+        import qa
         c = src.candidate
+        verdict = qa.check(Path(rendered["path"]), "short", lines=rendered.get("placed"),
+                           context=f"Format: {(fmt or {}).get('name', '')}. Banner: {copy.get('banner')}. "
+                                   f"Narration lines (also burned in as captions): "
+                                   + " | ".join(ln["text"] for ln in rendered.get("placed", [])))
+        if not verdict["pass"]:
+            qa_problems.append(verdict["report"].splitlines()[1] if len(verdict["report"].splitlines()) > 1 else "QA failed")
+            mark_rejected(c, "failed QA")
+            log.warning("[qa] ✋ not publishing this Short - trying the next clip")
+            return None
         mark_used(src)
         if fmt:
             copy["format_tags"] = list(fmt.get("hashtags", []))
@@ -232,6 +242,7 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         return publish_and_record(src, copy, clip_id, rendered, [list(x) for x in segs])
 
     script_problems: list[str] = []  # clips skipped because no proper AI script could be written
+    qa_problems: list[str] = []  # finished videos that failed the strict QA
     backup = None  # best "almost good enough" clip, used only if nothing reaches min_hype
     skip: set[str] = set()
     if fmt:
@@ -315,6 +326,8 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
             return False, {"error": f"human voice unavailable, nothing posted: {exc}"}
         if result:
             return result
+    if qa_problems:
+        return False, {"error": "nothing posted - every finished video failed QA: " + "; ".join(qa_problems[:3])}
     if script_problems:
         return False, {"error": "nothing posted - no proper AI script could be written (AI busy / out of quota?): "
                                 + "; ".join(dict.fromkeys(script_problems))}
@@ -477,6 +490,18 @@ def main() -> int:
     if args.slot == "voice_samples":
         from video_processor import voice_samples
         return voice_samples()
+    if args.slot == "approve_long":  # the owner watched the long video in the Artifacts and approves it
+        from long_video import retry_pending
+        res = retry_pending(False, approve=True)
+        if not res:
+            log.error("No long video is waiting for approval.")
+            return 1
+        if res.get("ok"):
+            record_history("approve_long", {"type": "long_video_upload", "manual": True}, True, res)
+            log.info("Long video published: %s", res["results"]["youtube"].get("url"))
+            return 0
+        log.error("Upload refused: %s", res.get("error"))
+        return 1
     if args.slot == "stream_clip":  # manual test of the viral stream clips (normally streams.yml)
         import stream_clips
         return stream_clips.run_once(args.dry_run)

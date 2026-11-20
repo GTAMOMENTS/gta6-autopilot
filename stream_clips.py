@@ -396,13 +396,14 @@ The attached video is the clip. Watch AND listen to all of it.
    this clip, max 7 words per phrase, the exact words (censor swear words like f*** and s***). [] if nobody talks.
 3. trim_start / trim_end: the part worth keeping - cut dead air and slow starts/ends, and keep AT MOST 90 seconds
    (pick the best 90 s if the clip is longer); the whole clip if it's already tight.
-4. banner: max 6 words, ALL CAPS, a hook that makes people stay (e.g. "HE WAS NOT READY FOR THIS").
-5. youtube_title (max 70 chars, mention GTA 6 and the streamer), caption (1-2 sentences ending with a question),
+4. facecam: [x, y, w, h] as fractions of the frame (0-1) where the streamer's webcam is, or null if there is none.
+5. banner: max 6 words, ALL CAPS, a hook that makes people stay (e.g. "HE WAS NOT READY FOR THIS").
+6. youtube_title (max 70 chars, mention GTA 6 and the streamer), caption (1-2 sentences ending with a question),
    x_text (max 200 chars), hashtags (4, include #GTA6). No emojis in the banner.
 
 Return ONLY JSON: {{"is_gta6_footage": bool, "is_spoiler": bool, "is_english": bool, "unsafe": bool, "hype_score": int,
  "scene_summary": str, "transcript": [{{"start": number, "end": number, "text": str}}], "trim_start": number,
- "trim_end": number, "banner": str, "youtube_title": str, "caption": str, "x_text": str, "hashtags": [str]}}"""
+ "trim_end": number, "facecam": [number, number, number, number] | null, "banner": str, "youtube_title": str, "caption": str, "x_text": str, "hashtags": [str]}}"""
 
 
 def ai_review(path: Path, clip: dict) -> dict | None:
@@ -534,9 +535,20 @@ def produce(clip: dict, dry_run: bool, state: dict) -> dict | None:
         words = subtitle_words(ai.get("transcript"), a, b - a)
     clip_id = "stream_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M") + "_" + \
         hashlib.md5(clip["key"].encode()).hexdigest()[:6]
+    from long_video import _bbox
+    cam = _bbox(ai.get("facecam")) if c.get("facecam_layout", True) else None
     rendered = render(cut, clip_id, copy["banner"], [], voiced=[], caption_words=words,
-                      game_volume=float(c.get("audio_volume", 1.0)), fg_zoom=float(c.get("zoom", 1.6)))
+                      game_volume=float(c.get("audio_volume", 1.0)), fg_zoom=float(c.get("zoom", 1.6)),
+                      fx={"facecam": cam} if cam else None)
     if not rendered:
+        return None
+    import qa
+    verdict = qa.check(Path(rendered["path"]), "stream", context=(
+        f"Stream clip of {clip['streamer']} ({clip['platform']}), posted with the streamer's own voice and "
+        f"subtitles of what they say (no narrator). Banner: {copy['banner']}"))
+    if not verdict["pass"]:
+        log.warning("[qa] ✋ stream clip failed QA - not posting it")
+        state.setdefault("rejected", {})[clip["key"]] = time.time()
         return None
     credit = f"{clip['streamer']} on {clip['platform'].title()}"
     platforms = [p for p in c.get("platforms", ["tiktok", "instagram", "x"])

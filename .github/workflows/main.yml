@@ -22,6 +22,7 @@ on:
           - remake
           - stream_clip
           - long_video
+          - approve_long
           - vertical_clip
           - x_video_clip
           - test_all

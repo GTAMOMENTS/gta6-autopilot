@@ -129,3 +129,15 @@ charm pack, learning, stream clips, long video, English-only + choppy filter, Ge
   -> read the job log (`gh api repos/.../actions/jobs/<job_id>/logs`) -> merge when the owner agrees.
 - Local tests: mock the network parts (sources, Gemini, TTS) and render with real ffmpeg (ffmpeg 6.1 = same as runners).
 - Commit messages end with the session attribution lines the environment asks for; never put model names in commits/PRs.
+
+## 7. Strict QA + pro editing (PR #28)
+- `qa.py` runs on EVERY finished video before publishing (Shorts, stream clips, long): technical checks (audio vs video
+  length, silence, frozen/choppy, black frames, clipping), Whisper voice check (each narration line heard + in sync with
+  its captions), Gemini AI editor watching the final video (montage errors, voice vs on-screen text, spoilers...).
+  Any high-severity issue = not published. Report: `<video>_QA.txt` in the run's Artifacts. Config `qa`.
+- Long videos: jump cuts (dead air removed), REPLAY (slow-mo) / REACTION (facecam close-up) inserts after the top 3
+  moments, 1.4 s branded intro sting, audio polish (noise reduction, compression, limiter), light colour grade +
+  sharpening, optional `music/` bed, 3 thumbnails (Test & Compare), facecam cut-out on thumbnails.
+- **Long videos are never auto-published** (`long_video.require_approval`): after QA passes they wait in
+  `queue/pending_long/`; the owner uploads by hand or runs the workflow with slot `approve_long`.
+- Stream-clip Shorts: facecam-on-top / gameplay-below layout when the AI finds a webcam (`stream_clips.facecam_layout`).

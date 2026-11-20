@@ -453,7 +453,7 @@ def _group_words(words: list[dict], max_words: int = 3, max_chars: int = 16) -> 
     return groups
 
 
-def build_ass(path: Path, banner: str, words: list[dict], total: float, cta: str) -> None:
+def build_ass(path: Path, banner: str, words: list[dict], total: float, cta: str, banner_v: int = 190) -> None:
     vcfg = load_config().get("video", {})
     font = vcfg.get("font", "Montserrat")
     hl = vcfg.get("highlight_color_ass", "&H0000F0FF")  # BGR -> yellow
@@ -467,7 +467,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Banner,{font},76,&H00FFFFFF,&H00FFFFFF,&H00000000,&HC0000000,-1,0,0,0,100,100,1,0,3,18,0,8,60,60,190,1
+Style: Banner,{font},76,&H00FFFFFF,&H00FFFFFF,&H00000000,&HC0000000,-1,0,0,0,100,100,1,0,3,18,0,8,60,60,{banner_v},1
 Style: Caption,{font},92,&H00FFFFFF,&H00FFFFFF,&H00000000,&H90000000,-1,0,0,0,100,100,1,0,1,7,3,5,40,40,0,1
 Style: CTA,{font},46,&H00FFFFFF,&H00FFFFFF,&H00000000,&HA0000000,-1,0,0,0,100,100,1,0,3,14,0,2,60,60,150,1
 
@@ -563,11 +563,20 @@ def render(clip: Path, clip_id: str, banner: str, commentary: list[dict],
         words = caption_words
 
     ass = VO_DIR / f"{clip_id}.ass"
-    build_ass(ass, banner, words, total, vcfg.get("cta_text", "FOLLOW FOR DAILY GTA 6 MOMENTS"))
+    build_ass(ass, banner, words, total, vcfg.get("cta_text", "FOLLOW FOR DAILY GTA 6 MOMENTS"),
+              banner_v=640 if (fx or {}).get("facecam") else 190)
     out = READY_DIR / f"{clip_id}.mp4"
 
     vertical_src = info["height"] > info["width"]
-    if vertical_src:
+    cam = (fx or {}).get("facecam")
+    if cam and not vertical_src:
+        # pro stream-clip layout: streamer's facecam on top, gameplay below - both big
+        cx, cy, cw, ch = cam
+        video_chain = (
+            f"[0:v]split=2[a][b];[a]crop=iw*{cw}:ih*{ch}:iw*{cx}:ih*{cy},"
+            "scale=1080:720:force_original_aspect_ratio=increase,crop=1080:720,setsar=1[cam];"
+            "[b]scale=-2:1200,crop=1080:1200,setsar=1[game];[cam][game]vstack=inputs=2,setsar=1[base]")
+    elif vertical_src:
         video_chain = "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1[base]"
     else:
         zoom = float(fg_zoom or vcfg.get("foreground_zoom", 1.3))
@@ -654,8 +663,9 @@ def render(clip: Path, clip_id: str, banner: str, commentary: list[dict],
     vin = ["-stream_loop", "-1", "-i", str(clip)] if info["duration"] < total else ["-i", str(clip)]
     zoom = _zoom_filter([w for w in fx.get("zoom", []) if w[0] < total], float(fxcfg.get("zoom_amount", 0.22))) \
         if fxcfg.get("zoom", True) else ""
-    fc = (f"{video_chain};[base]fps=30{zoom},ass='{ass_escaped}',format=yuv420p[vout];"
-          f"[1:a]{norm},aresample=48000[aout]")
+    grade = "eq=contrast=1.05:saturation=1.1,unsharp=5:5:0.4:5:5:0.0,"
+    fc = (f"{video_chain};[base]fps=30{zoom},{grade}ass='{ass_escaped}',format=yuv420p[vout];"
+          f"[1:a]{norm},alimiter=limit=0.95,aresample=48000,apad[aout]")
     cmd = ["ffmpeg", "-y", "-hide_banner", *vin, "-i", str(mix_wav),
            "-filter_complex", fc, "-map", "[vout]", "-map", "[aout]",
            "-c:v", "libx264", "-preset", vcfg.get("preset", "veryfast"), "-crf", str(vcfg.get("crf", 20)),
@@ -668,4 +678,6 @@ def render(clip: Path, clip_id: str, banner: str, commentary: list[dict],
         log.error("[render] FFmpeg failed: %s", res.stderr[-1200:])
         return None
     log.info("[render] %s (%.1fs, %.1f MB, %d voice lines)", out.name, total, out.stat().st_size / 1e6, len(lines))
-    return {"path": str(out), "duration": total, "lines": [{"t": round(ln["start"], 1), "text": ln["text"]} for ln in lines]}
+    return {"path": str(out), "duration": total,
+            "lines": [{"t": round(ln["start"], 1), "text": ln["text"]} for ln in lines],
+            "placed": [{"text": ln["text"], "start": ln["start"], "dur": ln["dur"]} for ln in lines]}
