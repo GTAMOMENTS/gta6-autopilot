@@ -1119,17 +1119,25 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str, mode: str = "momen
         k += 1
     from video_processor import _music_track
     music = _music_track()
-    if music:  # optional royalty-free bed from music/ (owner's tracks), ducked under everything
+    music_in = ""
+    if music:  # background beat (own music/ or CC0 from Freesound), dips under the narration
         inputs += ["-stream_loop", "-1", "-i", str(music)]
-        chains.append(f"[{k}:a]aresample=48000,aformat=channel_layouts=stereo,volume={c.get('music_volume', 0.07)}[x{k}]")
-        sfx_labels.append(f"[x{k}]")
+        chains.append(f"[{k}:a]aresample=48000,aformat=channel_layouts=stereo,volume={c.get('music_volume', 0.07)},"
+                      f"afade=t=in:d=1.0[m{k}]")
+        music_in = f"[m{k}]"
         k += 1
     if labels:
-        voice = "".join(labels) + f"amix=inputs={len(labels)}:normalize=0:duration=longest,apad[vo];[vo]asplit=2[vo1][vo2];"
+        split = "asplit=3[vo1][vo2][vo3];" if music_in else "asplit=2[vo1][vo2];"
+        voice = "".join(labels) + f"amix=inputs={len(labels)}:normalize=0:duration=longest,apad[vo];[vo]{split}"
         duck = "[0:a][vo1]sidechaincompress=threshold=0.03:ratio=5:attack=20:release=500[g];"
+        if music_in:
+            duck += f"{music_in}[vo3]sidechaincompress=threshold=0.02:ratio=8:attack=20:release=700[mduck];"
+            sfx_labels.append("[mduck]")
         mix_in, n_in = "[g][vo2]", 2
     else:
         voice, duck, mix_in, n_in = "", "[0:a]anull[g];", "[g]", 1
+        if music_in:
+            sfx_labels.append(music_in)
     afc = (";".join(chains) + ";" if chains else "") + voice + duck + \
         f"{mix_in}{''.join(sfx_labels)}amix=inputs={n_in + len(sfx_labels)}:normalize=0:duration=first," \
         "loudnorm=I=-14:TP=-1.5:LRA=11,alimiter=limit=0.95,apad[aout]"
