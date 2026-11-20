@@ -28,12 +28,13 @@
       "platforms": [
         "instagram",
         "x",
+        "tiktok",
         "youtube"
       ],
       "platform_from": {
         "youtube": "2026-11-27T00:00:00Z"
       },
-      "_note": "Video A: normal rotation (11:40 New York). YouTube Shorts from week 2 (upload limit)."
+      "_note": "Video A: normal rotation (11:40 New York) -> Instagram (paused), X, TikTok, YouTube Shorts from week 2. TikTok added 2026-11-20 once posts started getting views (owner's plan: 2/day on TikTok after the 0-views fix)."
     },
     {
       "time": "22:10",
