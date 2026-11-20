@@ -1,0 +1,4 @@
+# test-only dependencies (CI: .github/workflows/tests.yml)
+-r requirements.txt
+pytest>=8.0
+pytest-timeout>=2.3
