@@ -119,7 +119,7 @@
       "dailymotion",
       "youtube"
     ],
-    "launch_date": "2026-11-19",
+    "launch_date": "2026-11-18",
     "only_after_launch": true,
     "extra_urls": [],
     "search_queries": [
@@ -533,7 +533,7 @@
       "VGC",
       "IGN Entertainment"
     ],
-    "_launch_note": "Only footage uploaded after GTA 6 came out: older 'GTA 6' videos are fakes made in GTA V / mods (the owner caught a GTA V train clip in a test)."
+    "_launch_note": "Only footage uploaded from 2026-11-18 (UTC): GTA 6 unlocked at midnight LOCAL time on Nov 19, which is Nov 18 in UTC for the earliest time zones (New Zealand), so real launch-day videos carry a Nov 18 date. Older 'GTA 6' videos are fakes made in GTA V / mods (the owner caught a GTA V train clip). Every clip also passes authentic.py."
   },
   "quality_gate": {
     "min_hype_score": 7,
