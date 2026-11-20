@@ -596,12 +596,9 @@ def _sfx(kind: str) -> Path | None:
 
 
 def _music_track() -> Path | None:
-    """A random track from the music/ folder (your own royalty-free music), if there is one."""
-    import random
-    from common import BASE_DIR
-    folder = BASE_DIR / load_config().get("video", {}).get("fx", {}).get("music_dir", "music")
-    tracks = [p for p in folder.glob("*") if p.suffix.lower() in (".mp3", ".m4a", ".wav", ".ogg")] if folder.exists() else []
-    return random.choice(tracks) if tracks else None
+    """A random background track: your own music/ folder, else CC0 beats from Freesound (music.py)."""
+    import music
+    return music.pick()
 
 
 def _zoom_filter(windows: list[tuple[float, float]], amount: float) -> str:
@@ -693,18 +690,25 @@ def render(clip: Path, clip_id: str, banner: str, commentary: list[dict],
             extra_labels.append(f"[x{idx}]")
             idx += 1
     music = _music_track()
+    music_label = ""
     if music:
         extra_inputs += ["-stream_loop", "-1", "-i", str(music)]
         extra_chains.append(f"[{idx}:a]aresample=48000,aformat=channel_layouts=stereo,"
-                            f"volume={float(fxcfg.get('music_volume', 0.09))}[x{idx}]")
-        extra_labels.append(f"[x{idx}]")
+                            f"volume={float(fxcfg.get('music_volume', 0.09))},afade=t=in:d=0.6[m{idx}]")
+        music_label = f"[m{idx}]"
         log.info("[render] background music: %s", music.name)
     extras = (";".join(extra_chains) + ";") if extra_chains else ""
 
     # --- pass 1: build the audio mix (fast, audio only)
     mix_wav = VO_DIR / f"{clip_id}_mix.wav"
+    if music_label:  # music dips under the voice too (pro mix), then joins the other extras
+        afc_music = f"[vo]asplit=3[vo1][vo2][vo3];{music_label}[vo3]sidechaincompress=threshold=0.02:ratio=8:" \
+                    "attack=20:release=600[mduck];"
+        extra_labels = extra_labels + ["[mduck]"]
+    else:
+        afc_music = "[vo]asplit=2[vo1][vo2];"
     afc = (
-        f"{voice}{extras}[vo]asplit=2[vo1][vo2];"
+        f"{voice}{extras}{afc_music}"
         f"[0:a]aresample=48000,aformat=channel_layouts=stereo,volume={game_vol}[game];"
         # game audio stays loud between lines and dips only while the voice talks
         "[game][vo1]sidechaincompress=threshold=0.02:ratio=6:attack=15:release=450[ducked];"

@@ -632,6 +632,11 @@ def main() -> int:
             slot = {**slot, "platforms": [p for p in slot["platforms"] if p not in later]}
 
     READY_DIR.mkdir(parents=True, exist_ok=True)
+    try:  # background music: CC0 beats from Freesound, downloaded once (FREESOUND_API_KEY)
+        import music
+        music.ensure_tracks()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[music] skipped: %.150s", exc)
     try:  # trend radar: what people search for / watch now (cached for a few hours, never breaks a run)
         import trends
         trends.refresh()
