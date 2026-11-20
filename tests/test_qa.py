@@ -70,9 +70,6 @@ def test_voice_early_is_out_of_sync(whisper):
 SYNC_LINE = "Somehow he walks away like nothing happened right there."
 
 
-@pytest.mark.xfail(strict=True, reason="BUG qa.voice_check: the anchor word is only searched from 1.0 s before the "
-                                       "line start, so narration 1.1-2.2 s EARLY passes QA (0.7-0.9 s early is "
-                                       "flagged) - the word-coverage window (1.5 s before) still finds the line")
 @pytest.mark.parametrize("early", [1.1, 1.6, 2.2])
 def test_voice_far_too_early_is_out_of_sync(whisper, early):
     whisper(heard((5.0 - early, SYNC_LINE)))
@@ -80,8 +77,6 @@ def test_voice_far_too_early_is_out_of_sync(whisper, early):
     assert [i["type"] for i in issues] == ["voice_out_of_sync"]
 
 
-@pytest.mark.xfail(strict=True, reason="BUG qa.voice_check: the anchor word is only searched up to 2.5 s after the "
-                                       "line start, so narration ~2.6-2.9 s LATE passes QA (2.4 s late is flagged)")
 @pytest.mark.parametrize("late", [2.6, 2.9])
 def test_voice_far_too_late_is_out_of_sync(whisper, late):
     whisper(heard((5.0 + late, SYNC_LINE)))
