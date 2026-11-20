@@ -168,30 +168,98 @@ def best_window(energy: list[float], length: int) -> tuple[int, int]:
     return s, s + length
 
 
+def _cut_size(w: int, h: int) -> str:
+    """Output size for cut clips: the source's own resolution (never blown up - an upscale here plus the render's
+    scale made 720p footage soft), at most 1080 on the short side; vertical sources keep their full width."""
+    if not w or not h:
+        return "-2:'min(1080,ih)'"
+    if h > w:
+        tw = min(1080, w)
+        th = round(h * tw / w)
+    else:
+        th = min(1080, h)
+        tw = round(w * th / h)
+    return f"{tw // 2 * 2}:{th // 2 * 2}:flags=lanczos"
+
+
 def cut_segments(src: Path, out: Path, segments: list[tuple[float, float]]) -> Path | None:
-    """Cut [(start, end), ...] from src into one normalised <=1080p / 30fps clip with stereo audio."""
+    """Cut [(start, end), ...] from src into one normalised <=1080p / 30fps clip with stereo audio
+    (every piece gets the same size, so pieces of one source join without padding).
+    Each piece is its own seeked input: only its seconds are decoded (trimming one input N times buffered the
+    whole file in memory - ~10 GB for a 7-shot tour from a 5 min reel - and decoded all of it)."""
     info = probe(src)
-    parts, labels = [], ""
-    for i, (a, b) in enumerate(segments):
-        parts.append(f"[0:v]trim=start={a}:end={b},setpts=PTS-STARTPTS,"
-                     f"scale=-2:'min(1080,ih)',fps=30,format=yuv420p,setsar=1[v{i}]")
-        if info["has_audio"]:
-            parts.append(f"[0:a]atrim=start={a}:end={b},asetpts=PTS-STARTPTS,aresample=48000,"
-                         f"aformat=channel_layouts=stereo[a{i}]")
-        else:
-            parts.append(f"anullsrc=r=48000:cl=stereo,atrim=0:{b - a}[a{i}]")
-        labels += f"[v{i}][a{i}]"
-    if len(segments) > 1:
-        parts = [p.replace("scale=-2:'min(1080,ih)'", "scale=1920:1080:force_original_aspect_ratio=decrease,"
-                           "pad=1920:1080:(ow-iw)/2:(oh-ih)/2") for p in parts]
-    fc = ";".join(parts) + f";{labels}concat=n={len(segments)}:v=1:a=1[vo][ao]"
-    res = run(["ffmpeg", "-y", "-hide_banner", "-i", str(src), "-filter_complex", fc,
-               "-map", "[vo]", "-map", "[ao]", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-               "-c:a", "aac", "-b:a", "192k", str(out)], timeout=600)
-    if res.returncode != 0 or not out.exists():
-        log.error("[highlight] cut failed: %s", res.stderr[-500:])
-        return None
-    return out
+    size = _cut_size(info["width"], info["height"])
+    pad = len(segments) > 1 and size.startswith("-2")  # unknown size: pad every piece to one frame size
+
+    def graph(seeked: bool) -> tuple[list[str], str]:
+        inputs, parts, labels = [], [], ""
+        for i, (a, b) in enumerate(segments):
+            k = i if seeked else 0
+            if seeked:
+                inputs += ["-ss", f"{a:.3f}", "-t", f"{b - a:.3f}", "-i", str(src)]
+            cut_v = "" if seeked else f"trim=start={a}:end={b},"
+            cut_a = "" if seeked else f"atrim=start={a}:end={b},"
+            parts.append(f"[{k}:v]{cut_v}setpts=PTS-STARTPTS,scale={size},fps=30,format=yuv420p,setsar=1[v{i}]")
+            if info["has_audio"]:
+                parts.append(f"[{k}:a]{cut_a}asetpts=PTS-STARTPTS,aresample=48000,"
+                             f"aformat=channel_layouts=stereo[a{i}]")
+            else:
+                parts.append(f"anullsrc=r=48000:cl=stereo,atrim=0:{b - a}[a{i}]")
+            labels += f"[v{i}][a{i}]"
+        if pad:
+            parts = [p.replace("scale=-2:'min(1080,ih)'", "scale=1920:1080:force_original_aspect_ratio=decrease,"
+                               "pad=1920:1080:(ow-iw)/2:(oh-ih)/2") for p in parts]
+        return (inputs if seeked else ["-i", str(src)]), \
+            ";".join(parts) + f";{labels}concat=n={len(segments)}:v=1:a=1[vo][ao]"
+
+    res = None
+    for seeked in (True, False):
+        inputs, fc = graph(seeked)
+        res = run(["ffmpeg", "-y", "-hide_banner", *inputs, "-filter_complex", fc,
+                   "-map", "[vo]", "-map", "[ao]", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+                   "-c:a", "aac", "-b:a", "192k", str(out)], timeout=600)
+        if res.returncode == 0 and out.exists():
+            return out
+        log.warning("[highlight] cut (%s) failed: %s", "seeked" if seeked else "trim", res.stderr[-300:])
+    return None
+
+
+def impacts(video: Path, count: int = 3, min_gap: float = 4.0, skip: list[tuple[float, float]] | None = None,
+            min_rise_db: float = 9.0) -> list[float]:
+    """Key action moments: the game sound suddenly gets much louder (crash, gunshot, explosion, landing).
+    Measured on 100 ms blocks, so a punchy sound effect / punch-in lands right on the action. Seconds of `video`."""
+    info = probe(video)
+    if not info["has_audio"] or info["duration"] < 3:
+        return []
+    tmp = WORK_DIR / "analysis"
+    tmp.mkdir(parents=True, exist_ok=True)
+    rms_f = tmp / "rms.txt"
+    rms_f.unlink(missing_ok=True)
+    res = run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(video), "-vn", "-af",
+               "aresample=48000,pan=mono|c0=0.5*c0+0.5*c1,asetnsamples=n=4800:p=0,astats=metadata=1:reset=1,"
+               f"ametadata=print:key=lavfi.astats.Overall.RMS_level:file={rms_f}", "-f", "null", "-"], timeout=300)
+    if res.returncode != 0:
+        return []
+    vals = [(t, max(-90.0, v)) for t, v in _parse_metadata(rms_f, "lavfi.astats.Overall.RMS_level")]
+    if len(vals) < 10:
+        return []
+    levels = sorted(v for _, v in vals)
+    median = levels[len(levels) // 2]
+    cands = []
+    for i in range(5, len(vals)):
+        t, v = vals[i]
+        before = max(x for _, x in vals[i - 5:i - 1])  # loudest of the 0.4 s before (one block of slack)
+        rise = v - before
+        if rise >= min_rise_db and v >= median + 4:
+            cands.append((rise + 0.3 * (v - median), t))
+    out: list[float] = []
+    for _, t in sorted(cands, reverse=True):
+        if len(out) >= count:
+            break
+        if any(abs(t - x) < min_gap for x in out) or any(a <= t <= b for a, b in skip or []):
+            continue
+        out.append(round(t, 2))
+    return sorted(out)
 
 
 def cut_highlight(src: Path, out: Path, target_sec: int, style: str = "auto") -> tuple[Path | None, list]:

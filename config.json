@@ -586,8 +586,13 @@
     "source_clip_sec": 52,
     "max_duration_sec": 90,
     "font": "Montserrat",
-    "caption_y": 1450,
+    "caption_y": 1400,
+    "caption_x": 500,
+    "caption_size": 104,
+    "caption_font": "Montserrat Black",
     "highlight_color_ass": "&H0000F0FF",
+    "emphasis_color_ass": "&H0055FF3C",
+    "max_upscale": 1.35,
     "foreground_zoom": 1.3,
     "game_audio_volume": 0.9,
     "cta_text": "FOLLOW FOR DAILY GTA 6 MOMENTS",
@@ -607,7 +612,13 @@
       "sfx_volume": 0.55,
       "music_dir": "music",
       "music_volume": 0.09,
-      "_note": "Cold open: a 1.2 s flash of the payoff moment. Zoom punch-in + boom on the payoff, whoosh on cuts (sound effects are generated, no copyright). Background music only if you add your own royalty-free tracks to the music/ folder."
+      "music_action_boost": 0.5,
+      "caption_style": "karaoke",
+      "emphasis_zoom": true,
+      "question_card": true,
+      "smart_cut": true,
+      "duck_ratio": 10,
+      "_note": "Cold open: a 1.2 s flash of the payoff moment (punched in, white flash into the story). Payoff: riser, boom, punch-in, shake, impact flash; sudden loud actions in the game sound get a punchy hit + small punch-in. Captions: word by word, synced to the voice (Whisper word times when available), current word pops in the highlight colour, key words (numbers, money, hype words) in the emphasis colour + a small punch-in. caption_style: karaoke (whole chunk shown) or reveal (words appear as spoken). question_card: the closing question replaces the banner at the end, then the CTA. smart_cut: Whisper starts/ends the cut at a pause in the footage's own speech and the narration slides into gaps of the in-game dialogue. duck_ratio: how hard the game sound dips under the voice. music_action_boost: music a bit louder on action beats (+50%), still ducked under the voice. All text stays in the TikTok/Reels/Shorts safe zone; low-res footage is zoomed less (max_upscale). Sound effects are generated (no copyright)."
     }
   },
   "blocked_keywords": [
