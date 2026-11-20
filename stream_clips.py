@@ -386,7 +386,8 @@ The attached video is the clip. Watch AND listen to all of it.
    - is_gta6_footage: true only if the game shown is real Grand Theft Auto VI (Leonida / Vice City, GTA VI HUD).
    - is_spoiler: true if it shows story spoilers (story cutscenes, plot reveals, endings, character deaths).
    - is_english: true if the streamer speaks English (or nobody talks). false for any other language.
-   - unsafe: true ONLY for nudity, hate speech / slurs, real-world violence or doxxing. In-game violence, crime,
+   - unsafe: true for nudity or sexual content - IN-GAME TOO (strip clubs, lap dances, topless / naked characters,
+     sex or shower scenes) - and for hate speech / slurs, real-world violence or doxxing. In-game violence, crime,
      police chases and swearing are normal GTA content and are NOT unsafe.
    - hype_score 1-10: how funny / wild / shareable the moment AND the reaction are (9-10 = everyone would send
      this to a friend; 5-6 = meh). Be strict.
@@ -547,6 +548,8 @@ def produce(clip: dict, dry_run: bool, state: dict) -> dict | None:
         return None
     import qa
     verdict = qa.check(Path(rendered["path"]), "stream", context=(
+        "FOOTAGE SOURCE VERIFIED: a streamer playing GTA VI live (Twitch / Kick GTA VI category) - it IS GTA VI, "
+        "do not judge which game it is. "
         f"Stream clip of {clip['streamer']} ({clip['platform']}), posted with the streamer's own voice and "
         f"subtitles of what they say (no narrator). Banner: {copy['banner']}"))
     if not verdict["pass"]:
