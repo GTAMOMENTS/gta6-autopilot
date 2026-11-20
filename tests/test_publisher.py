@@ -96,8 +96,9 @@ def test_captions_drop_brand_hashtags_and_respect_limits(cfg):
     caps = publisher.build_captions({**COPY, "series": "GTA 6 Stunts #4", "keywords": "GTA 6 stunts"}, "SomeCreator")
     every = " ".join(v if isinstance(v, str) else " ".join(v) for v in caps.values())
     assert "RockstarGames" not in every and "#PS5" not in every, "brand hashtags flagged Instagram once"
-    assert caps["youtube_title"].startswith("GTA 6: He jumped the whole bridge | GTA 6 Stunts #4")
-    assert caps["youtube_title"].endswith("#Shorts") and len(caps["youtube_title"]) <= 100
+    # search words first, the series without a second "GTA 6", no hashtags in the title (#Shorts is in the description)
+    assert caps["youtube_title"] == "GTA 6: He jumped the whole bridge | Stunts #4"
+    assert "#Shorts" in caps["youtube_description"]
     assert len(caps["x"]) <= 280 and "Gameplay by SomeCreator" in caps["x"]
     x_tags = [w for w in caps["x"].split() if w.startswith("#")]
     assert len(x_tags) <= cfg["publishing"]["max_hashtags"]["x"]
@@ -109,10 +110,12 @@ def test_captions_drop_brand_hashtags_and_respect_limits(cfg):
 
 def test_clean_hashtags_never_empty():
     assert publisher.clean_hashtags(["#Rockstar", "#xbox"]) == ["#GTA6"]
-    assert publisher.clean_hashtags(["#GTA6", "#gta6", "#GTA6"]) == ["#GTA6", "#gta6"]
+    assert publisher.clean_hashtags(["#GTA6", "#gta6", "#GTA6"]) == ["#GTA6"]  # hashtags are case-insensitive
 
 
 def test_add_hashtags_fits_280():
     text = "x" * 270
     assert len(publisher.add_hashtags(text)) <= 280
-    assert publisher.add_hashtags("Who wins? #GTA6 #GTAVI") == "Who wins? #GTA6 #GTAVI"
+    # owner rule: 3-5 hashtags - a post with two gets a third safe one
+    assert publisher.add_hashtags("Who wins? #GTA6 #GTAVI") == "Who wins? #GTA6 #GTAVI #GTA6Gameplay"
+    assert publisher.add_hashtags("Who wins? #GTA6 #GTAVI #ViceCity") == "Who wins? #GTA6 #GTAVI #ViceCity"

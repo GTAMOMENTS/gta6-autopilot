@@ -381,41 +381,52 @@ def review(moments: list[dict], brand: str) -> list[dict]:
 PACKAGE_PROMPT = """You write for "{brand}", a GTA 6 YouTube channel. Today's video is a countdown of the {n} craziest
 GTA 6 livestream moments of the day. Moments (from #{n} up to #1):
 {moments}
+People find these videos by SEARCHING ("gta 6 funny moments", "gta 6 stream moments", "<streamer> gta 6"), then
+click the title + thumbnail that promise the most fun. Promise only what the moments above deliver.{searches}
 Write:
-- title: max 70 characters, the style of the biggest gaming compilation channels, name 1-3 of the biggest
-  streamers, e.g. "Top 12 CRAZIEST GTA 6 Moments Today (IShowSpeed, Kai Cenat, caseoh)". No hashtags.
+- title: max 70 characters, "GTA 6" in the first 30 characters, the style of the biggest gaming compilation
+  channels, the exact number {n}, name 1-3 of the biggest streamers, e.g.
+  "Top {n} CRAZIEST GTA 6 Moments Today (IShowSpeed, Kai Cenat, caseoh)". Max 2 CAPITALISED words, no hashtags.
 - intro_line: what the narrator says over the cold open of #1, 10-20 words, makes people stay to the end.
 - outro_line: 8-15 words, asks which moment was the best and to subscribe for daily GTA 6 moments.
-- thumbnail_text: 2-4 words, ALL CAPS, huge thumbnail text that makes people click (e.g. "HE JUMPED?!").
-- summary: 1-2 sentences for the description.
-- tags: 10 YouTube search tags (strings, no #).
-Say "GTA 6", never "GTA VI". Return ONLY JSON with exactly these keys."""
+- thumbnail_text: 2-4 words, ALL CAPS, huge thumbnail text that makes people click and adds to the title instead
+  of repeating it (e.g. "HE JUMPED?!").
+- summary: the first 2 lines of the description (search reads them): 2 sentences, the first starts with "GTA 6" +
+  the main search phrase (e.g. "GTA 6 funny moments") and names the biggest streamers.
+- tags: 10 YouTube search tags people really type (e.g. "gta 6 funny moments", "kai cenat gta 6"), no #.
+Say "GTA 6", never "GTA VI". No story spoilers. Never invent events or numbers. Return ONLY JSON with exactly these keys."""
 
 
 def package(moments: list[dict], brand: str) -> dict:
     import ai_fallback
+    import critic
     import gemini_writer
     n = len(moments)
     listing = "\n".join(f"#{n - i}: {m['label']} ({m['streamer']})" for i, m in enumerate(moments))
-    prompt = PACKAGE_PROMPT.format(brand=brand, n=n, moments=listing)
+    searches = critic.relevant_searches("funny moments stream streamer clips " + listing, 6, 0.5)
+    prompt = PACKAGE_PROMPT.format(brand=brand, n=n, moments=listing, searches=(
+        "\nWhat GTA 6 players search right now (use one if it honestly fits): " + "; ".join(searches)) if searches else "")
     data = gemini_writer._generate_json(prompt, temperature=0.8, prefer_pro=True)
     if not data and ai_fallback.available():
         data = ai_fallback.chat_json(prompt)
     data = data or {}
-    if data:  # critic AI: second opinion on title / thumbnail text / intro
-        import critic
-        fields = {k: str(data[k]) for k in ("title", "thumbnail_text", "intro_line") if data.get(k)}
-        data.update(critic.polish(fields, {"title": 90, "thumbnail_text": 28, "intro_line": 160}, listing))
     names = list(dict.fromkeys(m["streamer"] for m in reversed(moments)))[:3]
-    title = str(data.get("title") or f"Top {n} CRAZIEST GTA 6 Stream Moments Today ({', '.join(names)})")
-    title = re.sub(r"\b(Top|TOP|top) \d+\b", lambda mm: f"{mm.group(1)} {n}", title)  # the number must be true
+    if data:  # critic AI: second opinion on title / thumbnail text / intro (+ the packaging rules)
+        fields = {k: str(data[k]) for k in ("title", "thumbnail_text", "intro_line") if data.get(k)}
+        data.update(critic.polish(fields, {"title": 90, "thumbnail_text": 28, "intro_line": 160}, listing,
+                                  money=False, keep=["stream moment", "funny moment"], count=n))
+    # "GTA 6" first and the countdown number must be true (the critic once turned "Top 8" into "10 ...")
+    title = critic.fix_title(str(data.get("title") or f"Top {n} CRAZIEST GTA 6 Stream Moments Today ({', '.join(names)})"),
+                             n, max_len=95)
     return {
         "title": re.sub(r"[<>]", "", title)[:95],
         "intro_line": str(data.get("intro_line") or f"These are the {n} craziest GTA 6 moments from today's streams, "
                                                      "and number one is unreal."),
         "outro_line": str(data.get("outro_line") or "Which one was the best? Subscribe for daily GTA 6 moments."),
-        "thumbnail_text": re.sub(r"[^A-Z0-9 !?'.]", "", str(data.get("thumbnail_text") or "GTA 6 CHAOS").upper())[:28],
-        "summary": str(data.get("summary") or f"The {n} craziest GTA 6 livestream moments from today."),
+        "thumbnail_text": re.sub(r"[^A-Z0-9 !?'.]", "", critic.fix_count(critic.norm_gta(
+            str(data.get("thumbnail_text") or "GTA 6 CHAOS")), n).upper())[:28],
+        "summary": critic.norm_gta(str(data.get("summary") or f"GTA 6 funny moments: the {n} craziest GTA 6 livestream "
+                                                               f"moments from today ({', '.join(names)}).")),
         "tags": [str(t)[:30] for t in (data.get("tags") or [])][:12] or ["GTA 6", "GTA 6 funny moments"],
     }
 
@@ -686,49 +697,70 @@ GUIDE_PACKAGE_PROMPT = """You write for "{brand}", a GTA 6 YouTube channel. Toda
 {subject}.{part}
 Items (from #{n} up to #1, the best one last):
 {items}
+People find guides by SEARCHING, so the title starts with what they type{search_hint}.{searches}
+Promise exactly what the video shows - every item is legit gameplay (no glitches, no mods).
 Write:
-- title: max 70 characters, search-friendly, "GTA 6" near the start, promises exactly what the video shows, e.g.
-  "GTA 6: {example}". No hashtags.
+- title: max 70 characters, "GTA 6" first + the search phrase, then the hook, the exact number {n}, e.g.
+  "GTA 6: {example}". Max 2 CAPITALISED words, no hashtags.{honesty}
 - intro_line: what the narrator says over the cold open, 10-20 words, makes people stay for number one.
 - outro_line: 8-15 words, asks which one they will try and to subscribe for more GTA 6 {short}.
-- thumbnail_text: 2-4 words, ALL CAPS, huge thumbnail text that makes people click (e.g. "EASY MONEY").
-- summary: 1-2 sentences for the description.
-- tags: 10 YouTube search tags (strings, no #).
+- thumbnail_text: 2-4 words, ALL CAPS, huge thumbnail text that makes people click and adds to the title instead
+  of repeating it (e.g. "EASY MONEY").
+- summary: the first 2 lines of the description (search reads them): 2 sentences, the first starts with "GTA 6" +
+  the main search phrase{search_hint}, the second says what the countdown covers.
+- tags: 10 YouTube search tags people really type (e.g. "gta 6 money guide"), no #.
 Say "GTA 6", never "GTA VI". No story spoilers. Never invent numbers or amounts. Return ONLY JSON with exactly these keys."""
 
 
 def package_guide(items: list[dict], spec: dict, brand: str, part: int = 1) -> dict:
     import ai_fallback
+    import critic
     import gemini_writer
     n = len(items)
+    money = spec["kind"] == "money_guide"
+    topic = critic.norm_gta(spec.get("topic") or "")
     listing = "\n".join(f"#{n - i}: {m['label']} - {m['facts'][:120]}" for i, m in enumerate(items))
-    prompt = GUIDE_PACKAGE_PROMPT.format(brand=brand, subject=spec["subject"], n=n, items=listing,
-                                         example=spec["example"].replace("6", str(n), 1) if spec["example"].startswith("Top 6") else spec["example"],
-                                         short=spec["short"], part=f" This is part {part} of the series." if part > 1 else "")
+    searches = critic.relevant_searches(f"{spec['subject']} {topic}" + (" how to make money fast best ways" if money else ""),
+                                        6, 0.5)
+    prompt = GUIDE_PACKAGE_PROMPT.format(
+        brand=brand, subject=spec["subject"], n=n, items=listing, short=spec["short"],
+        example=spec["example"].replace("6", str(n), 1) if spec["example"].startswith("Top 6") else spec["example"],
+        part=f" This is part {part} of the series." if part > 1 else "",
+        search_hint=(' (e.g. "GTA 6 how to make money", "GTA 6 best ways to make money", "GTA 6 make money fast")'
+                     if money else f' (e.g. "GTA 6 {topic}")' if topic else ""),
+        searches=("\nWhat GTA 6 players search right now (use one if it honestly fits): " + "; ".join(searches))
+        if searches else "",
+        honesty=("\n  MONEY: keep \"make money\" in the title; never words that sound like cheats or glitches (hack, glitch,"
+                 " exploit, cheat, mod, trick, unlimited / infinite money) - say ways / methods / tips." if money else ""))
     data = gemini_writer._generate_json(prompt, temperature=0.7, prefer_pro=True)
     if not data and ai_fallback.available():
         data = ai_fallback.chat_json(prompt)
     data = data or {}
-    if data:
-        import critic
-        fields = {k: str(data[k]) for k in ("title", "thumbnail_text", "intro_line") if data.get(k)}
-        data.update(critic.polish(fields, {"title": 90, "thumbnail_text": 28, "intro_line": 160}, listing))
-    if spec["kind"] == "money_guide":
+    if money:
         fallback_title = f"GTA 6: Top {n} BEST Ways To Make Money (No Spoilers)"
         fallback_thumb = "EASY MONEY"
     else:
-        fallback_title = f"GTA 6: Top {n} {spec['topic']} (No Spoilers)"
-        fallback_thumb = " ".join(spec["topic"].upper().split()[:3])
-    title = re.sub(r"\b(Top|TOP|top) \d+\b", lambda mm: f"{mm.group(1)} {n}", str(data.get("title") or fallback_title))
-    if "gta 6" not in title.lower():
-        title = f"GTA 6: {title}"
+        fallback_title = f"GTA 6: Top {n} {topic} (No Spoilers)"
+        fallback_thumb = " ".join(topic.upper().split()[:3])
+    fallbacks = {"title": fallback_title, "thumbnail_text": fallback_thumb}
+    if data:  # critic AI: second opinion (+ the packaging rules: no cheat words, keep the search words, true count)
+        fields = {k: str(data[k]) for k in ("title", "thumbnail_text", "intro_line") if data.get(k)}
+        data.update(critic.polish(fields, {"title": 90, "thumbnail_text": 28, "intro_line": 160}, listing, money=money,
+                                  keep=(["make money", "money"] if money else critic.keyword_phrases(topic)),
+                                  count=n, fallbacks=fallbacks))
+    title = critic.fix_title(str(data.get("title") or fallback_title), n, money, 95, fallback=fallback_title)
+    if money and not critic.has_term(title, "money"):  # "money" is what people search: a money guide says it
+        title = critic.fix_title(fallback_title, n, money, 95)
+    rest = critic.apply_rules({k: str(data.get(k) or "") for k in ("intro_line", "outro_line", "summary", "thumbnail_text")},
+                              money, n, fallbacks=fallbacks)
     return {
         "title": re.sub(r"[<>]", "", title)[:95],
-        "intro_line": str(data.get("intro_line") or f"These are the {n} best ones in GTA 6 right now, and number one "
-                                                     "is the one you need."),
-        "outro_line": str(data.get("outro_line") or f"Which one are you trying first? Subscribe for more GTA 6 {spec['short']}."),
-        "thumbnail_text": re.sub(r"[^A-Z0-9 !?'.$]", "", str(data.get("thumbnail_text") or fallback_thumb).upper())[:28],
-        "summary": str(data.get("summary") or f"{spec['subject'][0].upper()}{spec['subject'][1:]} - {n} picks, best last."),
+        "intro_line": rest["intro_line"] or f"These are the {n} best ones in GTA 6 right now, and number one is the one you need.",
+        "outro_line": rest["outro_line"] or f"Which one are you trying first? Subscribe for more GTA 6 {spec['short']}.",
+        "thumbnail_text": re.sub(r"[^A-Z0-9 !?'.$]", "", (rest["thumbnail_text"] or fallback_thumb).upper())[:28],
+        "summary": rest["summary"] or (f"GTA 6 how to make money: the {n} best ways to make money in GTA 6 right now, "
+                                       "best last." if money else
+                                       f"{spec['subject'][0].upper()}{spec['subject'][1:]} - {n} picks, best last."),
         "tags": [str(t)[:30] for t in (data.get("tags") or [])][:12] or ["GTA 6", "GTA 6 tips"],
     }
 
@@ -1458,20 +1490,11 @@ def run_long(dry_run: bool) -> tuple[bool, dict]:
         return False, {"error": "no long video: " + " | ".join(errors)}
     chosen, pkg, rendered, clip_id = made["chosen"], made["pkg"], made["rendered"], made["clip_id"]
     spec = made.get("spec")
-    if spec:  # guide
-        desc = "\n".join([pkg["summary"], "", "⏱️ Chapters", *rendered["chapters"], "",
-                          "🎥 Gameplay footage (all credit to the creators):", *rendered["credits"], "",
-                          "No story spoilers. " + spec["hashtags"]])
-        caps = {"youtube_title": pkg["title"], "youtube_description": desc[:4900],
-                "tags": pkg["tags"] + ["GTA 6", "GTA 6 guide", "GTA 6 tips"] +
-                        (["GTA 6 money", "GTA 6 how to make money"] if kind == "money_guide" else []),
-                "first_comment": spec["comment"]}
-    else:
-        desc = "\n".join([pkg["summary"], "", "⏱️ Chapters", *rendered["chapters"], "",
-                          "🎥 Clips (all credit to the streamers):", *rendered["credits"], "", "#GTA6 #GTA6Funny #GTA6Stream"])
-        caps = {"youtube_title": pkg["title"], "youtube_description": desc[:4900],
-                "tags": pkg["tags"] + ["GTA 6", "GTA 6 stream moments", "GTA 6 funny moments"],
-                "first_comment": "Which moment was the best? Drop the number 👇"}
+    # title (GTA 6 first, the real count), description (2 keyword-rich lines + chapters + credits), tags, comment
+    from publisher import build_long_captions
+    caps = build_long_captions(pkg, rendered, spec, kind,
+                               names=list(dict.fromkeys(m["streamer"] for m in reversed(chosen))) if not spec else None)
+    pkg["title"] = caps["youtube_title"]
     # everything needed to upload it by hand (title, description with chapters + credits, tags) next to the video
     (READY_DIR / f"{clip_id}_YOUTUBE_UPLOAD.txt").write_text(
         "TITLE:\n" + caps["youtube_title"] + "\n\nDESCRIPTION:\n" + caps["youtube_description"] + "\n\nTAGS:\n"
