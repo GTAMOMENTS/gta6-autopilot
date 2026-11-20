@@ -788,10 +788,11 @@ def _has_audio(path: Path) -> bool:
 
 
 def _segment(src: Path, a: float, b: float, out: Path, silent_ok: bool = False, keep: list | None = None,
-             speed: float = 1.0, crop: list | None = None, mute: bool = False) -> bool:
+             speed: float = 1.0, crop: list | None = None, mute: bool = False, push: float = 0.0) -> bool:
     """One piece of the video: 1920x1080/30fps, polished audio. Audio and video are cut to EXACTLY the same
     length (whole frames) - otherwise tiny differences add up over 15 clips and the sound drifts out of sync.
-    keep: [(x, y)] source ranges to keep (jump cuts); speed < 1 = slow motion; crop = [x, y, w, h] fractions."""
+    keep: [(x, y)] source ranges to keep (jump cuts); speed < 1 = slow motion; crop = [x, y, w, h] fractions;
+    push > 0 = slow push-in zoom over the piece (cold open), e.g. 0.12 = ends 12% closer."""
     pre_v, pre_a = "", ""
     if keep:  # jump cuts: drop the quiet / dead parts, timestamps rebuilt so sound stays in sync
         expr = "+".join(f"between(t,{x - a:.3f},{y - a:.3f})" for x, y in keep)
@@ -806,7 +807,12 @@ def _segment(src: Path, a: float, b: float, out: Path, silent_ok: bool = False, 
         d = round(d / speed * 30) / 30
     crop_v = (f"crop=iw*{crop[2]:.3f}:ih*{crop[3]:.3f}:iw*{crop[0]:.3f}:ih*{crop[1]:.3f},"
               "scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,") if crop else ""
-    vchain = f"[0:v]fps=30,{pre_v}{crop_v}{FIT}{slow_v},trim=duration={d:.4f},setpts=PTS-STARTPTS[v]"
+    # push-in: zoompan on a 2x picture (whole-pixel steps at 1080p would wobble); one output frame per input frame
+    zoom_v = (f",scale=3840:2160,zoompan=z='1+{push:.3f}*on/{max(1, round(d * 30))}':x='iw/2-(iw/zoom/2)'"
+              f":y='ih/2-(ih/zoom/2)':d=1:s=1920x1080:fps=30,setsar=1") if push > 0 else ""
+    # tpad: if the source ends early the last frame is held, so the video is never shorter than the audio
+    vchain = (f"[0:v]fps=30,{pre_v}{crop_v}{FIT}{slow_v}{zoom_v},tpad=stop_mode=clone:stop_duration=1,"
+              f"trim=duration={d:.4f},setpts=PTS-STARTPTS[v]")
     if mute:  # guide footage: the other creator's voice-over is removed, our narrator explains instead
         achain = f"anullsrc=r=48000:cl=stereo,atrim=duration={d:.4f}[a]"
     elif _has_audio(src):
@@ -899,6 +905,36 @@ def _trim(seg: Path, d: float) -> bool:
     return False
 
 
+PAD_CHORD = (220.0, 261.63, 329.63, 392.0, 493.88)  # A minor 9 - a calm synth pad (generated, no copyright)
+
+
+def _end_screen(src: Path, t: float, length: float, out: Path, pad: bool = False) -> bool:
+    """End-screen background (room for YouTube's end-screen elements): the #1 moment at half speed, heavily
+    blurred and darkened - it keeps moving (not a frozen still) but stays calm. Audio: silence, or a soft
+    generated pad when the video has no music bed. Exactly `length` seconds (whole frames), audio = video."""
+    d = round(length * 30) / 30
+    dur = probe(src)["duration"] or 0
+    a = max(0.0, min(t - d / 4, dur - d / 2 - 0.2))
+    vf = (f"[0:v]fps=30,scale=960:540:force_original_aspect_ratio=increase,crop=960:540,setpts=2.0*PTS,fps=30,"
+          f"boxblur=14:2,eq=brightness=-0.26:saturation=0.8,scale=1920:1080,vignette=angle=PI/4,setsar=1,"
+          f"format=yuv420p,trim=duration={d:.4f},setpts=PTS-STARTPTS[v]")
+    if pad:
+        tones = "+".join(f"{0.9 - 0.12 * i:.2f}*sin(2*PI*{f:.2f}*t)+{0.5 - 0.06 * i:.2f}*sin(2*PI*{f + 0.7:.2f}*t)"
+                         for i, f in enumerate(PAD_CHORD))
+        af = (f"aevalsrc='0.035*({tones})*(0.8+0.2*sin(2*PI*0.2*t))':s=48000:d={d:.4f},lowpass=f=1800,"
+              f"aecho=0.8:0.6:180|360:0.3|0.2,afade=t=in:d=1.5,afade=t=out:st={max(0.0, d - 2.0):.3f}:d=2.0,"
+              f"aformat=channel_layouts=stereo,atrim=duration={d:.4f}[a]")
+    else:
+        af = f"anullsrc=r=48000:cl=stereo,atrim=duration={d:.4f}[a]"
+    res = run(["ffmpeg", "-y", "-stream_loop", "-1", "-ss", f"{a:.2f}", "-t", f"{d / 2 + 2:.2f}", "-i", str(src),
+               "-filter_complex", f"{vf};{af}", "-map", "[v]", "-map", "[a]", *ENC, str(out)], timeout=300)
+    if res.returncode != 0 or not out.exists() or abs(_vdur(out) - d) > 0.05:
+        log.warning("[long] moving end screen failed: %.300s", res.stderr[-300:])
+        out.unlink(missing_ok=True)
+        return False
+    return True
+
+
 def _vdur(path: Path) -> float:
     """Duration of the VIDEO stream (the container duration can include a longer audio tail)."""
     res = run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=duration", "-of",
@@ -919,10 +955,82 @@ def _t(sec: float) -> str:
     return f"{int(h)}:{int(m):02d}:{s:05.2f}"
 
 
-def _build_ass(path: Path, title: str, cards: list[dict], outro_at: float, total: float, handle: str,
-               inserts: list | None = None, brand: str = "",
-               outro_text: str = "WHICH ONE WAS THE BEST?\\N\\NSUBSCRIBE FOR DAILY GTA 6 MOMENTS") -> None:
+# --------------------------------------------------------------------------- brand look (cards, thumbnails)
+# One consistent style everywhere (title card, number cards, lower thirds, end screen, thumbnails):
+# heavy Montserrat, yellow + hot pink ("Vice City" sunset) on near-black, thick black outlines.
+YELLOW, PINK, INK, WHITE = (255, 214, 0), (255, 46, 136), (12, 8, 20), (255, 255, 255)
+PLATFORM_LOOK = {"twitch": ("TWITCH", (145, 70, 255), WHITE), "kick": ("KICK", (83, 252, 24), (0, 0, 0)),
+                 "x": ("X", (0, 0, 0), WHITE), "youtube": ("YOUTUBE", (230, 0, 0), WHITE),
+                 "dailymotion": ("DAILYMOTION", (0, 102, 220), WHITE)}
+# advance widths of Montserrat Black (1/100 em) - to size boxes / fit text without measuring at run time
+_GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 #!?.,:'-&$%/()+@_\""
+_WIDTHS = [int(x) for x in (
+    "81 77 74 83 67 64 77 80 35 57 76 62 95 80 85 74 85 74 66 65 78 79 121 76 71 69 64 70 62 70 65 43 71 70 33 33 71 "
+    "33 104 70 68 70 70 46 56 46 70 64 98 64 64 57 69 42 61 61 71 62 66 64 68 66 30 74 31 61 30 30 30 25 39 78 66 92 "
+    "44 38 38 62 104 50 49").split()]
+_GLYPH_W = dict(zip(_GLYPHS, _WIDTHS))
+ASS_EM = 0.727  # libass scales Montserrat so that 1 em = 0.727 x the ASS font size
+
+
+def _em(s: str) -> float:
+    """Width of a text in em (Montserrat Black; other characters count as an average capital)."""
+    return sum(_GLYPH_W.get(ch, 75) for ch in s) / 100
+
+
+def _ac(rgb: tuple) -> str:
+    """ASS override colour (&HBBGGRR&)."""
+    r, g, b = rgb
+    return f"&H{b:02X}{g:02X}{r:02X}&"
+
+
+def _ffc(rgb: tuple, alpha: float = 1.0) -> str:
+    """FFmpeg colour (0xRRGGBB@a)."""
+    r, g, b = rgb
+    return f"0x{r:02X}{g:02X}{b:02X}@{alpha:.2f}"
+
+
+def _rect(w: float, h: float, skew: float = 0) -> str:
+    """ASS drawing: a w x h box (a parallelogram leaning right when skew > 0)."""
+    return f"m {skew:.0f} 0 l {w + skew:.0f} 0 l {w:.0f} {h:.0f} l 0 {h:.0f}"
+
+
+def _circle(r: float) -> str:
+    """ASS drawing: a circle of radius r (centre at r, r). With \\1a&HFF& + \\bord it is a ring."""
+    k, c = 0.5523 * r, r
+    return (f"m {c:.0f} 0 b {c + k:.0f} 0 {2 * c:.0f} {c - k:.0f} {2 * c:.0f} {c:.0f} "
+            f"b {2 * c:.0f} {c + k:.0f} {c + k:.0f} {2 * c:.0f} {c:.0f} {2 * c:.0f} "
+            f"b {c - k:.0f} {2 * c:.0f} 0 {c + k:.0f} 0 {c:.0f} b 0 {c - k:.0f} {c - k:.0f} 0 {c:.0f} 0")
+
+
+def _wrap(text: str, width: int, lines: int) -> list[str]:
+    import textwrap
+    return (textwrap.wrap(text, width) or [""])[:lines]
+
+
+def _font_families() -> tuple[str, str]:
+    """(heavy, bold) ASS font names: 'Montserrat Black' / 'Montserrat ExtraBold' when installed, else the
+    configured font (libass then uses its bold face)."""
     font = load_config().get("video", {}).get("font", "Montserrat")
+    res = run(["fc-list", ":", "family"], timeout=10)
+    fams = {f.strip().lower() for ln in (res.stdout or "").splitlines() for f in ln.split(",")}
+    heavy = f"{font} Black" if f"{font} black".lower() in fams else font
+    bold = f"{font} ExtraBold" if f"{font} extrabold".lower() in fams else font
+    return heavy, bold
+
+
+def _build_ass(path: Path, tl: dict) -> None:
+    """All on-screen graphics of the long video, in one brand style (ASS, burned in at the final render).
+    tl (timeline, seconds): title, brand, handle, total, outro_at, outro_text, progress (bool) and
+      hook (a, b, text)      cold open on the #1 moment: flash + "TODAY'S #1" tag
+      coming (a, b)          'COMING UP' preview montage; flashes: [t] quick white flash cuts inside it
+      intro (a, b)           title card: brand kicker + big title on a dark band
+      cards [{start, end, n, label}]   number slam + label, then a corner badge "#N" for the rest of the moment
+      credits [{start, end, name, platform}]   lower third: platform tag + creator name
+      inserts [{start, end, label}]    REPLAY / REACTION tag
+      cuts [t]               full-screen swipe transitions (synced with the whoosh)
+    Text never sits in the last seconds' end-screen boxes (room for YouTube's end-screen elements)."""
+    heavy, bold = _font_families()
+    fb = "0" if heavy.endswith("Black") else "-1"  # a real Black / ExtraBold face needs no fake bold
     head = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1920
@@ -932,39 +1040,147 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Title,{font},84,&H00FFFFFF,&H00FFFFFF,&H00000000,&HB0000000,-1,0,0,0,100,100,1,0,3,20,0,8,80,80,70,1
-Style: Num,{font},150,&H0000F0FF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,9,4,7,70,70,50,1
-Style: Label,{font},64,&H00FFFFFF,&H00FFFFFF,&H00000000,&HA0000000,-1,0,0,0,100,100,1,0,3,16,0,7,70,70,220,1
-Style: Who,{font},40,&H0000F0FF,&H00FFFFFF,&H00000000,&HA0000000,-1,0,0,0,100,100,1,0,3,12,0,7,70,70,320,1
-Style: Outro,{font},90,&H00FFFFFF,&H00FFFFFF,&H00000000,&HB0000000,-1,0,0,0,100,100,1,0,3,22,0,5,80,80,0,1
-Style: Handle,{font},34,&H90FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,1,0,1,3,0,3,40,40,30,1
-Style: Brand,{font},110,&H0000F0FF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,4,0,1,10,5,5,80,80,0,1
-Style: Tag,{font},70,&H00FFFFFF,&H00FFFFFF,&H000000C0,&H000000C0,-1,0,0,0,100,100,3,0,3,18,0,9,70,70,60,1
+Style: H,{heavy},100,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,{fb},0,0,0,100,100,0,0,1,0,0,7,0,0,0,1
+Style: B,{bold},100,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,{fb},0,0,0,100,100,0,0,1,0,0,7,0,0,0,1
+Style: HB,{heavy},100,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,{fb},0,0,0,100,100,0,0,3,14,0,7,0,0,0,1
+Style: BB,{bold},100,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,{fb},0,0,0,100,100,0,0,3,14,0,7,0,0,0,1
+Style: D,{bold},100,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
-    import textwrap
-    short = re.sub(r"\s*[\(\[].*?[\)\]]", "", title).strip().upper()  # drop "(IShowSpeed, Kai...)"
-    wrapped = "\\N".join(textwrap.wrap(_ass_text(short), 26)[:3])
-    ev = []
-    if brand:  # 1.4 s branded sting before the title
-        ev.append(f"Dialogue: 4,{_t(0)},{_t(1.4)},Brand,,0,0,0,,{{\\fad(80,250)\\fscx60\\fscy60"
-                  f"\\t(0,220,\\fscx105\\fscy105)\\t(220,380,\\fscx100\\fscy100)}}{_ass_text(brand.upper())}")
-    ev.append(f"Dialogue: 2,{_t(1.2 if brand else 0)},{_t(cards[0]['start'] if cards else 4)},Title,,0,0,0,,"
-              f"{{\\fad(200,200)}}{wrapped}")
-    for ins in inserts or []:
-        ev.append(f"Dialogue: 4,{_t(ins['start'] + 0.1)},{_t(ins['end'] - 0.1)},Tag,,0,0,0,,{{\\fad(100,150)}}"
-                  f"{_ass_text(ins['label'])}")
+    ev: list[str] = []
+
+    def add(layer: int, a: float, b: float, style: str, text: str) -> None:
+        if b - a >= 0.05:
+            ev.append(f"Dialogue: {layer},{_t(a)},{_t(b)},{style},,0,0,0,,{text}")
+
+    y_, p_, k_, w_ = _ac(YELLOW), _ac(PINK), _ac(INK), _ac(WHITE)
+    total, outro_at = float(tl["total"]), float(tl["outro_at"])
+    full = _rect(1920, 1080)
+
+    def flash(t: float, strength: str = "40", dur: float = 0.18) -> None:
+        add(9, t, t + dur, "D", f"{{\\an7\\pos(0,0)\\p1\\c{w_}\\alpha&H{strength}&\\fad(0,{int(dur * 900)})}}{full}")
+
+    def tag(a: float, b: float, text: str, box: str, fg: str, x: int = 90, y: int = 78) -> None:
+        add(7, a, b, "HB", f"{{\\an7\\move(-600,{y},{x},{y},0,240)\\fs50\\fax-0.18\\bord14\\3c{box}\\c{fg}"
+                           f"\\shad6\\4c&H000000&\\4a&H80&\\fad(0,200)}}{_ass_text(text)}")
+
+    # --- cold open hook (the #1 moment) + preview montage + title card
+    if tl.get("hook"):
+        a, b, text = tl["hook"]
+        flash(a + 0.0, "20", 0.3)
+        tag(a + 0.15, b - 0.1, text, p_, w_)
+    if tl.get("coming"):
+        a, b = tl["coming"]
+        tag(a + 0.1, b - 0.1, "COMING UP", y_, k_)
+    for t in tl.get("flashes", []):
+        flash(t, "60", 0.14)
+    if tl.get("intro"):
+        a, b = tl["intro"]
+        short = re.sub(r"\s*[\(\[].*?[\)\]]", "", tl.get("title", "")).strip().upper()  # drop "(IShowSpeed, ...)"
+        lines = _wrap(_ass_text(short), 24, 3)
+        size = 96 if len(lines) < 3 else 84
+        brand = (tl.get("brand") or "").upper()
+        band_h = 70 + (62 if brand else 0) + len(lines) * size * 1.02 + 60
+        top = 540 - band_h / 2
+        add(2, a, b, "D", f"{{\\an5\\pos(960,540)\\p1\\c{k_}\\alpha&H40&\\fscy0\\t(0,180,\\fscy100)\\fad(0,200)}}"
+                          f"{_rect(1920, band_h)}")
+        for yy in (top, top + band_h):
+            add(3, a, b, "D", f"{{\\an5\\pos(960,{yy:.0f})\\p1\\c{p_}\\fscx0\\t(60,320,\\fscx100)\\fad(0,200)}}"
+                              f"{_rect(1920, 10)}")
+        y0 = top + 60
+        if brand:
+            add(4, a + 0.1, b, "B", f"{{\\an8\\pos(960,{y0:.0f})\\fs46\\fsp12\\c{y_}\\fad(150,200)}}{_ass_text(brand)}")
+            y0 += 62
+        add(4, a + 0.12, b, "H", f"{{\\an8\\pos(960,{y0:.0f})\\fs{size}\\c{w_}\\bord5\\3c&H000000&\\shad8\\4c{p_}"
+                                 f"\\fscx135\\fscy135\\t(0,220,\\fscx100\\fscy100)\\fad(100,200)}}" + "\\N".join(lines))
+
+    # --- countdown: progress bar (one segment per item), number cards, corner badge
+    cards = tl.get("cards") or []
+    if cards and tl.get("progress", True):
+        n_all, x0, x1, gap, by, bh = len(cards), 80, 1840, 10, 26, 9
+        seg_w = (x1 - x0 - gap * (n_all - 1)) / n_all
+        c0 = cards[0]["start"]
+        for i, cd in enumerate(cards):
+            sx = x0 + i * (seg_w + gap)
+            bar = _rect(seg_w, bh)
+            add(5, c0, outro_at, "D", f"{{\\an7\\pos({sx:.0f},{by})\\p1\\c{w_}\\alpha&H98&\\bord2\\3c&H000000&"
+                                      f"\\3a&HB0&\\fad(300,200)}}{bar}")
+            ms = int((cd["end"] - cd["start"]) * 1000)
+            add(6, cd["start"], cd["end"], "D", f"{{\\an7\\pos({sx:.0f},{by})\\p1\\c{y_}\\clip({sx:.0f},0,{sx:.0f},80)"
+                                                f"\\t(0,{ms},\\clip({sx:.0f},0,{sx + seg_w:.0f},80))}}{bar}")
+            add(6, cd["end"], outro_at, "D", f"{{\\an7\\pos({sx:.0f},{by})\\p1\\c{y_}\\fad(0,200)}}{bar}")
     for cd in cards:
-        a, b = cd["start"] + 0.2, cd["start"] + 4.5
-        pop = "{\\fad(150,250)\\fscx70\\fscy70\\t(0,180,\\fscx100\\fscy100)}"
-        ev.append(f"Dialogue: 3,{_t(a)},{_t(b)},Num,,0,0,0,,{pop}#{cd['n']}")
-        ev.append(f"Dialogue: 2,{_t(a + 0.15)},{_t(b)},Label,,0,0,0,,{{\\fad(150,250)}}{_ass_text(cd['label'].upper())}")
-        ev.append(f"Dialogue: 2,{_t(a + 0.3)},{_t(b)},Who,,0,0,0,,{{\\fad(150,250)}}{_ass_text(cd['who'])}")
-    ev.append(f"Dialogue: 2,{_t(outro_at + 0.3)},{_t(total)},Outro,,0,0,0,,{{\\fad(250,0)}}{outro_text}")
-    if handle:
-        ev.append(f"Dialogue: 1,{_t(0)},{_t(total)},Handle,,0,0,0,,{_ass_text(handle)}")
+        s, e = cd["start"], cd["end"]
+        out = min(s + 4.4, e - 0.2)
+        num = f"#{cd['n']}"
+        add(8, s + 0.08, out, "H", f"{{\\an1\\pos(112,560)\\fs300\\c{y_}\\bord14\\3c&H000000&\\shad12\\4c{p_}\\frz6"
+                                   f"\\fscx260\\fscy260\\t(0,160,\\fscx92\\fscy92)\\t(160,260,\\fscx100\\fscy100)"
+                                   f"\\fad(0,250)}}{num}")
+        label = _wrap(_ass_text(cd.get("label", "").upper()), 22, 2)
+        add(7, s + 0.3, out, "HB", f"{{\\an7\\move(-1100,592,124,592,0,260)\\fs72\\fax-0.15\\bord16\\3c{k_}"
+                                   f"\\3a&H18&\\c{w_}\\fad(0,250)}}" + "\\N".join(label))
+        add(7, out - 0.2, e - 0.12, "HB", f"{{\\an7\\pos(80,62)\\fs54\\fax-0.15\\bord12\\3c{p_}\\c{w_}"
+                                          f"\\fad(250,150)}}{num}")
+
+    # --- lower thirds: who made the clip / gameplay
+    for cr in tl.get("credits") or []:
+        a, b = cr["start"] + 0.7, min(cr["start"] + 6.5, cr["end"] - 0.3)
+        if b - a < 2.0:
+            continue
+        tag_txt, bg, fg = PLATFORM_LOOK.get(str(cr.get("platform", "")).lower(),
+                                            ("GAMEPLAY", INK, YELLOW))
+        if cr.get("kind") == "gameplay":
+            tag_txt, bg, fg = "GAMEPLAY", INK, YELLOW
+        add(7, a, b, "BB", f"{{\\an1\\move(-900,1000,92,1000,0,280)\\fs44\\fax-0.15\\bord14\\3c{_ac(bg)}\\c{_ac(fg)}"
+                           f"\\shad6\\4c&H000000&\\4a&H90&\\fad(0,250)}}{_ass_text(tag_txt)}\\h\\h\\h"
+                           f"{{\\3c{w_}\\c{k_}}}{_ass_text(str(cr.get('name', '')))}")
+
+    # --- REPLAY / REACTION inserts
+    red = _ac((230, 20, 40))
+    for ins in tl.get("inserts") or []:
+        add(7, ins["start"] + 0.05, ins["end"] - 0.05, "HB",
+            f"{{\\an9\\pos(1840,62)\\fs56\\fax-0.15\\bord14\\3c{red}\\c{w_}\\fad(80,150)}}"
+            f"{{\\p1}}{_circle(16)}{{\\p0}}\\h\\h{_ass_text(ins['label'])}")
+        flash(ins["start"], "70", 0.12)
+
+    # --- swipe transitions: a pink band with a yellow edge crosses the screen; it covers the whole frame at the
+    # cut itself (the cuts are on whole frames), so one clip never pops into the next
+    for t in tl.get("cuts", []):
+        a, b = t - 0.2, t + 0.2
+        add(10, a, b, "D", f"{{\\an7\\move(-3500,0,2200,0)\\p1\\c{p_}\\blur3}}{_rect(3000, 1080, 300)}")
+        add(10, a, b, "D", f"{{\\an7\\move(-500,0,5200,0)\\p1\\c{y_}\\blur3}}{_rect(150, 1080, 300)}")
+
+    # --- handle watermark (until the end screen)
+    if tl.get("handle"):
+        add(1, 0, outro_at, "B", f"{{\\an3\\pos(1880,1050)\\fs30\\c{w_}\\alpha&H70&\\bord2\\3c&H000000&}}"
+                                 f"{_ass_text(tl['handle'])}")
+
+    # --- end screen: headline, two video boxes + a subscribe circle for YouTube's end-screen elements
+    if total - outro_at >= 3:
+        a = outro_at
+        parts = [p.strip() for p in str(tl.get("outro_text") or "").split("\\N") if p.strip()]
+        headline = _ass_text(parts[0] if parts else "THANKS FOR WATCHING")
+        sub = _ass_text(" ".join(parts[1:]) if len(parts) > 1 else "")
+        size = 92 if _em(headline) * 92 * ASS_EM < 1700 else int(1700 / (_em(headline) * ASS_EM))
+        add(4, a + 0.25, total, "H", f"{{\\an8\\pos(960,92)\\fs{size}\\c{w_}\\bord6\\3c&H000000&\\shad8\\4c{p_}"
+                                     f"\\fscx125\\fscy125\\t(0,220,\\fscx100\\fscy100)\\fad(200,0)}}{headline}")
+        for i, (bx, cap) in enumerate(((150, "WATCH NEXT"), (1130, "MORE GTA 6"))):
+            d = 0.45 + 0.15 * i
+            add(3, a + d, total, "D", f"{{\\an7\\pos({bx},300)\\p1\\c{k_}\\alpha&H50&\\bord6\\3c{w_}\\fad(250,0)}}"
+                                      f"{_rect(640, 360)}")
+            add(4, a + d, total, "B", f"{{\\an1\\pos({bx},288)\\fs38\\fsp4\\c{y_}\\bord3\\3c&H000000&\\fad(250,0)}}{cap}")
+        add(3, a + 0.6, total, "D", f"{{\\an7\\pos(830,350)\\p1\\c{k_}\\alpha&H40&\\bord8\\3c{y_}"
+                                    f"\\fscx60\\fscy60\\t(0,250,\\fscx100\\fscy100)\\fad(200,0)}}{_circle(130)}")
+        add(4, a + 0.7, total, "HB", f"{{\\an8\\pos(960,632)\\fs40\\fax-0.15\\bord12\\3c{p_}\\c{w_}\\fad(200,0)}}"
+                                     "SUBSCRIBE")
+        if sub:
+            ss = 54 if _em(sub) * 54 * ASS_EM < 1600 else int(1600 / (_em(sub) * ASS_EM))
+            add(4, a + 0.8, total, "B", f"{{\\an8\\pos(960,740)\\fs{ss}\\c{y_}\\bord4\\3c&H000000&\\fad(250,0)}}{sub}")
+        if tl.get("handle"):
+            add(4, a + 0.9, total, "B", f"{{\\an8\\pos(960,{825 if sub else 740})\\fs40\\c{w_}\\bord3\\3c&H000000&"
+                                        f"\\fad(250,0)}}{_ass_text(tl['handle'])}")
     path.write_text(head + "\n".join(ev) + "\n", encoding="utf-8")
 
 
@@ -976,41 +1192,172 @@ def _font_file() -> str:
     return "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
 
-def thumbnail(src: Path, t: float, text: str, out: Path, cam: list | None = None) -> Path | None:
-    """1280x720 thumbnail: the #1 moment's best frame, punchier colours, huge text with a thick outline."""
+def _gray(src: Path, t: float, w: int = 160, h: int = 90) -> bytes:
+    res = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(0.0, t):.2f}", "-i", str(src), "-frames:v", "1",
+                          "-vf", f"scale={w}:{h},format=gray", "-f", "rawvideo", "-"], capture_output=True, timeout=60)
+    return res.stdout if res.returncode == 0 and len(res.stdout) >= w * h else b""
+
+
+def _best_frame(src: Path, t: float, dur: float) -> float:
+    """Of a few frames around t, the sharpest / most detailed one (a motion-blurred frame makes a weak thumbnail)."""
+    best, best_s = t, -1.0
+    for dt in (0.0, -0.35, 0.35, -0.7, 0.7):
+        tt = min(max(0.0, t + dt), max(0.0, dur - 0.4))
+        px = _gray(src, tt)
+        if not px:
+            continue
+        edges = sum(abs(px[i] - px[i + 1]) for i in range(0, len(px) - 1) if (i + 1) % 160) / len(px)
+        mean = sum(px) / len(px)
+        score = edges * (1.0 if 25 <= mean <= 225 else 0.4) * (1.08 if dt == 0 else 1.0)  # the AI's pick by default
+        if score > best_s:
+            best, best_s = tt, score
+    return best
+
+
+def _split_lines(text: str, max_lines: int) -> list[str]:
+    """Up to max_lines lines with the widest line as narrow as possible (big, stacked thumbnail text)."""
     words = text.split()
-    lines = [text]
-    if len(text) > 9 and len(words) >= 2:  # two lines, split where the halves are most even
-        cut = min(range(1, len(words)), key=lambda k: abs(len(" ".join(words[:k])) - len(" ".join(words[k:]))))
-        lines = [" ".join(words[:cut]), " ".join(words[cut:])]
-    # font size that fits the widest line in ~1160 px (bold caps are ~0.72 em wide)
-    size = int(min(200, 1160 / (0.72 * max(len(ln) for ln in lines))))
-    font = _font_file()
+    if len(words) <= 1 or _em(text) <= 4.2:
+        return [text]
+    best = [text]
+    best_w = _em(text) * 1.6  # one long line is only best if it is short
+    for k in range(2, min(max_lines, len(words)) + 1):
+        from itertools import combinations
+        for cuts in combinations(range(1, len(words)), k - 1):
+            idx = (0, *cuts, len(words))
+            lines = [" ".join(words[idx[i]:idx[i + 1]]) for i in range(k)]
+            w = max(_em(ln) for ln in lines) * (1 + 0.12 * (k - 2))  # 3 lines are smaller overall
+            if w < best_w:
+                best, best_w = lines, w
+    return best
+
+
+def thumbnail(src: Path, t: float, text: str, out: Path, cam: list | None = None, variant: int = 0,
+              badge: str = "") -> Path | None:
+    """1280x720 thumbnail in the brand style: the sharpest frame near the moment, punchy grade + vignette (the
+    subject pops), huge stacked text with a black + pink double outline, tilted.
+    variant 0: text column left, facecam cut-out big on the right (white frame, shadow, tilt)
+    variant 1: mirrored (facecam left, text right) - for YouTube's Test & Compare
+    variant 2: no facecam, text across the bottom, a "#1" badge
+    Falls back to a plainer version (and then the bare frame) if a filter fails."""
     LONG_DIR.mkdir(parents=True, exist_ok=True)
-    draw = []
-    for i, ln in enumerate(lines):
-        tf = LONG_DIR / f"thumb_{i}.txt"
-        tf.write_text(ln, encoding="utf-8")
-        y = f"h-{(len(lines) - i) * int(size * 1.08) + 40}"
-        draw.append(f"drawtext=fontfile='{font}':textfile='{tf}':fontsize={size}:fontcolor={'yellow' if i == 0 else 'white'}"
-                    f":borderw={max(8, size // 12)}:bordercolor=black:x=(w-text_w)/2:y={y}")
-    vf = "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,eq=saturation=1.4:contrast=1.12," \
-         "drawbox=x=0:y=ih*0.45:w=iw:h=ih*0.55:color=black@0.35:t=fill," + ",".join(draw)
-    if cam:  # the streamer's reaction, big, top-right with a white frame (classic pro thumbnail)
-        cx, cy, cw, ch = cam
-        vf = (f"split=2[m][c];[c]crop=iw*{cw}:ih*{ch}:iw*{cx}:ih*{cy},scale=-2:380,pad=iw+16:ih+16:8:8:white[cam];"
-              f"[m]{vf}[base];[base][cam]overlay=W-w-30:30")
-    dur = probe(src)["duration"] or 0
+    info = probe(src)
+    dur = info["duration"] or 0
     t = min(max(0.0, t), max(0.0, dur - 0.5))  # the AI's "best frame" can point past the end of the clip
-    plain = "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,eq=saturation=1.4:contrast=1.12"
-    for filt in (vf, plain):  # with the big text; else at least the punchy frame
+    t = _best_frame(src, t, dur)
+    font = _font_file().replace("'", "")
+    text = re.sub(r"\s+", " ", text).strip() or "GTA 6"
+    W0, H0 = info["width"] or 1920, info["height"] or 1080
+    side = "right" if variant == 0 else "left"
+    use_cam = bool(cam) and variant in (0, 1)
+    cam_w = cam_h = 0
+    if use_cam:
+        cx, cy, cw, ch = cam
+        aspect = (cw * W0) / max(1.0, ch * H0)
+        cam_h = 400
+        cam_w = int(cam_h * aspect)
+        if cam_w > 560:
+            cam_w, cam_h = 560, int(560 / aspect)
+        cam_w, cam_h = cam_w // 2 * 2, cam_h // 2 * 2
+    # --- text layout
+    if variant == 2:
+        lines = _split_lines(text, 2)
+        col_x, col_w = 40, 1200
+    else:
+        lines = _split_lines(text, 3)
+        col_w = (1280 - cam_w - 130) if use_cam else 740
+        col_x = 50 if side == "right" else 1280 - 50 - col_w
+    sizes = [min(210.0, col_w / max(0.5, _em(ln))) for ln in lines]
+    gaps = [max(16.0, s * 0.16) for s in sizes]
+    block_h = sum(s * 0.72 for s in sizes) + sum(gaps[1:])
+    max_h = 330 if variant == 2 else 560
+    if block_h > max_h:
+        k = max_h / block_h
+        sizes, gaps = [s * k for s in sizes], [g * k for g in gaps]
+        block_h = max_h
+    top = (720 - 46 - block_h) if variant == 2 else (360 - block_h / 2 + 10)
+    colours = [YELLOW, WHITE] if variant == 2 else [WHITE, YELLOW, WHITE] if variant == 0 else [YELLOW, WHITE, YELLOW]
+    draw, y = [], top
+    for i, (ln, s) in enumerate(zip(lines, sizes)):
+        y += (gaps[i] if i else 0) + s * 0.72  # baseline (caps are ~0.72 em tall)
+        tf = LONG_DIR / f"thumb_{out.stem}_{i}.txt"
+        tf.write_text(ln, encoding="utf-8")
+        bw = max(6, int(s / 13))
+        if variant == 2:
+            x = "(w-text_w)/2"
+        elif side == "right":
+            x = f"{col_x}"
+        else:
+            x = f"{col_x + col_w}-text_w"
+        base = f"drawtext=fontfile='{font}':textfile='{tf}':fontsize={s:.0f}:x={x}:y={y:.0f}-ascent"
+        draw.append(f"{base}:fontcolor={_ffc(PINK)}:borderw={bw + max(6, int(s / 16))}:bordercolor={_ffc(PINK)}")
+        draw.append(f"{base}:fontcolor={_ffc(colours[i % len(colours)])}:borderw={bw}:bordercolor=black")
+    tilt = -0.045 if variant != 1 else 0.04
+    txt = (f"color=c=black@0.0:s=1280x720:d=1,format=rgba,{','.join(draw)},"
+           f"rotate={tilt}:c=none[txt]")
+    grade = ("scale=1434:806:force_original_aspect_ratio=increase,crop=1280:720,"
+             "eq=contrast=1.16:saturation=1.5:brightness=0.02,unsharp=5:5:0.8:5:5:0.0,vignette=angle=PI/4.4")
+    if variant == 2:  # dark at the bottom, behind the text
+        alpha = "clip(235*(Y-H*0.38)/(H*0.62),0,235)"
+    elif side == "right":  # text on the left
+        alpha = f"clip(225*(1-X/(W*{(col_x + col_w + 60) / 1280:.2f})),0,225)"
+    else:
+        alpha = f"clip(225*(X-W*{(col_x - 60) / 1280:.2f})/(W*{(1280 - col_x + 60) / 1280:.2f}),0,225)"
+    r, g, b = INK
+    grad = f"color=c=black:s=1280x720:d=1,format=rgba,geq=r={r}:g={g}:b={b}:a='{alpha}'[grad]"
+    parts = ["[0:v]split=2[m][c]" if use_cam else "[0:v]null[m]", f"[m]{grade}[bg0]", grad,
+             "[bg0][grad]overlay=0:0[bg1]"]
+    last = "bg1"
+    if use_cam:  # the streamer's reaction: cut out of the webcam area, white frame, drop shadow, tilted
+        cx, cy, cw, ch = cam
+        rot = 0.05 if side == "right" else -0.05
+        px = 1280 - cam_w - 60 if side == "right" else 50
+        py = (720 - cam_h) // 2 - 10
+        parts += [f"[c]crop=iw*{cw:.3f}:ih*{ch:.3f}:iw*{cx:.3f}:ih*{cy:.3f},scale={cam_w}:{cam_h},"
+                  f"eq=contrast=1.1:saturation=1.3,pad=iw+20:ih+20:10:10:color=white,format=rgba,"
+                  f"rotate={rot}:c=none:ow=rotw({rot}):oh=roth({rot}),split=2[cam1][cam2]",
+                  "[cam2]colorchannelmixer=rr=0:gg=0:bb=0:aa=0.6,boxblur=10:2[sh]",
+                  f"[bg1][sh]overlay={px + 14}:{py + 16}[bg2]", f"[bg2][cam1]overlay={px}:{py}[bg3]"]
+        last = "bg3"
+    parts.append(txt)
+    parts.append(f"[{last}][txt]overlay=0:0[bg4]")
+    last = "bg4"
+    if badge:  # "#1" corner badge
+        bf = LONG_DIR / f"thumb_{out.stem}_badge.txt"
+        bf.write_text(badge, encoding="utf-8")
+        parts.append(f"[{last}]drawtext=fontfile='{font}':textfile='{bf}':fontsize=96:fontcolor=white:"
+                     f"box=1:boxcolor={_ffc(PINK)}:boxborderw=18:x=44:y=40:shadowx=6:shadowy=6:"
+                     f"shadowcolor=black@0.6[bg5]")
+        last = "bg5"
+    parts.append(f"[{last}]format=yuvj420p[out]")
+    full = ";".join(parts)
+    # plainer fallbacks: no tilt / cam / gradient trouble -> simple text; then the bare graded frame
+    simple = (f"[0:v]{grade}," + ",".join(draw[1::2]) + ",format=yuvj420p[out]")
+    plain = f"[0:v]{grade},format=yuvj420p[out]"
+    for fc in (full, simple, plain):
         out.unlink(missing_ok=True)
-        res = run(["ffmpeg", "-y", "-ss", f"{t:.2f}", "-i", str(src), "-frames:v", "1", "-vf", filt,
-                   "-q:v", "3", str(out)], timeout=60)
+        res = run(["ffmpeg", "-y", "-ss", f"{t:.2f}", "-i", str(src), "-filter_complex", fc, "-map", "[out]",
+                   "-frames:v", "1", "-q:v", "2", str(out)], timeout=90)
         if res.returncode == 0 and out.exists() and out.stat().st_size > 1000:
-            return out
-        log.warning("[long] thumbnail attempt failed (t=%.1f of %.1fs): %.200s", t, dur, res.stderr[-200:])
-    return None
+            break
+        log.warning("[long] thumbnail attempt failed (t=%.1f of %.1fs): %.300s", t, dur, res.stderr[-300:])
+    for f in LONG_DIR.glob(f"thumb_{out.stem}_*.txt"):
+        f.unlink(missing_ok=True)
+    return out if out.exists() and out.stat().st_size > 1000 else None
+
+
+def _chapters(cards: list[dict], guide: bool) -> list[str]:
+    """Description chapters. YouTube shows chapters only if the first is at 0:00 and each one is 10 s+:
+    a short cold open joins the first chapter instead of being an 'Intro' of its own."""
+    marks = [(cd["start"], f"#{cd['n']} {cd['label']}" + ("" if guide else f" ({cd['m']['streamer']})"))
+             for cd in cards]
+    if not marks:
+        return []
+    if marks[0][0] >= 10:
+        marks.insert(0, (0.0, "Intro"))
+    else:
+        marks[0] = (0.0, marks[0][1])
+    return [f"{int(s // 60)}:{int(s % 60):02d} {name}" for s, name in marks]
 
 
 def render_long(moments: list[dict], pkg: dict, clip_id: str, mode: str = "moments",
@@ -1104,22 +1451,68 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str, mode: str = "momen
                 _trim(pr["seg"], target)
         # an extra angle without narration over muted footage would be dead air -> leave it out
         prepared = [pr for pr in prepared if pr["first"] or pr["voices"] or not pr["part"].get("has_narrator", True)]
-    segs, cards, voiced, inserts = [], [], [], []
-    # 3) cold open: #1 around its best frame, long enough for the intro line
-    teaser = LONG_DIR / "seg_teaser.mp4"
-    t_len = min(9.0, max(float(c.get("teaser_sec", 4.0)), (intro_v["dur"] + 0.8) if intro_v else 0))
-    ta = max(0.0, min(top["best_t"] - t_len / 2, top["dur"] - t_len))
-    if _segment(top["path"], ta, ta + t_len, teaser, silent_ok=guide, mute=guide and top.get("has_narrator", True)):
-        segs.append(teaser)
-    cursor = sum(_vdur(s) for s in segs)
-    if intro_v and segs:
-        voiced.append({**intro_v, "t": 0.3})
+    segs, cards, voiced, inserts, credits = [], [], [], [], []
+    tl: dict = {"flashes": [], "cuts": []}
+    from video_processor import _music_track
+    music = _music_track()
+    # 3) cold open. moments: a 3-5 s hook on the #1 moment's punchline (the streamer's own reaction, slow push-in,
+    #    no narrator), then a fast "COMING UP" preview of the next best moments under the narrator's intro line
+    #    and the title card. guides: the preview of the best items under the intro line (muted footage needs the
+    #    voice, so no silent hook).
+    cursor = 0.0
+    if not guide and c.get("cold_open_hook", True):
+        hook = LONG_DIR / "seg_hook.mp4"
+        h_len = min(5.0, max(3.0, float(c.get("teaser_sec", 4.0))))
+        ta = max(0.0, min(top["best_t"] - h_len * 0.65, top["dur"] - h_len))  # cut right after the peak
+        if _segment(top["path"], ta, ta + h_len, hook, push=float(c.get("hook_zoom", 0.12))):
+            segs.append(hook)
+            cursor = _vdur(hook)
+            tl["hook"] = (0.0, cursor, "TODAY'S #1 MOMENT")
+            tl["cuts"].append(cursor)
+    intro_len = min(10.0, max(3.0, (intro_v["dur"] + 0.8) if intro_v else 3.0))
+    pool = [pr["m"] for pr in prepared if pr["first"]][::-1]  # best first
+    if tl.get("hook"):
+        pool = pool[1:]  # #1 was just shown
+    n_cut = max(1, min(len(pool), int(c.get("preview_cuts", 3)), round(intro_len / 1.5)))
+    frames = round(intro_len * 30)
+    pick = pool[:n_cut][::-1] if guide else pool[:n_cut]  # guides build up to #1
+    pieces = []
+    for i, m in enumerate(pick):
+        ln = (frames // n_cut + (1 if i < frames % n_cut else 0)) / 30
+        p = LONG_DIR / f"seg_prev_{i}.mp4"
+        # the build-up just before the punchline: the preview must not give the punchline away
+        bt = min(max(float(m["best_t"]), m["a"] + ln), m["b"])
+        st = max(0.0, min(bt - ln - 0.3, m["dur"] - ln - 0.05))
+        if not _segment(m["path"], st, st + ln, p, silent_ok=guide, mute=guide and m.get("has_narrator", True)):
+            pieces = []
+            break
+        pieces.append(p)
+    if not pieces:  # fallback: one teaser of #1 long enough for the intro line
+        p = LONG_DIR / "seg_teaser.mp4"
+        ta = max(0.0, min(top["best_t"] - intro_len / 2, top["dur"] - intro_len))
+        if _segment(top["path"], ta, ta + intro_len, p, silent_ok=guide, mute=guide and top.get("has_narrator", True)):
+            pieces = [p]
+    if pieces:
+        start = cursor
+        for i, p in enumerate(pieces):
+            if i:
+                tl["flashes"].append(cursor)
+            segs.append(p)
+            cursor += _vdur(p)
+        tl["coming"] = (start, cursor)
+        tl["intro"] = (start + 0.3, cursor)
+        if intro_v and intro_v["dur"] + 0.25 <= cursor - start:
+            voiced.append({**intro_v, "t": start + 0.25})
     # 4) timeline: card + voice line + moment (+ REPLAY / REACTION insert)
     for pr in prepared:
         m, d = pr["m"], _vdur(pr["seg"])
-        who = f"Gameplay: {pr['part']['streamer']}" if guide else f"{m['streamer']} on {m['platform'].title()}"
         if pr["first"]:
-            cards.append({"start": cursor, "n": pr["n"], "label": m["label"], "who": who, "m": m})
+            cards.append({"start": cursor, "n": pr["n"], "label": m["label"], "m": m})
+            tl["cuts"].append(cursor)
+        elif cards:
+            tl["flashes"].append(cursor)  # guide: the same method from another creator
+        credits.append({"start": cursor, "end": cursor + d, "name": pr["part"]["streamer"],
+                        "platform": pr["part"].get("platform", "")})
         if guide:
             t = cursor + 0.35
             for v in pr.get("voices", []):
@@ -1138,29 +1531,35 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str, mode: str = "momen
             cursor += di
     if len(cards) < 3:
         return None
+    for i, cd in enumerate(cards):
+        cd["end"] = cards[i + 1]["start"] if i + 1 < len(cards) else cursor
     outro_at = cursor
-    frame = LONG_DIR / "outro.jpg"
-    frame.unlink(missing_ok=True)
-    top_dur = probe(Path(top["path"]))["duration"] or 0
-    for ft in (min(max(0.0, float(top["best_t"])), max(0.0, top_dur - 0.5)), top_dur / 2, 0.5):
-        # the AI's best_t can be past the clip's end -> no frame -> no end card (QA: "ends abruptly")
-        run(["ffmpeg", "-y", "-ss", f"{ft:.2f}", "-i", str(top["path"]), "-frames:v", "1", str(frame)], timeout=60)
-        if frame.exists():
-            break
-    if not frame.exists():
-        log.warning("[long] could not grab a frame for the end card")
+    # 5) end screen: room for YouTube's end-screen elements (two videos + subscribe) - moving, blurred #1
     outro = LONG_DIR / "seg_outro.mp4"
-    outro_len = float(c.get("outro_sec", 7.0))
-    if frame.exists():
-        run(["ffmpeg", "-y", "-loop", "1", "-i", str(frame), "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
-             "-filter_complex", "[0:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,"
-             f"boxblur=25:2,eq=brightness=-0.3,fps=30,format=yuv420p,trim=duration={outro_len}[v];"
-             f"[1:a]atrim=duration={outro_len}[a]", "-map", "[v]", "-map", "[a]", *ENC, str(outro)], timeout=120)
-        if outro.exists():
-            segs.append(outro)
-            ov = voice_by_text.get(pkg["outro_line"])
-            if ov and ov["dur"] < outro_len - 0.5:
-                voiced.append({**ov, "t": outro_at + 0.3})
+    outro.unlink(missing_ok=True)
+    outro_len = float(c.get("outro_sec", 12.0))
+    top_dur = probe(Path(top["path"]))["duration"] or 0
+    bt = min(max(0.0, float(top["best_t"])), max(0.0, top_dur - 0.5))  # the AI's best_t can be past the end
+    if not _end_screen(Path(top["path"]), bt, outro_len, outro, pad=bool(c.get("end_screen_pad", True)) and not music):
+        frame = LONG_DIR / "outro.jpg"  # fallback: a blurred still of #1
+        frame.unlink(missing_ok=True)
+        for ft in (bt, top_dur / 2, 0.5):
+            run(["ffmpeg", "-y", "-ss", f"{ft:.2f}", "-i", str(top["path"]), "-frames:v", "1", str(frame)], timeout=60)
+            if frame.exists():
+                break
+        if frame.exists():
+            run(["ffmpeg", "-y", "-loop", "1", "-i", str(frame), "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
+                 "-filter_complex", "[0:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,"
+                 f"boxblur=25:2,eq=brightness=-0.3,fps=30,format=yuv420p,trim=duration={outro_len}[v];"
+                 f"[1:a]atrim=duration={outro_len}[a]", "-map", "[v]", "-map", "[a]", *ENC, str(outro)], timeout=120)
+        else:
+            log.warning("[long] could not grab a frame for the end card")
+    if outro.exists():
+        segs.append(outro)
+        tl["cuts"].append(outro_at)
+        ov = voice_by_text.get(pkg["outro_line"])
+        if ov and ov["dur"] < outro_len - 0.5:
+            voiced.append({**ov, "t": outro_at + 0.3})
     total = outro_at + (outro_len if outro.exists() else 0)
     body = LONG_DIR / "body.mp4"
     if not _join(segs, body):
@@ -1168,10 +1567,13 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str, mode: str = "momen
     total = _vdur(body) or total
 
     ass = LONG_DIR / f"{clip_id}.ass"
-    handle = load_config().get("brand", {}).get("handles", {}).get("youtube", "")
-    _build_ass(ass, pkg["title"], cards, outro_at, total, handle, inserts,
-               brand=load_config().get("brand", {}).get("display_name", "") if c.get("intro_sting", True) else "",
-               **({"outro_text": outro_text} if outro_text else {}))
+    brand_cfg = load_config().get("brand", {})
+    tl.update({"title": pkg["title"], "total": total, "outro_at": outro_at, "cards": cards, "credits": credits,
+               "inserts": inserts, "handle": brand_cfg.get("handles", {}).get("youtube", ""),
+               "brand": brand_cfg.get("display_name", "") if c.get("intro_sting", True) else "",
+               "outro_text": outro_text or "WHICH ONE WAS THE BEST?\\N\\NSUBSCRIBE FOR DAILY GTA 6 MOMENTS",
+               "progress": bool(c.get("progress_bar", True))})
+    _build_ass(ass, tl)
 
     inputs, chains, labels = ["-i", str(body)], [], []
     k = 1
@@ -1182,9 +1584,11 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str, mode: str = "momen
         labels.append(f"[v{k}]")
         k += 1
     sfx_labels = []
-    events = [("whoosh", cd["start"] - 0.25, 0.5) for cd in cards[1:]] + \
-        ([("whoosh", outro_at - 0.25, 0.5)] if outro.exists() else []) + \
-        [("boom", ins["start"], 0.6) for ins in inserts] + ([("boom", 0.05, 0.55)] if c.get("intro_sting", True) else [])
+    # sound design synced with the graphics: whoosh into every swipe, a soft whoosh on flash cuts, a low hit on
+    # every number slam, a boom on the cold open and on REPLAY / REACTION
+    events = [("whoosh", t - 0.25, 0.5) for t in tl["cuts"]] + [("whoosh", t - 0.2, 0.22) for t in tl["flashes"]] + \
+        [("boom", cd["start"] + 0.1, 0.3) for cd in cards] + [("boom", ins["start"], 0.6) for ins in inserts] + \
+        ([("boom", 0.05, 0.55)] if c.get("intro_sting", True) else [])
     for kind, at, vol in events:
         f = _sfx(kind)
         if not f:
@@ -1194,8 +1598,6 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str, mode: str = "momen
         chains.append(f"[{k}:a]aresample=48000,aformat=channel_layouts=stereo,volume={vol},adelay={ms}|{ms}[x{k}]")
         sfx_labels.append(f"[x{k}]")
         k += 1
-    from video_processor import _music_track
-    music = _music_track()
     music_in = ""
     if music:  # background beat (own music/ or CC0 from Freesound), dips under the narration
         inputs += ["-stream_loop", "-1", "-i", str(music)]
@@ -1206,7 +1608,8 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str, mode: str = "momen
     if labels:
         split = "asplit=3[vo1][vo2][vo3];" if music_in else "asplit=2[vo1][vo2];"
         voice = "".join(labels) + f"amix=inputs={len(labels)}:normalize=0:duration=longest,apad[vo];[vo]{split}"
-        duck = "[0:a][vo1]sidechaincompress=threshold=0.03:ratio=5:attack=20:release=500[g];"
+        # the streamer / game sound dips well under the narrator (QA: laughter overlapping the voice)
+        duck = "[0:a][vo1]sidechaincompress=threshold=0.02:ratio=8:attack=15:release=450[g];"
         if music_in:
             duck += f"{music_in}[vo3]sidechaincompress=threshold=0.02:ratio=8:attack=20:release=700[mduck];"
             sfx_labels.append("[mduck]")
@@ -1227,22 +1630,20 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str, mode: str = "momen
     if res.returncode != 0 or not out.exists():
         log.error("[long] final render failed: %s", res.stderr[-1200:])
         return None
+    # 3 thumbnails for YouTube Studio's "Test & Compare": #1 + facecam, #2 mirrored, #1 with the label + badge
     thumb = thumbnail(top["path"], top["best_t"], pkg["thumbnail_text"], READY_DIR / f"{clip_id}_thumb.jpg",
-                      cam=top.get("facecam"))
-    # two more thumbnails for YouTube Studio's "Test & Compare" (A/B test - pick all 3 there)
+                      cam=top.get("facecam"), variant=0)
     second = moments[-2] if len(moments) > 1 else top
     thumbnail(second["path"], second["best_t"], pkg["thumbnail_text"], READY_DIR / f"{clip_id}_thumb2.jpg",
-              cam=second.get("facecam"))
-    alt = " ".join(top["label"].upper().split()[:3])
-    thumbnail(top["path"], max(0.0, top["best_t"] - 0.7), alt, READY_DIR / f"{clip_id}_thumb3.jpg")
+              cam=second.get("facecam"), variant=1)
+    alt = " ".join(re.sub(r"[^A-Za-z0-9 !?'$]", "", top["label"]).upper().split()[:3]) or pkg["thumbnail_text"]
+    thumbnail(top["path"], max(0.0, top["best_t"] - 0.7), alt, READY_DIR / f"{clip_id}_thumb3.jpg", variant=2,
+              badge="#1")
+    chapters = _chapters(cards, guide)
     if guide:
-        chapters = ["0:00 Intro"] + [f"{int(cd['start'] // 60)}:{int(cd['start'] % 60):02d} #{cd['n']} {cd['label']}"
-                                     for cd in cards]
         credits = [f"#{pr['n']} {pr['m']['label']} - gameplay by {pr['part']['streamer']}: {pr['part']['url']}"
                    for pr in prepared]
     else:
-        chapters = ["0:00 Intro"] + [f"{int(cd['start'] // 60)}:{int(cd['start'] % 60):02d} #{cd['n']} {cd['label']} "
-                                     f"({cd['m']['streamer']})" for cd in cards]
         credits = [f"#{cd['n']} {cd['m']['streamer']} ({cd['m']['platform'].title()}): {cd['m']['url']}" for cd in cards]
     log.info("[long] %s: %.0fs, %d moments, narration %s, thumbnail %s", out.name, total, len(cards),
              "yes" if voiced else "no", "yes" if thumb else "no")
