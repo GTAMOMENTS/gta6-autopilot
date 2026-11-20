@@ -171,7 +171,7 @@ def test_build_ass_safe_zones_karaoke_and_end_card(tmp_path):
         assert SAFE_TOP < y - size / 2 and y + size / 2 < SAFE_BOTTOM
         assert SAFE_LEFT <= x - half and x + half <= SAFE_RIGHT, (plain, x, half)
     banner = [e for e in ev if e["style"] == "Banner"]
-    assert len(banner) == 1 and banner[0]["start"] == "0:00:00.00" and "\\fscx30" in banner[0]["text"]
+    assert len(banner) == 1 and banner[0]["start"] == "0:00:00.00" and "\\fscx85" in banner[0]["text"]
     assert int(re.search(r"\\pos\(540,(\d+)\)", banner[0]["text"]).group(1)) >= SAFE_TOP
     card = [e for e in ev if e["style"] == "Card"]
     assert len(card) == 1 and card[0]["start"] == vp._ass_time(q_start) == banner[0]["end"]
@@ -192,7 +192,7 @@ def test_place_lines_slides_off_game_dialogue():
     plain = vp.place_lines(voiced, 20.0)
     moved = vp.place_lines(voiced, 20.0, avoid=[(5.5, 7.0), (1.0, 1.8)])
     assert [p["start"] for p in plain] == [1.3, 6.0, 12.0]
-    assert moved[0]["start"] <= 1.3 + 0.4 + 1e-6, "the hook never waits long"
+    assert 1.3 <= moved[0]["start"] <= 1.3 + 0.4 + 1e-6, "the hook never moves into the cold open, never waits long"
     assert moved[1]["start"] >= 6.9 and moved[1]["start"] <= 7.5 + 1e-6, "slides into the gap after the dialogue"
     assert moved[2]["start"] == 12.0
 

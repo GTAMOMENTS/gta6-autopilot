@@ -470,8 +470,8 @@ def _overlap(a: float, b: float, spans: list) -> float:
 def place_lines(voiced: list[dict], total: float, avoid: list | None = None) -> list[dict]:
     """Put each line at its moment without overlaps. If the script is longer than the clip, middle lines are
     dropped first so the hook and the ending question always stay. `avoid` = [(start, end)] where the footage
-    itself talks (in-game dialogue, found by Whisper): a line slides a little (max 0.4 s earlier / 1.5 s later)
-    into a gap instead of talking over the characters."""
+    itself talks (in-game dialogue, found by Whisper): a line slides a little (max 0.4 s earlier / 1.5 s later;
+    the first line only up to 0.4 s later) into a gap instead of talking over the characters."""
     voiced = sorted(voiced, key=lambda x: x["t"])
     while len(voiced) > 2 and sum(v["dur"] + 0.35 for v in voiced) > total - 0.6:
         drop = max(range(1, len(voiced) - 1), key=lambda i: voiced[i]["dur"])
@@ -496,7 +496,8 @@ def place_lines(voiced: list[dict], total: float, avoid: list | None = None) -> 
             continue
         if avoid and _overlap(start, start + ln["dur"], avoid) > 0.05:
             best, cost = start, _overlap(start, start + ln["dur"], avoid)
-            s = max(cursor + 0.35, 0.25, start - 0.4)
+            # the hook never moves earlier (it would talk over the cold open) and waits at most 0.4 s
+            s = start if not placed else max(cursor + 0.35, 0.25, start - 0.4)
             while s <= min(start + (0.4 if not placed else 1.5), total - 0.3 - ln["dur"]) + 1e-6:
                 c = _overlap(s, s + ln["dur"], avoid) + 0.25 * abs(s - start)
                 if c < cost - 1e-6:
@@ -877,8 +878,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     q_at = float((question or {}).get("start", total)) if q_text else total
     q_at = min(max(0.5, q_at), total)
     if b_lines:
-        dlg(3, 0, q_at, "Banner", f"{{\\an8\\pos(540,{banner_v})\\fs{b_size:.0f}\\fad(60,{150 if q_at < total else 0})"
-                                  f"\\fscx30\\fscy30\\t(0,160,\\fscx112\\fscy112)\\t(160,280,\\fscx100\\fscy100)}}"
+        # already readable on frame 1 (TikTok's default cover), then bounces: 85 % -> 112 % -> 100 %
+        dlg(3, 0, q_at, "Banner", f"{{\\an8\\pos(540,{banner_v})\\fs{b_size:.0f}\\fad(0,{150 if q_at < total else 0})"
+                                  f"\\fscx85\\fscy85\\t(0,130,\\fscx112\\fscy112)\\t(130,260,\\fscx100\\fscy100)}}"
                                   + "\\N".join(rows))
         pops.append(0.0)
 
