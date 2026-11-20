@@ -137,7 +137,7 @@ charm pack, learning, stream clips, long video, English-only + choppy filter, Ge
   its captions), Gemini AI editor watching the final video (montage errors, voice vs on-screen text, spoilers...).
   Any high-severity issue = not published. Report: `<video>_QA.txt` in the run's Artifacts. Config `qa`.
 - Long videos: jump cuts (dead air removed), REPLAY (slow-mo) / REACTION (facecam close-up) inserts after the top 3
-  moments, 1.4 s branded intro sting, audio polish (noise reduction, compression, limiter), light colour grade +
+  moments, hook + COMING UP preview (see section 9), audio polish (noise reduction, compression, limiter), light colour grade +
   sharpening, optional `music/` bed, 3 thumbnails (Test & Compare), facecam cut-out on thumbnails.
 - **Long videos are never auto-published** (`long_video.require_approval`): after QA passes they wait in
   `queue/pending_long/`; the owner uploads by hand or runs the workflow with slot `approve_long`.
@@ -164,3 +164,27 @@ charm pack, learning, stream clips, long video, English-only + choppy filter, Ge
   lines with numbers the clip never showed are dropped; the same item from several creators is merged (counts as
   confirmed); countdown weakest -> best; other creators' voices muted, Fenrir explains; credits in the description.
 - Test: `slot=trends` prints today's topics; `slot=long_video format=money_guide dry_run=true`; `slot=money_clip dry_run=true`.
+
+## 9. Quality push with 5 specialist agents (2026-11-20 evening, PRs #33-#41, all merged)
+- **QA pro review (#33):** every QA report ends with "PRO LEVEL x/10" + concrete improvements (non-blocking backlog).
+- **Music (#34, #35):** `music.py` - CC0 beats from Freesound (`FREESOUND_API_KEY` secret is set; 12 beats cached in
+  `queue/music`), ducked under the narration; own files in `music/` take priority.
+- **Test suite + CI (#36):** `tests/` (~270 offline tests incl. Short + guide smoke renders), `.github/workflows/tests.yml`
+  on every PR + push to main. Run `python -m pytest -q -m "not slow"` locally (~2 min). conftest blocks network,
+  redirects queue/ + work/, resets the AI verdict cache per test.
+- **Sources & efficiency (#37):** Dailymotion format picking, YouTube slow-download salvage + client switch, parallel
+  searches, approximate upload dates (cutoff 2026-11-18), `ai_cache.py` (authenticity per source+window, review
+  verdicts, fake-channel memory; `queue/ai_verdicts.json`), Gemini per-minute 429 backoff, one decode per clip.
+- **Packaging & SEO (#38):** `critic.py` rules (GTA 6 first, true countdown numbers, no cheat words in money titles,
+  keep search keywords), per-platform `build_captions`, `build_long_captions`, prompts use trend top searches.
+- **Shorts pro edit (#39):** word-by-word karaoke captions (Whisper per voice piece, else pause-based), safe zones,
+  bouncing hook banner, question card + CTA, eased zooms / punch-ins / payoff shake+flash, generated pop/riser/hit,
+  music lift on action, harder game ducking, dialogue-aware line placement, smart_cut at speech pauses,
+  native-res cuts (fixed a ~10 GB memory spike in multi-piece cuts).
+- **Long-video pro edit (#40):** hook of #1 + COMING UP preview, #N slam cards, corner badge, lower-third credits,
+  progress bar, swipe transitions, 12 s end screen for YouTube end-screen elements, 3 stronger thumbnails,
+  chapters always valid (no chapter < 10 s), `_segment` holds the last frame if a source ends early.
+- **QA context (#41):** QA is told these edit features are intentional; the AI-review upload copy must be full length;
+  long videos log "timeline: last narration ends X, end screen Y-Z, file W".
+- Open: money guide QA twice said "ends abruptly" (cause unconfirmed - check the timeline log line in the next run);
+  usage limits: 5 agents in parallel hit the 5-hour limit in ~90 min - run at most 3 at once.
