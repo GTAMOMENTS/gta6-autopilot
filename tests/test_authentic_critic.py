@@ -31,6 +31,11 @@ def ai(monkeypatch):
 PATHS = [Path(f"/clips/c{i}.mp4") for i in range(1, 6)]
 
 
+def _core(r: dict) -> dict:
+    """The verdict fields (authentic.check also reports "cached" / "error")."""
+    return {k: r[k] for k in ("game", "confidence", "evidence", "ok")}
+
+
 def test_parses_verdicts_in_clip_order(ai, cfg):
     sent = ai({"clips": [
         {"clip": 2, "game": "GTA V", "confidence": 0.95, "evidence": "Vinewood sign"},
@@ -41,9 +46,9 @@ def test_parses_verdicts_in_clip_order(ai, cfg):
     ]})
     out = authentic.check(PATHS)
     assert [o["ok"] for o in out] == [True, False, True, False, False]
-    assert out[0] == {"game": "GTA VI", "confidence": 0.9, "evidence": "Vice City beach", "ok": True}
+    assert _core(out[0]) == {"game": "GTA VI", "confidence": 0.9, "evidence": "Vice City beach", "ok": True}
     assert out[1]["game"] == "GTA V"
-    assert out[4] == {"game": "unsure", "confidence": 0.0, "evidence": "", "ok": False}, "missing verdict = unsure"
+    assert out[4]["game"] == "unsure" and out[4]["ok"] is False, "missing verdict = unsure, never a pass"
     assert cfg["authenticity"]["min_confidence"] == 0.65
     assert sent["prefer_pro"] is True and sent["temperature"] <= 0.2
     labels = [c for c in sent["contents"] if isinstance(c, str) and c.startswith("Clip ")]
@@ -66,7 +71,7 @@ def test_unusable_answer_is_none(ai, answer):
 
 def test_bad_confidence_value(ai):
     ai({"clips": [{"clip": 1, "game": "GTA VI", "confidence": "high"}]})
-    assert authentic.check(PATHS[:1])[0] == {"game": "GTA VI", "confidence": 0.0, "evidence": "", "ok": False}
+    assert _core(authentic.check(PATHS[:1])[0]) == {"game": "GTA VI", "confidence": 0.0, "evidence": "", "ok": False}
 
 
 def test_no_key_or_no_paths_is_none(monkeypatch):

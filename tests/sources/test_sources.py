@@ -208,6 +208,9 @@ class _Slow(SimpleHTTPRequestHandler):
 
 
 def _serve(root: Path, rate: int):
+    # the shared conftest points every proxy at a dead port (offline tests); the local server is reached directly
+    for name in ("NO_PROXY", "no_proxy"):
+        os.environ[name] = "127.0.0.1,localhost"
     handler = type("H", (_Slow,), {"rate": rate})
     srv = ThreadingHTTPServer(("127.0.0.1", 0), lambda *a, **k: handler(*a, directory=str(root), **k))
     threading.Thread(target=srv.serve_forever, daemon=True).start()
