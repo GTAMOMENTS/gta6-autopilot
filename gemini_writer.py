@@ -22,7 +22,7 @@ from pathlib import Path
 
 import ai_fallback
 import formats
-from common import WORK_DIR, env, load_config, now_local, parse_json_loose, run
+from common import WORK_DIR, env, load_config, now_local, parse_json_loose, probe, run
 
 log = logging.getLogger("autopilot")
 
@@ -222,10 +222,16 @@ def _upload_video(clip: Path):
     import threading
     WORK_DIR.mkdir(parents=True, exist_ok=True)
     proxy = WORK_DIR / f"gemini_proxy_{threading.get_ident()}.mp4"  # own file per thread (parallel checks)
+    src_dur = probe(clip)["duration"] or 0
     res = run(["ffmpeg", "-y", "-i", str(clip), "-vf", "scale=-2:480,fps=12",
                "-c:v", "libx264", "-preset", "veryfast", "-crf", "32",
-               "-c:a", "aac", "-b:a", "48k", "-ac", "1", str(proxy)], timeout=240)
+               "-c:a", "aac", "-b:a", "48k", "-ac", "1", str(proxy)], timeout=int(max(240, src_dur * 1.5 + 60)))
     if res.returncode != 0:
+        proxy.unlink(missing_ok=True)
+        return None
+    got = probe(proxy)["duration"] or 0
+    if src_dur and got < src_dur * 0.97 - 0.5:  # never let an AI judge a cut-off copy ("ends abruptly")
+        log.warning("[gemini] the upload copy is %.1fs of %.1fs - not uploading a cut-off video", got, src_dur)
         proxy.unlink(missing_ok=True)
         return None
     client = _client()

@@ -1723,6 +1723,10 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str, mode: str = "momen
                    for pr in prepared]
     else:
         credits = [f"#{cd['n']} {cd['m']['streamer']} ({cd['m']['platform'].title()}): {cd['m']['url']}" for cd in cards]
+    last_voice = max((v["t"] + v["dur"] for v in voiced), default=0.0)
+    final = probe(out)["duration"] or 0
+    log.info("[long] timeline: last narration ends %.1fs, end screen %.1f-%.1fs, file %.1fs%s", last_voice, outro_at,
+             total, final, " - WARNING narration runs past the end" if last_voice > final - 0.2 else "")
     log.info("[long] %s: %.0fs, %d moments, narration %s, thumbnail %s", out.name, total, len(cards),
              "yes" if voiced else "no", "yes" if thumb else "no")
     return {"path": str(out), "duration": total, "thumbnail": str(thumb) if thumb else "", "chapters": chapters,
@@ -1909,14 +1913,21 @@ def run_long(dry_run: bool) -> tuple[bool, dict]:
                "places or characters (Los Santos landmarks, Franklin / Michael / Trevor). "
                f"16:9 countdown GUIDE: {spec['subject']}. Title cards show '#N  item  Gameplay: creator'; our narrator "
                "explains each item over its footage (the original creators' voice-overs are muted on purpose, so "
-               "some parts only have narration); the last seconds are a static 'subscribe' card. Check that each "
+               "some parts only have narration). INTENTIONAL EDIT (not errors): a fast 'COMING UP' preview of the "
+               "best items under the intro line, swipe transitions on cuts, a '#N' card + corner badge + lower-third "
+               "credit per item, a progress bar on top, and a ~12 s end screen at the end (the #1 clip slowed and "
+               "blurred with a headline and empty boxes reserved for YouTube end-screen elements). Check that each "
                "explanation matches what the footage shows. Narration lines: ")
     else:
         ctx = ("FOOTAGE SOURCE VERIFIED: every clip comes from streamers playing GTA VI live on Twitch / Kick (the "
                "GTA VI category) - it IS GTA VI, do not judge which game it is. "
                "16:9 countdown of GTA 6 livestream moments. Title cards show '#N  label  streamer'; after the top "
-               "moments a REPLAY (slow motion) or REACTION (facecam close-up) insert is intentional; the last seconds "
-               "are a static 'subscribe' card. Narration lines: ")
+               "moments a REPLAY (slow motion) or REACTION (facecam close-up) insert is intentional. INTENTIONAL EDIT "
+               "(not errors): it opens with a 3-5 s hook of the #1 moment (tagged TODAY'S #1 MOMENT) and a fast "
+               "'COMING UP' preview of upcoming moments, so those clips appear twice on purpose; swipe transitions on "
+               "cuts, a corner '#N' badge, lower-third credits and a progress bar; the last ~12 s are an end screen "
+               "(the #1 clip slowed and blurred with a headline and empty boxes for YouTube end-screen elements). "
+               "Narration lines: ")
     verdict = qa.check(Path(rendered["path"]), "long", lines=rendered.get("placed"), still_ok=rendered.get("still_ok"),
                        context=ctx + " | ".join(f"[{p_['start']:.1f}s] {p_['text']}" for p_ in rendered.get("placed", [])))
     results = {}
