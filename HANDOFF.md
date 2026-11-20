@@ -92,7 +92,7 @@ GITHUB_MODELS_TOKEN = the workflow's own GITHUB_TOKEN (no secret needed).
 - **Hugging Face / YouTube / GitHub artifact storage are blocked in the assistant's dev sandbox** - test those parts via Actions dry runs.
 - Download real files from runs: GitHub artifacts (`video-<run_id>`, 5 days) - the owner can download them; the assistant can't.
 - **X**: reading/posting via browser automation can trigger Cloudflare bot checks - open only one page per visit; X can lock accounts.
-- **Instagram**: branded-content violation once (brand hashtags + credit lines). Account Status otherwise green.
+- **Instagram**: branded-content violation once (brand hashtags + credit lines). **2026-11-20: flagged "This content may not be original to you" - profile not recommended to non-followers** (all posts reuse other creators' footage / stream clips; deleting posts doesn't lift it). Owner's choice: **Instagram paused** (`publishing.paused_platforms`, PR #29) until there is original footage (owner can't record gameplay right now); request the review later with a cleaner profile. The stream-clip timer (streams.yml) was disabled in GitHub the same day. TikTok's 0 views are probably the same originality rule (unoriginal reposts are kept out of For You).
 - **TikTok**: all videos had 0 views on 2026-11-19 - unresolved; owner should check post visibility / Account status (maybe private via Zernio).
 - Kick: clip pages need Cloudflare impersonation; use the clip's HLS stream (`clip_url`) - works. Kick's category-wide clip list mixes languages (removed).
 - Twitch broadcaster clips can be from another game - filtered by `game_id`.
