@@ -155,9 +155,15 @@ def voice_check(path: Path, lines: list[dict]) -> list[dict]:
         spoken = None
         if k is not None:
             expect = ln["start"] + 0.32 * k
-            hits = [w["start"] for w in heard if ln["start"] - 1.0 <= w["start"] <= ln["start"] + 2.5
-                    and want[k] in _norm_words(w["text"])]
+            # wide search (narration 1-3 s off must be caught - the old -1.0/+2.5 s window let it pass), the
+            # occurrence closest to where the word should be wins (neighbouring lines can share words)
+            lo, hi = ln["start"] - 3.0, ln["start"] + max(3.5, 0.6 * float(ln.get("dur", 3)))
+            hits = [w["start"] for w in heard if lo <= w["start"] <= hi and want[k] in _norm_words(w["text"])]
             spoken = min(hits, key=lambda t: abs(t - expect)) - 0.32 * k if hits else None
+            if spoken is None:
+                issues.append({"severity": "high", "type": "voice_out_of_sync", "at": round(ln["start"], 1),
+                               "detail": f"the line's first words aren't heard near its caption: \"{ln['text'][:50]}\""})
+                continue
         if spoken is not None and abs(spoken - ln["start"]) > tol + (0.25 if k else 0):
             issues.append({"severity": "high", "type": "voice_out_of_sync", "at": round(ln["start"], 1),
                            "detail": f"spoken {spoken - ln['start']:+.2f}s off the captions: \"{ln['text'][:50]}\""})

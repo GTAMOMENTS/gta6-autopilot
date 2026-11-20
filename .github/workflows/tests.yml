@@ -1,0 +1,105 @@
+name: Tests
+
+# Offline test suite (pytest): every PR and every push to main. No secrets, posts nothing, free on this public repo.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # a new push to the same PR / branch replaces the older test run
+  group: tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Month (for refreshing the package cache)
+        id: month
+        run: echo "value=$(date +%Y-%m)" >> "$GITHUB_OUTPUT"
+
+      # Same .deb cache as main.yml (same key): the slow Ubuntu mirror is only hit once a month.
+      - name: Restore cached ffmpeg packages
+        id: aptcache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/apt-debs
+          key: apt-debs-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.month.outputs.value }}
+          restore-keys: |
+            apt-debs-v2-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install FFmpeg + fonts (apt)
+        timeout-minutes: 6
+        continue-on-error: true
+        run: |
+          sudo systemctl stop unattended-upgrades apt-daily.service apt-daily-upgrade.service 2>/dev/null || true
+          sudo killall -q unattended-upgr 2>/dev/null || true
+          mkdir -p ~/apt-debs/partial
+          OPTS="-o Dir::Cache::Archives=$HOME/apt-debs -o APT::Keep-Downloaded-Packages=true -o DPkg::Lock::Timeout=120 -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          PKGS="ffmpeg fonts-montserrat fontconfig"
+          sudo apt-get install -y -q --no-install-recommends $OPTS $PKGS \
+            || { sudo apt-get update -q $OPTS && sudo apt-get install -y -q --no-install-recommends $OPTS $PKGS; }
+          sudo chmod -R a+rX ~/apt-debs
+
+      - name: Retry FFmpeg install (only if the first attempt stalled)
+        timeout-minutes: 10
+        run: |
+          if command -v ffmpeg >/dev/null && command -v ffprobe >/dev/null; then ffmpeg -version | head -1; exit 0; fi
+          echo "First apt attempt failed/stalled - repairing and retrying"
+          sudo systemctl stop unattended-upgrades apt-daily.service apt-daily-upgrade.service 2>/dev/null || true
+          sudo killall -q -9 apt-get apt dpkg unattended-upgr 2>/dev/null || true
+          sleep 3
+          sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock /var/lib/apt/lists/lock
+          sudo dpkg --configure -a || true
+          mkdir -p ~/apt-debs/partial
+          OPTS="-o Dir::Cache::Archives=$HOME/apt-debs -o APT::Keep-Downloaded-Packages=true -o DPkg::Lock::Timeout=120 -o Acquire::Retries=5 -o Acquire::http::Timeout=30"
+          sudo apt-get update -q $OPTS
+          sudo apt-get install -y -q --no-install-recommends $OPTS ffmpeg fontconfig
+          sudo chmod -R a+rX ~/apt-debs
+          ffmpeg -version | head -1
+
+      - name: Save ffmpeg packages for next runs
+        if: steps.aptcache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ~/apt-debs
+          key: apt-debs-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.month.outputs.value }}
+
+      - name: Install Python dependencies
+        run: pip install -U -r requirements-dev.txt
+
+      - name: Run tests (offline; slow = end-to-end FFmpeg renders, included)
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: python -m pytest --basetemp="$RUNNER_TEMP/pytest" -o junit_family=xunit2 --junitxml="$RUNNER_TEMP/junit.xml"
+
+      - name: Upload test renders (only when a test failed)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-output-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/junit.xml
+            ${{ runner.temp }}/pytest/**/*.mp4
+            ${{ runner.temp }}/pytest/**/*_QA.txt
+            ${{ runner.temp }}/pytest/**/*_YOUTUBE_UPLOAD.txt
+          retention-days: 3
+          if-no-files-found: ignore
