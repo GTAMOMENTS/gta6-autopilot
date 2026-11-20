@@ -981,7 +981,16 @@
         "allow_narrated": true,
         "_allow_narrated_note": "Most real money guides have a YouTuber talking: allowed, their voice is muted and Fenrir explains.",
         "continuous": true,
-        "_continuous_note": "A how-to must stay in ONE continuous part of the source video: the multi-slice 'tour' edit jumped to unrelated driving footage while the narration was still explaining the method (owner, 2026-11-20)."
+        "_continuous_note": "A how-to must stay in ONE continuous part of the source video: the multi-slice 'tour' edit jumped to unrelated driving footage while the narration was still explaining the method (owner, 2026-11-20).",
+        "blocked_title_terms": [
+          "glitch",
+          "exploit",
+          "infinite money",
+          "unlimited money",
+          "mod menu",
+          "duplicat",
+          "money cheat"
+        ]
       },
       {
         "id": "trending",
@@ -1191,7 +1200,7 @@
       "money_guide"
     ],
     "_rotation_note": "Long videos take turns: stream-moments countdown, then a money guide (and so on). When GTA 6 streams are quiet a trend guide (today's hottest topic) replaces the moments countdown. Each kind falls back to the others if there is not enough material.",
-    "guide_candidates": 24,
+    "guide_candidates": 30,
     "guide_section_sec": 110,
     "guide_max_items": 8,
     "guide_min_items": 3,

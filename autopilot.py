@@ -176,6 +176,10 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
             if cursor + dur > max_total:
                 break
             a = min(max(0.0, sh["start"] - 0.3), max(0.0, sec_dur - dur))
+            if segments and (fmt or {}).get("continuous"):
+                a = max(a, segments[-1][1])  # one continuous scene: always forward, never the same footage twice
+                if a + dur > sec_dur:
+                    break
             segments.append((round(a, 2), round(a + dur, 2)))
             kept.append({**v, "t": cursor + 0.15})
             cursor += dur
@@ -203,6 +207,15 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
     def produce(src, copy, energy, sec_dur) -> tuple[bool, dict] | None:
         """AI editor's window -> cut -> voice lines -> render -> publish -> record."""
         c, section = src.candidate, src.clip_path
+        raw = sorted([ln for ln in copy.get("commentary_raw", []) if ln.get("t") is not None and ln.get("text")],
+                     key=lambda ln: ln["t"])
+        if _mute(copy) == 0.0 and len(raw) >= 4:
+            # muted footage (another creator's voice removed): the narrator talks only ~1/3 of the time, the
+            # rest would be dead silence (QA rejected 7-12 s gaps) -> the edit follows the voice: each line
+            # gets its own piece of the same scene (section times from the AI), in order
+            copy["shots"] = [{"start": float(ln["t"]), "text": ln["text"]} for ln in raw]
+            log.info("[editor] muted footage - the edit follows the voice (%d lines)", len(copy["shots"]))
+            return produce_tour(src, copy, sec_dur)
         min_len = min(float(vcfg.get("min_clip_sec", 25)), sec_dur)
         max_len = min(float(vcfg.get("duration_sec", 50)), sec_dur)
         start, end = copy.get("clip_start"), copy.get("clip_end")

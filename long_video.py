@@ -385,12 +385,23 @@ def guide_spec(kind: str) -> dict | None:
     trend topic (trends.py)."""
     c = _cfg()
     if kind == "money_guide":
+        # general searches + one per money topic (stash locations, safes, robberies, selling cars...) + money trends:
+        # specific searches find videos that really show a method
+        queries = list(c.get("money_queries", []))
+        mt = next((f for f in load_config().get("formats", {}).get("rotation", []) if f.get("id") == "money_tips"), {})
+        for t in mt.get("topics", []):
+            queries += list(t.get("queries", []))[:1]
+        try:
+            import trends
+            for t in load_json(trends.TRENDS_FILE, {}).get("topics", []):
+                if t.get("money"):
+                    queries += list(t.get("queries", []))[:2]
+        except Exception:  # noqa: BLE001
+            pass
         return {"kind": kind, "topic": "", "subject": "the best ways to make money in GTA 6 (no story spoilers)",
                 "noun": "way to make money", "short": "money tips",
                 "example": "Top 6 BEST Ways To Make Money (No Spoilers)",
-                "queries": c.get("money_queries", ["GTA 6 how to make money", "GTA 6 money making guide",
-                                                   "GTA 6 money making no commentary", "GTA 6 fast money",
-                                                   "GTA 6 best money method", "GTA 6 make money early"]),
+                "queries": list(dict.fromkeys(queries)) or ["GTA 6 how to make money", "GTA 6 money making guide"],
                 "proof": ("the money actually being EARNED on screen: the HUD cash counter going up, a payout / "
                           "sale / reward screen, or picking up cash (stealing or wrecking things without getting "
                           "paid on screen does not count)"),

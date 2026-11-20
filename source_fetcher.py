@@ -527,6 +527,14 @@ def discover(cfg: dict, manifest: dict, kind: str | None = None, fmt: dict | Non
         if s_queries:
             stream += discover_youtube(cfg, s_queries, stf, "stream")
 
+    bad = [t.lower() for t in (fmt or {}).get("blocked_title_terms", [])]
+    if bad:  # e.g. Money Tips: never "glitch" / "infinite money" videos (patched exploits, fake methods)
+        n_before = len(gameplay) + len(stream)
+        gameplay = [x for x in gameplay if not any(t in (x.title or "").lower() for t in bad)]
+        stream = [x for x in stream if not any(t in (x.title or "").lower() for t in bad)]
+        if n_before - len(gameplay) - len(stream):
+            log.info("[sources] %d videos skipped for this format's blocked words (%s)",
+                     n_before - len(gameplay) - len(stream), ", ".join(bad[:4]))
     first, second = (stream, gameplay) if kind == "stream" else (gameplay, stream)
     ranked = (rank(first, manifest, tf, boost, prefer_min)            # preferred type first
               + rank(second, manifest, tf, boost, prefer_min))
