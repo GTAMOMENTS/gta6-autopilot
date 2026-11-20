@@ -190,15 +190,21 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         if not clip:
             return None
         copy["commentary"] = [{"t": round(v["t"], 1), "text": v["text"]} for v in kept]
-        # effects: zoom punch on the opening shot, whoosh on every cut, boom when the last item starts
+        # effects: opening shot starts punched in and settles, every cut gets a whoosh + a quick camera bump,
+        # the last item lands with a boom, a punch-in, a shake and a flash (music lifts there too)
         cuts, acc = [], 0.0
         for a, b in segments[:-1]:
             acc += b - a
             cuts.append(acc)
-        fx = {"zoom": [(0.0, 0.9)], "sfx": [{"t": max(0.0, t - 0.2), "kind": "whoosh"} for t in cuts]}
+        fx = {"zoom": [{"a": -0.2, "b": 0.5, "amt": 0.15, "in": 0.01, "out": 0.5}],
+              "sfx": [{"t": max(0.0, t - 0.2), "kind": "whoosh"} for t in cuts], "flash": [], "shake": [], "action": []}
+        fx["zoom"] += [{"a": t - 0.02, "b": t + 0.05, "amt": 0.08, "in": 0.02, "out": 0.45} for t in cuts[:-1]]
         if cuts:
             fx["sfx"].append({"t": cuts[-1], "kind": "boom"})
             fx["zoom"].append((cuts[-1], cuts[-1] + 1.0))
+            fx["shake"].append((cuts[-1] + 0.02, 0.4))
+            fx["flash"].append((cuts[-1], 0.5))
+            fx["action"].append((cuts[-1] - 0.3, cuts[-1] + 2.5))
         rendered = render(clip, clip_id, copy["banner"], copy["commentary"], voiced=kept, fx=fx, game_volume=_mute(copy))
         if not rendered:
             return None
@@ -233,6 +239,19 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
             start = max(0.0, min(need_t - length * 0.6, sec_dur - length))
             end = min(sec_dur, start + length)
             log.info("[editor] moved the part to %.0f-%.0fs so it shows %s", start, end, fmt.get("must_show_short", ""))
+        heard, heard_off = [], max(0.0, start - 3)
+        if vcfg.get("fx", {}).get("smart_cut", True):
+            # Whisper hears the footage's own speech (in-game dialogue): start / end on a pause, never mid-sentence
+            # (QA: "starts with a jarring cut mid-sentence"), and the narration avoids talking over it
+            try:
+                import transcribe
+                heard = [w for w in transcribe.words(section, heard_off, min(sec_dur, end + 3.5))[0]
+                         if w.get("prob", 1) >= 0.4]
+                if heard:
+                    start, end = transcribe.smart_cut(section, start, end, heard, offset=heard_off,
+                                                      max_len=max_len + 3)
+            except Exception as exc:  # noqa: BLE001
+                log.info("[cut] Whisper check of the footage's speech skipped: %.120s", exc)
         # the big moment: AI's payoff_t, else the most intense second of the picked part
         payoff = need_t if need_t is not None and start <= need_t <= end else copy.get("payoff_t")
         if payoff is None or not start <= payoff <= end:
@@ -249,14 +268,48 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
             return None
         lead = teaser if teaser > 0 else 0.0
         hit = lead + payoff - start
-        fx = {"zoom": [(0.0, lead)] if lead else [], "sfx": []}
+        # hook + sound design: the cold open is punched in from frame 1 with a boom on its big moment and a
+        # shake, a whoosh + white flash cut into the story; the payoff gets a riser, boom, punch-in, shake and an
+        # impact flash; other sudden loud actions in the game sound (crash, shot) get a punchy hit + a small
+        # punch-in; the music lifts a little on those beats
+        fx = {"zoom": [], "sfx": [], "flash": [], "shake": [], "action": [(hit - 1.2, hit + 2.5)]}
         if lead:
-            fx["sfx"] += [{"t": max(0.0, payoff - segs[0][0] - 0.05), "kind": "boom"},
-                          {"t": max(0.0, lead - 0.25), "kind": "whoosh"}]
+            t_boom = max(0.0, payoff - segs[0][0] - 0.05)
+            fx["zoom"].append({"a": -0.2, "b": lead - 0.1, "amt": None, "in": 0.01, "out": 0.12})
+            fx["sfx"] += [{"t": t_boom, "kind": "boom"}, {"t": max(0.0, lead - 0.25), "kind": "whoosh"}]
+            fx["shake"].append((t_boom + 0.03, 0.35))
+            fx["flash"].append((lead, 0.9))
         fx["zoom"].append((max(lead, hit - 0.1), hit + 1.1))
         fx["sfx"].append({"t": max(lead, hit - 0.05), "kind": "boom"})
+        fx["shake"].append((max(lead, hit - 0.02), 0.45))
+        fx["flash"].append((max(lead, hit - 0.02), 0.45, 0.16))
+        if hit - 1.05 >= lead + 0.4:
+            fx["sfx"].append({"t": hit - 1.05, "kind": "riser"})
+        try:
+            from highlight import impacts
+            for t in impacts(clip, count=3, min_gap=5.0, skip=[(0.0, lead + 0.6), (hit - 2.0, hit + 2.0)]):
+                fx["sfx"].append({"t": max(0.0, t - 0.02), "kind": "hit"})
+                fx["zoom"].append({"a": t - 0.04, "b": t + 0.3, "amt": 0.1, "in": 0.06, "out": 0.3})
+                fx["action"].append((t - 0.3, t + 2.0))
+        except Exception as exc:  # noqa: BLE001
+            log.info("[fx] impact detection skipped: %.120s", exc)
+        if heard:  # the footage's own speech on the final timeline: the narration slides into its gaps
+            spans = []
+            for w in heard:
+                a = w["start"] + heard_off - start + lead
+                b = w["end"] + heard_off - start + lead
+                if b <= lead or a >= lead + (end - start):
+                    continue
+                if spans and a - spans[-1][1] < 0.5:
+                    spans[-1][1] = b
+                else:
+                    spans.append([a, b])
+            fx["dialogue"] = [tuple(x) for x in spans]
+            log.info("[cut] the footage talks for %.0fs of %.0fs", sum(b - a for a, b in spans), end - start)
         commentary = finalize_commentary(copy, start, end)
         commentary = [{**ln, "t": round(ln["t"] + lead, 2)} for ln in commentary]
+        if commentary and commentary[0]["t"] - lead <= 3.0:  # the hook line starts right after the cold open
+            commentary[0] = {**commentary[0], "t": round(lead + 0.1, 2)}
         copy["commentary"] = commentary
         log.info("[editor] voice lines: %s", [f"{ln['t']:.0f}s {ln['text']}" for ln in commentary])
         good, why = script_ok(commentary, c.kind, copy.get("ai_source", ""))
