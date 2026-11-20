@@ -184,8 +184,12 @@ Check for:
   Also flag a cut to unrelated footage in the middle of an explanation.
 - content: not GTA 6, story spoilers, non-English streamer, nudity / slurs / real violence
 - overall: would a professional editor publish this as is?
+Then, separately, judge it against the edits of TOP gaming YouTubers / TikTokers (pro_level 1-10) and list the
+concrete changes that would close the gap (improvements): hook in the first 2 seconds, pacing / dead moments,
+cut rhythm, zooms / emphasis, caption style and readability, narration energy and wording, sound design and
+music, thumbnail-worthy moments, ending / call to action. Be specific ("cut the first 3 s, start on the crash").
 Return ONLY JSON: {{"publish": bool, "score": int (1-10), "issues": [{{"at": seconds, "severity": "high"|"medium"|"low",
- "type": str, "detail": str}}], "summary": str}}"""
+ "type": str, "detail": str}}], "summary": str, "pro_level": int (1-10), "improvements": [str]}}"""
 
 
 def ai_review(path: Path, context: str) -> dict | None:
@@ -238,10 +242,15 @@ def check(path: Path, kind: str, lines: list[dict] | None = None, still_ok: list
     lines_out = [f"QA {'PASSED' if ok else 'FAILED'} ({kind}) - AI score: {score if score is not None else 'n/a'}"]
     lines_out += [f"- [{i.get('severity')}] {i.get('type')}" + (f" at {i['at']}s" if i.get("at") is not None else "")
                   + f": {i.get('detail', '')}" for i in issues]
+    tips = [str(t)[:220] for t in ((ai or {}).get("improvements") or []) if str(t).strip()][:8]
+    pro = (ai or {}).get("pro_level")
+    if tips or pro is not None:  # not blocking - the to-do list for making the edits look like top YouTubers'
+        lines_out.append(f"PRO LEVEL: {pro}/10 - to look like a top YouTuber's edit:")
+        lines_out += [f"  * {t}" for t in tips]
     report = "\n".join(lines_out)
-    log.info("[qa] %s", report.replace("\n", " | ")[:1500])
+    log.info("[qa] %s", report.replace("\n", " | ")[:2500])
     try:
         Path(str(path).rsplit(".", 1)[0] + "_QA.txt").write_text(report + "\n", encoding="utf-8")
     except Exception:  # noqa: BLE001
         pass
-    return {"pass": ok, "score": score, "issues": issues, "report": report}
+    return {"pass": ok, "score": score, "issues": issues, "report": report, "pro_level": pro, "improvements": tips}
