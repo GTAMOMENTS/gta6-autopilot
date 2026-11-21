@@ -1093,6 +1093,12 @@
     "view_examples": true,
     "view_examples_min": 4
   },
+  "fallback": {
+    "_note": "A video slot that posted nothing posts the most viral famous-streamer clip instead (owner 2026-11-21). The run only starts it while less than max_elapsed_min have passed (job timeout 120 min).",
+    "stream_clip_on_fail": true,
+    "max_elapsed_min": 80,
+    "min_left_min": 8
+  },
   "stream_clips": {
     "enabled": true,
     "_note": "Viral GTA 6 stream clips (Twitch, Kick, YouTube stream recordings' most-replayed moment) posted with the streamer's real voice + subtitles, no AI voice. Runs every 30 min from .github/workflows/streams.yml. Finds the most-watched GTA 6 streams first (Twitch/Kick live lists, big streamers' YouTube channels), then clips their best moments.",

@@ -237,3 +237,7 @@ charm pack, learning, stream clips, long video, English-only + choppy filter, Ge
   left; the one good clip lost its script over one line failing the pre-check twice, then the 25-min clip budget ran out
   after 4 clips (3 were fakes). Fixes: `sources.time_budget_min` 55 (job timeout is 120); `video.precheck_attempts` 3 -
   the last rewrite asks for a plain description of what is on screen.
+- Owner 2026-11-21: "if nothing got posted u should push a short clip". A video slot (Video A / B) that posts nothing
+  now posts the most viral famous-streamer clip in the same run (`autopilot._fallback_stream_clip` ->
+  `stream_clips.run_for_slot`, not on Instagram). Only started while < `fallback.max_elapsed_min` (80) have passed;
+  the format rotation still records the narrated format's failure. Off: `fallback.stream_clip_on_fail: false`.

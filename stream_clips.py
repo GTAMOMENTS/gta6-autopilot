@@ -593,9 +593,10 @@ def produce(clip: dict, dry_run: bool, state: dict, platforms: list[str] | None 
 SLOT_STATE_FILE = STATE_DIR / "stream_clips_slot.json"  # main schedule's own memory (saved with queue/)
 
 
-def run_for_slot(platforms: list[str], dry_run: bool) -> tuple[bool, dict]:
+def run_for_slot(platforms: list[str], dry_run: bool, deadline: float | None = None) -> tuple[bool, dict]:
     """Video A "stream reactions": the most viral famous-streamer clip right now, posted on the main schedule
-    (instead of separate posts). (False, {...}) when nothing is viral enough -> the caller follows a trend."""
+    (instead of separate posts). (False, {...}) when nothing is viral enough -> the caller follows a trend.
+    Also the backup when a video slot posted nothing. deadline: no new clip is started after this time."""
     c = _cfg()
     READY_DIR.mkdir(parents=True, exist_ok=True)
     state = load_json(SLOT_STATE_FILE, {"posted": [], "rejected": {}})
@@ -609,6 +610,9 @@ def run_for_slot(platforms: list[str], dry_run: bool) -> tuple[bool, dict]:
         candidates = []
     result = None
     for clip in candidates[: int(c.get("max_tries", 3))]:
+        if deadline and time.time() > deadline:
+            log.info("[streams] out of time for more stream clips this run")
+            break
         raw_ok = [p for p in platforms if p not in load_config().get("publishing", {}).get("no_raw_clips_on", [])]
         result = produce(clip, dry_run, state, platforms=raw_ok)  # raw streamer clips: not on Instagram
         if result:
