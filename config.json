@@ -46,15 +46,14 @@
     },
     {
       "time": "01:40",
-      "type": "money_clip",
-      "format": "money_tips",
+      "type": "video_b",
       "platforms": [
         "instagram",
         "x",
         "tiktok",
         "youtube"
       ],
-      "_note": "Video B: GTA 6 Money Tip #N (17:40 New York, US prime time)"
+      "_note": "Video B: a second video from the normal rotation (17:40 New York). Owner 2026-11-21: money content dropped for now (the Money Tip format stays in formats but no slot uses it - add \"format\": \"money_tips\" here to bring it back)."
     },
     {
       "time": "04:20",
@@ -1265,10 +1264,9 @@
     "_approval_note": "Long videos are never auto-published: after QA passes they wait for the owner (download from Artifacts, then upload by hand or run the workflow with slot approve_long).",
     "download_workers": 4,
     "rotation": [
-      "moments",
-      "money_guide"
+      "moments"
     ],
-    "_rotation_note": "Long videos take turns: stream-moments countdown, then a money guide (and so on). When GTA 6 streams are quiet a trend guide (today's hottest topic) replaces the moments countdown. Each kind falls back to the others if there is not enough material.",
+    "_rotation_note": "Owner 2026-11-21: money guides dropped for now - long videos are stream-moment countdowns; when streams are quiet or there aren't enough moments, a trend guide. (money_guide still works manually: format=money_guide.)",
     "guide_candidates": 30,
     "guide_section_sec": 110,
     "guide_max_items": 8,
@@ -1288,7 +1286,10 @@
     "guide_min_item_sec": 25,
     "guide_stream_clips": 18,
     "guide_max_angles": 2,
-    "_guide_note": "Guides: each method from up to 3 creators (main + 2 extra angles, each part narrated with lines about its own footage); 3 methods minimum when that is all the real footage there is (2026-11-20: 3 methods, each confirmed by 2-3 creators)."
+    "_guide_note": "Guides: each method from up to 3 creators (main + 2 extra angles, each part narrated with lines about its own footage); 3 methods minimum when that is all the real footage there is (2026-11-20: 3 methods, each confirmed by 2-3 creators).",
+    "fallbacks": [
+      "trend_guide"
+    ]
   },
   "whisper": {
     "enabled": true,
@@ -1303,7 +1304,7 @@
     "keep_terms": [],
     "_rules_note": "A rewrite is rejected if it adds numbers/names not in the video, cheat-sounding words (critic.CHEAT_WORDS; set cheat_words to replace the list - money videos may not use them at all, the AI's own 'Money Hacks' becomes 'Money Tips'), spoiler words, emojis, hashtags, links, 'GTA VI', more than max_caps_words CAPS words, or drops a search keyword the original had (critic.KEEP_TERMS + keep_terms + today's top searches). Titles always get 'GTA 6' near the front and the true countdown number."
   },
-  "_schedule_note": "Owner's plan (2026-11-20): Video A (rotation) 19:40 TRT -> Instagram, X, YouTube Shorts (from week 2); Video B (GTA 6 Money Tip) 01:40 TRT -> Instagram, X, TikTok, YouTube Shorts; X texts 16:50 / 22:10 / 04:20; long video every 3 days (15:10 TRT, owner publishes). Viral stream clips are part of Video A (no separate posts). Times must match the crons in .github/workflows/main.yml.",
+  "_schedule_note": "Owner's plan (2026-11-20): Video A (rotation) 19:40 TRT -> Instagram, X, YouTube Shorts (from week 2); Video B (normal rotation, money dropped 2026-11-21) 01:40 TRT -> Instagram, X, TikTok, YouTube Shorts; X texts 16:50 / 22:10 / 04:20; long video every 3 days (15:10 TRT, owner publishes). Viral stream clips are part of Video A (no separate posts). Times must match the crons in .github/workflows/main.yml.",
   "qa": {
     "enabled": true,
     "require_ai_review": true,

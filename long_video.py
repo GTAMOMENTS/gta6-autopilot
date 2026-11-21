@@ -1803,10 +1803,11 @@ def _long_kinds(state: dict) -> list[str]:
     wanted = env("FORMAT").strip().lower()
     if wanted in LONG_KINDS:
         return [wanted]
-    rot = [k for k in _cfg().get("rotation", ["moments", "money_guide"]) if k in LONG_KINDS] or ["moments"]
+    rot = [k for k in _cfg().get("rotation", ["moments"]) if k in LONG_KINDS] or ["moments"]
     last = state.get("last_kind")
     nxt = rot[(rot.index(last) + 1) % len(rot)] if last in rot else rot[0]
-    order = list(dict.fromkeys([nxt] + rot + ["trend_guide", "money_guide"]))
+    fallbacks = [k for k in _cfg().get("fallbacks", ["trend_guide"]) if k in LONG_KINDS]
+    order = list(dict.fromkeys([nxt] + rot + fallbacks))
     try:
         import trends
         if trends.stream_health()["weak"]:  # streams died down: follow trends, stream moments only as last resort

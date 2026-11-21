@@ -9,7 +9,7 @@ on:
     - cron: '50 13 * * *'   # 16:50 TRT  x_text_morning (question / poll, 08:50 New York)
     - cron: '40 16 * * *'   # 19:40 TRT  vertical_clip  Video A: rotation (11:40 New York)
     - cron: '10 19 * * *'   # 22:10 TRT  x_question_nostalgia (hot take / poll)
-    - cron: '40 22 * * *'   # 01:40 TRT  money_clip     Video B: GTA 6 Money Tip (17:40 New York)
+    - cron: '40 22 * * *'   # 01:40 TRT  video_b        Video B: normal rotation (17:40 New York)
     - cron: '20 1 * * *'    # 04:20 TRT  x_daily_recap
   workflow_dispatch:
     inputs:
@@ -25,6 +25,7 @@ on:
           - long_video
           - approve_long
           - vertical_clip
+          - video_b
           - money_clip
           - trends
           - x_video_clip
