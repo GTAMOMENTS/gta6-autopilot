@@ -341,3 +341,13 @@ def test_whisper_number_spelling_counts_as_heard(whisper):
 def test_next_real_word_is_tried_when_the_first_is_misheard(whisper):
     whisper(heard((3.0, "Numbr two escaping on a scooter is already funny.")))
     assert qa.voice_check(VIDEO, [line("Number two: escaping on a scooter is already funny.", 3.0)]) == []
+
+
+def test_stretched_first_word_is_not_out_of_sync(whisper):
+    # real run: Whisper heard "Look@6.6 at@8.4 this@8.4 ..." for a line placed at 8.2 - the speech is on time,
+    # Whisper stretched "Look" back over the pause before it
+    words = [{"text": "Look", "start": 6.6, "end": 8.3}] + [
+        {"text": w, "start": 8.4 + 0.2 * i, "end": 8.55 + 0.2 * i}
+        for i, w in enumerate("at this guy in GTA 6 stepping out of his SUV".split())]
+    whisper(words)
+    assert qa.voice_check(VIDEO, [line("Look at this guy in GTA 6 stepping out of his SUV", 8.2, dur=3.0)]) == []

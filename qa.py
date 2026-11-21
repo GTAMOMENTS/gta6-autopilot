@@ -161,7 +161,10 @@ def voice_check(path: Path, lines: list[dict]) -> list[dict]:
             lo, hi = ln["start"] - 3.0, ln["start"] + max(3.5, 0.6 * float(ln.get("dur", 3)))
             for k in anchors:
                 expect = ln["start"] + 0.32 * k
-                hits = [w["start"] for w in heard if lo <= w["start"] <= hi and want[k] in _norm_words(w["text"])]
+                # Whisper stretches the first word after a pause back into the silence ("Look@6.6 at@8.4"): a word
+                # lasting over ~0.6 s really starts near its end
+                hits = [max(w["start"], float(w.get("end", w["start"])) - 0.6) for w in heard
+                        if lo <= w["start"] <= hi and want[k] in _norm_words(w["text"])]
                 if hits:
                     spoken = min(hits, key=lambda t: abs(t - expect)) - 0.32 * k
                     break
