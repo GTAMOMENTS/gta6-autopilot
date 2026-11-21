@@ -689,7 +689,7 @@ Current lines:
 Return ONLY JSON: {{"lines": [{{"line": number, "text": str}}]}}"""
 
 
-def ground_lines(clip: Path, items: list[dict], what: str) -> list[str] | None:
+def ground_lines(clip: Path, items: list[dict], what: str, extra: str = "") -> list[str] | None:
     """Rewrite narration lines so each one describes the footage it plays over. items: [{"text", "start", "dur"}]
     with times inside `clip`. Returns the new texts (same order) or None (no AI / bad answer -> keep the old ones).
     Before this, the AI wrote all lines at once from a long low-res proxy and its timing drifted: "chaos on the
@@ -715,7 +715,10 @@ def ground_lines(clip: Path, items: list[dict], what: str) -> list[str] | None:
         contents.append(f"Line {i} frames:")
         contents += [types.Part.from_bytes(data=b, mime_type="image/jpeg") for b in imgs]
         listing.append(f'{i}. "{it["text"]}"')
-    contents.append(GROUND_PROMPT.format(facts=_game_context(), what=what[:300], lines="\n".join(listing)))
+    prompt = GROUND_PROMPT.format(facts=_game_context(), what=what[:300], lines="\n".join(listing))
+    if extra:  # lessons from our own QA, or why these exact lines were rejected
+        prompt += "\n" + extra[:1500]
+    contents.append(prompt)
     data = _generate_json(contents, temperature=0.5)
     if not isinstance(data, dict) or not isinstance(data.get("lines"), list):
         return None

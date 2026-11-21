@@ -114,3 +114,35 @@ def test_short_smoke_render(cfg, short_world, fake_tts, sandbox):
     assert m["sources"]["yt:smoke1"]["uses"][0][:2] == [100, 112]
     assert "Narration lines with start times" in short_world["qa_context"]
     assert short_world["fmt"]["id"] == "stunts_crashes"
+
+
+def test_short_repair_fixes_only_the_wrong_line(cfg, short_world, fake_tts, sandbox, monkeypatch):
+    """Final QA flags one line -> only that line is rewritten + re-voiced, the video re-rendered once, then it passes
+    (instead of throwing the clip away)."""
+    import lessons
+    calls = {"n": 0, "ground": []}
+
+    def line_check(path, lines, kind):
+        calls["n"] += 1
+        if calls["n"] == 2:   # 1 = pre-check (ok), 2 = final QA on the rendered video (one bad line), 3 = after repair
+            return [{"severity": "high", "type": "line_not_shown", "at": lines[1]["start"], "index": 1,
+                     "reason": "frames show a parked car", "detail": "the picture doesn't show it"}]
+        return []
+    monkeypatch.setattr(qa, "line_check", line_check)
+
+    def ground(clip, items, what, extra=""):
+        calls["ground"].append([it["text"] for it in items])
+        if "REJECTED" not in extra:  # first pass (before voice): keep the lines
+            return [it["text"] for it in items]
+        return ["Look at that car flying straight off the ramp." if "Five stars" in it["text"] else it["text"]
+                for it in items]
+    monkeypatch.setattr(gemini_writer, "ground_lines", ground)
+    fmt = formats.format_by_id("stunts_crashes", cfg)
+    slot = {"type": "vertical_clip", "platforms": ["x"], "time": "19:40"}
+    ok, rec = autopilot.run_video_slot(slot, dry_run=True, fmt=fmt)
+    assert ok, rec
+    assert calls["n"] == 3, "pre-check, final QA, QA after the repair"
+    assert calls["ground"][-1] == [LINES[1]], "only the rejected line is rewritten"
+    assert any("car flying straight off the ramp" in ln["text"] for ln in rec["copy"]["commentary"])
+    stages = [a["stage"] for a in lessons._load()["attempts"]]
+    assert stages[-2:] == ["final", "repair"] and lessons._load()["attempts"][-1]["pass"] is True

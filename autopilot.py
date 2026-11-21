@@ -119,8 +119,48 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         """Footage with another YouTuber talking (allowed for some formats): their voice is muted."""
         return 0.0 if (fmt or {}).get("allow_narrated") and copy.get("has_narrator") else None
 
-    def publish_and_record(src, copy, clip_id, rendered, ranges) -> tuple[bool, dict] | None:
+    def _prepare_lines(path, items, what) -> list[str] | None:
+        """Prevent instead of reject: 1) each line written for its own footage (frames of its shot); 2) a cheap check
+        of lines vs frames BEFORE voice + render; lines that still don't match get one targeted rewrite (told why).
+        None = still wrong -> skip this clip now, before spending voice + render + QA on it."""
+        import lessons
+        import qa
+        from gemini_writer import ground_lines
+        texts = [it["text"] for it in items]
+        if vcfg.get("ground_lines", True):
+            new = ground_lines(path, items, what, extra=lessons.prompt_hints((fmt or {}).get("id")))
+            if new:
+                texts = new
+        if not vcfg.get("precheck_lines", True):
+            return texts
+        bad = []
+        for attempt in (1, 2):
+            issues = qa.line_check(path, [{**it, "text": t} for it, t in zip(items, texts)], "short")
+            bad = [i for i in issues if i.get("type") == "line_not_shown" and isinstance(i.get("index"), int)]
+            if not bad:
+                if any(i.get("type") == "line_check_unavailable" for i in issues):
+                    log.info("[precheck] no AI could pre-check the lines - the final QA will")
+                else:
+                    log.info("[precheck] ✅ every line matches its footage (before voice + render)")
+                return texts
+            log.info("[precheck] %d line(s) don't match their footage (attempt %d): %s", len(bad), attempt,
+                     [texts[i["index"]][:50] for i in bad])
+            if attempt == 2:
+                break
+            idx = [i["index"] for i in bad]
+            why = ("These lines were REJECTED because their frames don't show what they say - describe only what IS "
+                   "visible:\n" + "\n".join(f'- "{texts[i["index"]]}": {i.get("reason", "")}' for i in bad))
+            fixed = ground_lines(path, [{**items[k], "text": texts[k]} for k in idx], what, extra=why)
+            if not fixed:
+                break
+            for k, t in zip(idx, fixed):
+                texts[k] = t
+        lessons.record("short", (fmt or {}).get("id", ""), False, bad, stage="precheck")
+        return None
+
+    def publish_and_record(src, copy, clip_id, rendered, ranges, repair=None) -> tuple[bool, dict] | None:
         from formats import bump_series, series_label
+        import lessons
         import qa
         c = src.candidate
         trust_note = ("FOOTAGE SOURCE: it passed a separate GTA VI authenticity check (or comes from the Twitch GTA VI "
@@ -138,10 +178,32 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         teaser_note = trust_note + muted_note + style_note + ("The first ~1.2 s is an intentional cold open: a quick flash of the big moment, which then "
                        "plays again at its real place in the clip - that repeat is NOT a montage error. "
                        if float(vcfg.get("fx", {}).get("teaser_sec", 0)) > 0 and not src.is_reel else "")
-        verdict = qa.check(Path(rendered["path"]), "short", lines=rendered.get("placed"),
-                           context=f"{teaser_note}Format: {(fmt or {}).get('name', '')}. Banner: {copy.get('banner')}. "
-                                   f"Narration lines with start times (also burned in as captions): "
-                                   + " | ".join(f"[{ln['start']:.1f}s] {ln['text']}" for ln in rendered.get("placed", [])))
+        def _qa(r):
+            return qa.check(Path(r["path"]), "short", lines=r.get("placed"),
+                            context=f"{teaser_note}Format: {(fmt or {}).get('name', '')}. Banner: {copy.get('banner')}. "
+                                    f"Narration lines with start times (also burned in as captions): "
+                                    + " | ".join(f"[{ln['start']:.1f}s] {ln['text']}" for ln in r.get("placed", [])))
+        src_info = {"provider": c.provider, "channel": c.uploader}
+        verdict = _qa(rendered)
+        repaired = False
+        if not verdict["pass"] and repair is not None and vcfg.get("repair", True):
+            high = [i for i in verdict["issues"] if str(i.get("severity")) == "high"]
+            bad_lines = [i for i in high if i.get("type") == "line_not_shown" and isinstance(i.get("index"), int)]
+            other = [i for i in high if i.get("type") not in ("line_not_shown", "ai_verdict", "ai_score")
+                     and not any(w in str(i.get("type")) for w in ("narration", "mismatch"))]
+            if bad_lines and not other:
+                # repair instead of redo: only the wrong lines are rewritten + re-voiced, the video re-rendered once
+                lessons.record("short", (fmt or {}).get("id", ""), False, verdict["issues"], source=src_info)
+                log.info("[repair] QA only found %d narration line(s) that don't match - fixing just those",
+                         len(bad_lines))
+                fixed = repair(rendered, bad_lines)
+                if fixed:
+                    rendered, repaired = fixed, True
+                    verdict = _qa(rendered)
+                    log.info("[repair] %s after fixing the lines", "✅ passed" if verdict["pass"] else "✋ still failing")
+        lessons.record("short", (fmt or {}).get("id", ""), verdict["pass"], verdict["issues"],
+                       stage="repair" if repaired else "final", source=src_info,
+                       lines=[ln["text"] for ln in rendered.get("placed", [])], repaired=repaired)
         if not verdict["pass"]:
             qa_problems.append(verdict["report"].splitlines()[1] if len(verdict["report"].splitlines()) > 1 else "QA failed")
             mark_rejected(c, "failed QA")
@@ -187,15 +249,16 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
                 reel.unlink(missing_ok=True)
                 script_problems.append(f"countdown skipped {missing}")
                 return None
-        if vcfg.get("ground_lines", True):
-            # each line rewritten to match the footage it will play over (frames of its own shot)
-            from gemini_writer import ground_lines
-            new = ground_lines(reel, [{"text": sh["text"], "start": max(0.0, sh["start"] - 0.3),
-                                       "dur": len(sh["text"].split()) / 2.6 + 0.5} for sh in shots],
-                               f"{(fmt or {}).get('name', 'GTA 6 Short')} - {copy.get('scene_summary', '')}")
-            if new:
-                shots = [{**sh, "text": t} for sh, t in zip(shots, new)]
-                copy["shots"] = shots
+        new = _prepare_lines(reel, [{"text": sh["text"], "start": max(0.0, sh["start"] - 0.3),
+                                     "dur": len(sh["text"].split()) / 2.6 + 0.5} for sh in shots],
+                             f"{(fmt or {}).get('name', 'GTA 6 Short')} - {copy.get('scene_summary', '')}")
+        if new is None:
+            log.warning("[precheck] ✋ the script doesn't match this footage - next clip (no voice / render spent)")
+            reel.unlink(missing_ok=True)
+            script_problems.append("lines don't match the footage (pre-check)")
+            return None
+        shots = [{**sh, "text": t} for sh, t in zip(shots, new)]
+        copy["shots"] = shots
         clip_id = "gta6_" + now_local().strftime("%Y%m%d_%H%M") + "_" + hashlib.md5(c.key.encode()).hexdigest()[:6]
         voiced = synthesize_lines([{"t": 0.0, "text": sh["text"]} for sh in shots], clip_id)
         max_total = float(vcfg.get("tour_max_sec", 80))
@@ -243,7 +306,30 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         rendered = render(clip, clip_id, copy["banner"], copy["commentary"], voiced=kept, fx=fx, game_volume=_mute(copy))
         if not rendered:
             return None
-        return publish_and_record(src, copy, clip_id, rendered, segments)
+
+        def repair_tour(r, bad):
+            """Rewrite only the rejected lines (same length budget - each shot's footage is already cut), re-voice them,
+            re-render once."""
+            from gemini_writer import ground_lines
+            idx = [i["index"] for i in bad if 0 <= i["index"] < len(kept)]
+            why = ("These lines were REJECTED because the picture doesn't show them - describe only what IS visible, "
+                   "and keep each line as short as the original or shorter:\n"
+                   + "\n".join(f'- "{kept[i["index"]]["text"]}": {i.get("reason", "")}' for i in bad if i["index"] in idx))
+            fixed = ground_lines(clip, [{"text": kept[k]["text"], "start": kept[k]["t"], "dur": kept[k]["dur"]} for k in idx],
+                                 f"{(fmt or {}).get('name', 'GTA 6 Short')}", extra=why)
+            if not fixed:
+                return None
+            new_v = synthesize_lines([{"t": 0.0, "text": t} for t in fixed], clip_id + "_fix")
+            for k, v in zip(idx, new_v):
+                room = (segments[k][1] - segments[k][0]) - 0.35 - (0.9 if k == len(kept) - 1 else 0.0)
+                if v["dur"] > room + 0.1:
+                    log.info("[repair] the new line is too long for its shot: %s", v["text"][:50])
+                    return None
+                kept[k] = {**v, "t": kept[k]["t"]}
+            copy["commentary"] = [{"t": round(v["t"], 1), "text": v["text"]} for v in kept]
+            return render(clip, clip_id, copy["banner"], copy["commentary"], voiced=kept, fx=fx, game_volume=_mute(copy))
+
+        return publish_and_record(src, copy, clip_id, rendered, segments, repair=repair_tour)
 
     def produce(src, copy, energy, sec_dur) -> tuple[bool, dict] | None:
         """AI editor's window -> cut -> voice lines -> render -> publish -> record."""
@@ -345,14 +431,16 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         commentary = [{**ln, "t": round(ln["t"] + lead, 2)} for ln in commentary]
         if commentary and commentary[0]["t"] - lead <= 3.0:  # the hook line starts right after the cold open
             commentary[0] = {**commentary[0], "t": round(lead + 0.1, 2)}
-        if commentary and vcfg.get("ground_lines", True):
-            # each line rewritten to match the footage it will play over (frames from the cut clip)
-            from gemini_writer import ground_lines
-            new = ground_lines(clip, [{"text": ln["text"], "start": ln["t"], "dur": len(ln["text"].split()) / 2.6 + 0.4}
-                                      for ln in commentary],
-                               f"{(fmt or {}).get('name', 'GTA 6 Short')} - {copy.get('scene_summary', '')}")
-            if new:
-                commentary = [{**ln, "text": t} for ln, t in zip(commentary, new)]
+        if commentary:
+            new = _prepare_lines(clip, [{"text": ln["text"], "start": ln["t"], "dur": len(ln["text"].split()) / 2.6 + 0.4}
+                                        for ln in commentary],
+                                 f"{(fmt or {}).get('name', 'GTA 6 Short')} - {copy.get('scene_summary', '')}")
+            if new is None:
+                log.warning("[precheck] ✋ the script doesn't match this footage - next clip (no voice / render spent)")
+                clip.unlink(missing_ok=True)
+                script_problems.append("lines don't match the footage (pre-check)")
+                return None
+            commentary = [{**ln, "text": t} for ln, t in zip(commentary, new)]
         copy["commentary"] = commentary
         log.info("[editor] voice lines: %s", [f"{ln['t']:.0f}s {ln['text']}" for ln in commentary])
         good, why = script_ok(commentary, c.kind, copy.get("ai_source", ""))
@@ -366,7 +454,24 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         rendered = render(clip, clip_id, copy["banner"], commentary, fx=fx, game_volume=_mute(copy))
         if not rendered:
             return None
-        return publish_and_record(src, copy, clip_id, rendered, [list(x) for x in segs])
+
+        def repair_moment(r, bad):
+            """Rewrite only the rejected lines (at the times they were placed), re-render once."""
+            from gemini_writer import ground_lines
+            placed = r.get("placed", [])
+            idx = [i["index"] for i in bad if 0 <= i["index"] < len(placed)]
+            why = ("These lines were REJECTED because the picture doesn't show them - describe only what IS visible:\n"
+                   + "\n".join(f'- "{placed[i["index"]]["text"]}": {i.get("reason", "")}' for i in bad if i["index"] in idx))
+            fixed = ground_lines(clip, [{"text": placed[k]["text"], "start": placed[k]["start"], "dur": placed[k]["dur"]}
+                                        for k in idx], f"{(fmt or {}).get('name', 'GTA 6 Short')}", extra=why)
+            if not fixed:
+                return None
+            swap = {placed[k]["text"]: t for k, t in zip(idx, fixed)}
+            new_c = [{**ln, "text": swap.get(ln["text"], ln["text"])} for ln in copy["commentary"]]
+            copy["commentary"] = new_c
+            return render(clip, clip_id, copy["banner"], new_c, fx=fx, game_volume=_mute(copy))
+
+        return publish_and_record(src, copy, clip_id, rendered, [list(x) for x in segs], repair=repair_moment)
 
     script_problems: list[str] = []  # clips skipped because no proper AI script could be written
     qa_problems: list[str] = []  # finished videos that failed the strict QA
@@ -754,6 +859,11 @@ def main() -> int:
         from long_video import run_long
         ok, detail = run_long(args.dry_run)
     elif slot["type"] in VIDEO_TYPES:
+        try:
+            import lessons
+            log.info("[learn] QA history: %s", lessons.stats_line())
+        except Exception:  # noqa: BLE001
+            pass
         from formats import advance_format, current_format, format_by_id, mark_topic, specialize
         fmt = current_format(cfg, slot)
         if fmt and fmt["id"] == "stream_reactions" and cfg.get("stream_clips", {}).get("in_main_schedule", True):
