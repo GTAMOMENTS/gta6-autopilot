@@ -290,6 +290,7 @@ def line_check(path: Path, lines: list[dict], kind: str) -> list[dict]:
         if 1 <= i <= len(use) and str(v.get("verdict", "")).lower().strip() == "no":
             ln = use[i - 1]
             issues.append({"severity": "high", "type": "line_not_shown", "at": round(float(ln["start"]), 1),
+                           "index": i - 1, "reason": str(v.get("reason", ""))[:200],
                            "detail": f"the picture doesn't show what the narrator says: \"{ln['text'][:70]}\" "
                                      f"({str(v.get('reason', ''))[:120]})"})
     return issues

@@ -1931,6 +1931,12 @@ def run_long(dry_run: bool) -> tuple[bool, dict]:
                "Narration lines: ")
     verdict = qa.check(Path(rendered["path"]), "long", lines=rendered.get("placed"), still_ok=rendered.get("still_ok"),
                        context=ctx + " | ".join(f"[{p_['start']:.1f}s] {p_['text']}" for p_ in rendered.get("placed", [])))
+    try:
+        import lessons
+        lessons.record("long", kind, verdict["pass"], verdict["issues"],
+                       lines=[p_["text"] for p_ in rendered.get("placed", [])])
+    except Exception:  # noqa: BLE001
+        pass
     results = {}
     awaiting = False
     if not verdict["pass"]:

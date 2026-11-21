@@ -64,6 +64,15 @@ def current_format(cfg: dict | None = None, slot: dict | None = None) -> dict | 
                 pick = format_by_id("trending", cfg) or pick
         except Exception as exc:  # noqa: BLE001
             log.info("[trends] stream health unknown: %.100s", exc)
+    try:  # a format that keeps failing QA is rested for a while (lessons.py)
+        import lessons
+        tries = 0
+        while lessons.should_rest(pick["id"]) and tries < len(rot):
+            log.info("[learn] %s keeps failing QA lately - resting it, making the next format", pick["id"])
+            pick = rot[(rot.index(pick) + 1) % len(rot)] if pick in rot else in_turn
+            tries += 1
+    except Exception as exc:  # noqa: BLE001
+        log.info("[learn] QA history unavailable: %.100s", exc)
     made = specialize(pick)
     if made is None:  # e.g. "trending" with no trend data yet -> the next format in the rotation
         nxt = rot[(rot.index(pick) + 1) % len(rot)] if pick in rot else in_turn
@@ -212,6 +221,13 @@ def prompt_note(fmt: dict | None, tour: bool) -> str:
         lines.append(f'Banner like: "{fmt["banner_example"]}". YouTube title like: "{fmt.get("title_example", "")}".')
     lines.append("Pick the shots/part that fit this format best. If this footage really cannot honestly make "
                  "this format, set fits_format=false (and still fill everything in with the closest angle).")
+    try:  # the system's memory of its own QA mistakes + lines that passed for this format
+        import lessons
+        hints = lessons.prompt_hints(fmt.get("id"))
+        if hints:
+            lines.append(hints)
+    except Exception:  # noqa: BLE001
+        pass
     if fmt.get("must_show"):
         lines.append(f"REQUIRED FOR THIS FORMAT: the footage must clearly show {fmt['must_show']}. Set "
                      "shows_required=true ONLY if you actually see it happen, and give required_t = the second "

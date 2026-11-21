@@ -212,3 +212,13 @@ charm pack, learning, stream clips, long video, English-only + choppy filter, Ge
 - Raw stream clips (streamer's own voice + subtitles, no narration) skip Instagram (`publishing.no_raw_clips_on`) - they
   were most of what got flagged; narrated Video A / B go to Instagram. If the originality flag returns: put
   "instagram" back into `paused_platforms`.
+
+## 12. Prevent, repair, learn (owner: "it should have learnt not to make mistakes", 2026-11-21)
+- **Prevent:** `gemini_writer.ground_lines` writes each narration line from 3 frames of the exact footage it plays over;
+  `_prepare_lines` (autopilot) then runs `qa.line_check` on frames + text BEFORE voice + render; failing lines get one
+  targeted rewrite (told why); still wrong -> next clip with no voice/render spent.
+- **Repair:** if final QA's only high issues are lines not matching the picture, `repair_moment` / `repair_tour` rewrite +
+  re-voice just those lines and re-render once (no new download / review / script).
+- **Learn:** `lessons.py` logs every QA result (`queue/qa_lessons.json`, real runs only); recurring script mistakes (real
+  examples) + lines that passed go into the writer's prompts (`formats.prompt_note`, `ground_lines`); formats that keep
+  failing are rested (`lessons.should_rest`); each run logs "[learn] QA history: first-pass rate ...".
