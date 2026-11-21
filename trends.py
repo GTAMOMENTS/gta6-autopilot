@@ -238,12 +238,17 @@ def _recently_used(state: dict, topic: str, days: float) -> bool:
     return time.time() - float(state.get("used", {}).get(topic.lower(), 0)) < days * 86400
 
 
-def pick(money: bool | None = None, min_demand: int = 1) -> dict | None:
-    """Best topic not used in the last trends.topic_cooldown_days. money=True only money topics, False none."""
+def pick(money: bool | None = None, min_demand: int = 1, exclude: list[str] | None = None) -> dict | None:
+    """Best topic not used in the last trends.topic_cooldown_days. money=True only money topics, False none.
+    exclude: words that disqualify a topic (e.g. glitch / exploit for Money Tips)."""
     state = load_json(TRENDS_FILE, {"topics": [], "used": {}})
     days = float(_cfg().get("topic_cooldown_days", 4))
+    bad = [w.lower() for w in (exclude or [])]
     for t in state.get("topics", []):
         if money is not None and bool(t.get("money")) != money:
+            continue
+        text = f"{t.get('topic', '')} {t.get('angle', '')} {' '.join(t.get('queries') or [])}".lower()
+        if bad and any(w in text for w in bad):
             continue
         if t.get("demand", 0) >= min_demand and not _recently_used(state, t["topic"], days):
             return t
