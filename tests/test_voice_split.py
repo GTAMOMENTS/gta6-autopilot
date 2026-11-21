@@ -59,9 +59,9 @@ def test_split_at_the_pauses(whisper):
     second_start = words[9]["start"]     # "Five" at 4.0
     gap_mid = (first_end + second_start) / 2
     assert cuts[0][0] == pytest.approx(0.4 - 0.08)
-    assert cuts[0][1] == pytest.approx(min(gap_mid, first_end + 0.15)), "tight: right after the last word"
+    assert cuts[0][1] == pytest.approx(min(gap_mid, first_end + 0.35)), "a safe tail after the last word (never clip it)"
     assert cuts[1][0] == pytest.approx(max(gap_mid, second_start - 0.08)), "tight: right before the first word"
-    assert cuts[2][1] == pytest.approx(min(10.0, words[-1]["end"] + 0.18))
+    assert cuts[2][1] == pytest.approx(min(10.0, words[-1]["end"] + 0.6)), "generous tail on the last line"
     for (a, b), (c, d) in zip(cuts, cuts[1:]):
         assert a < b <= c < d, "pieces in order, never overlapping"
 
@@ -132,7 +132,7 @@ def test_one_take_narration_split_into_line_files(fake_tts, monkeypatch, sandbox
     for o in out:
         expect = len(o["text"].split()) / WORDS_PER_SEC
         assert Path(o["path"]).exists() and Path(o["path"]).parent == sandbox.voice
-        assert expect * 0.8 < o["dur"] < expect + 0.6, (o["text"], o["dur"], expect)
+        assert expect * 0.8 < o["dur"] < expect + 0.9, (o["text"], o["dur"], expect)  # safe tails, no dead air
         assert o["words"], "word timings for the captions"
 
 

@@ -368,9 +368,9 @@ def _whisper_cuts(full: Path, texts: list[str]) -> list[tuple[float, float]] | N
         lo, hi = spans[i - 1][1], spans[i][0]
         j = max(range(lo, hi), key=lambda x: heard[x + 1]["start"] - heard[x]["end"])
         gap_mid = (heard[j]["end"] + heard[j + 1]["start"]) / 2
-        ends.append(min(gap_mid, heard[j]["end"] + 0.15))
+        ends.append(min(gap_mid, heard[j]["end"] + 0.35))  # Whisper marks word ends early - never clip the tail
         starts.append(max(gap_mid, heard[j + 1]["start"] - 0.08))
-    ends.append(min(dur, heard[spans[-1][1]]["end"] + 0.18))
+    ends.append(min(dur, heard[spans[-1][1]]["end"] + 0.6))  # generous tail (QA heard the final sentence "cut off")
     return list(zip(starts, ends))
 
 

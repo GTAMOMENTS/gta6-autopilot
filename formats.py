@@ -90,7 +90,9 @@ def specialize(fmt: dict | None) -> dict | None:
         t = None
         try:
             import trends
-            t = trends.pick(money=True, min_demand=int(fmt.get("trend_min_demand", 7))) if fmt.get("use_trends") else None
+            t = trends.pick(money=True, min_demand=int(fmt.get("trend_min_demand", 7)),
+                            exclude=list(fmt.get("blocked_title_terms") or []) + ["glitch", "exploit", "cheat", "hack"]) \
+                if fmt.get("use_trends") else None
         except Exception:  # noqa: BLE001
             t = None
         if t:

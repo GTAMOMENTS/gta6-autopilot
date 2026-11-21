@@ -165,8 +165,11 @@ def voice_check(path: Path, lines: list[dict]) -> list[dict]:
                                "detail": f"the line's first words aren't heard near its caption: \"{ln['text'][:50]}\""})
                 continue
         if spoken is not None and abs(spoken - ln["start"]) > tol + (0.25 if k else 0):
+            near = " ".join(f"{w['text']}@{w['start']:.1f}" for w in heard
+                            if ln["start"] - 3.0 <= w["start"] <= ln["start"] + 2.0)[:160]
             issues.append({"severity": "high", "type": "voice_out_of_sync", "at": round(ln["start"], 1),
-                           "detail": f"spoken {spoken - ln['start']:+.2f}s off the captions: \"{ln['text'][:50]}\""})
+                           "detail": f"spoken {spoken - ln['start']:+.2f}s off the captions: \"{ln['text'][:50]}\" "
+                                     f"(heard: {near})"})
     return issues
 
 
