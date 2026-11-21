@@ -315,6 +315,8 @@ _NUM = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", 
 def _norm_tokens(text: str) -> list[str]:
     """Words for matching script vs Whisper: lower case, no punctuation, small numbers as words ("15" = "fifteen")."""
     out = []
+    text = re.sub(r"#\s*(\d)", r"number \1", text)  # Whisper writes "Number four" as "#4" or "No. 4"
+    text = re.sub(r"\bno\.?\s*(\d)", r"number \1", text, flags=re.I)
     for tok in re.findall(r"[a-z0-9']+", text.lower().replace(".", "")):
         tok = tok.strip("'")
         if tok.isdigit() and int(tok) <= 20:
@@ -404,7 +406,10 @@ def _gemini_all_lines(lines: list[dict], paths: list[Path], model: str, voice: s
             if not (0.5 * w * rate - 0.4 <= b - a <= 1.7 * w * rate + 1.0):
                 raise _SplitError(f"piece {b - a:.1f}s doesn't match line '{text[:40]}'")
         for (a, b), path in zip(pieces, paths):
+            # leading silence trimmed: Whisper stretches the first word after a pause back into the silence, so a
+            # piece could start with ~1 s of quiet and the voice came in late (QA: "spoken +1.2 s")
             run(["ffmpeg", "-y", "-ss", f"{max(0, a - 0.05):.2f}", "-to", f"{b + 0.12:.2f}", "-i", str(full),
+                 "-af", "silenceremove=start_periods=1:start_threshold=-42dB:start_silence=0.06",
                  "-ar", "48000", str(path)], timeout=60, check=True)
     finally:
         full.unlink(missing_ok=True)

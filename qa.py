@@ -151,15 +151,20 @@ def voice_check(path: Path, lines: list[dict]) -> list[dict]:
         # line look ~1 s late.)
         # the first real word of the line (not "the" / "you" ... - those also end the previous line) and the
         # occurrence closest to where it should be
-        k = next((i for i, x in enumerate(want[:4]) if x not in _FILLER), None)
+        anchors = [i for i, x in enumerate(want[:6]) if x not in _FILLER][:3]
+        k = anchors[0] if anchors else None
         spoken = None
         if k is not None:
-            expect = ln["start"] + 0.32 * k
             # wide search (narration 1-3 s off must be caught - the old -1.0/+2.5 s window let it pass), the
-            # occurrence closest to where the word should be wins (neighbouring lines can share words)
+            # occurrence closest to where the word should be wins (neighbouring lines can share words); if the
+            # first real word isn't heard (Whisper spelling), the next real words are tried
             lo, hi = ln["start"] - 3.0, ln["start"] + max(3.5, 0.6 * float(ln.get("dur", 3)))
-            hits = [w["start"] for w in heard if lo <= w["start"] <= hi and want[k] in _norm_words(w["text"])]
-            spoken = min(hits, key=lambda t: abs(t - expect)) - 0.32 * k if hits else None
+            for k in anchors:
+                expect = ln["start"] + 0.32 * k
+                hits = [w["start"] for w in heard if lo <= w["start"] <= hi and want[k] in _norm_words(w["text"])]
+                if hits:
+                    spoken = min(hits, key=lambda t: abs(t - expect)) - 0.32 * k
+                    break
             if spoken is None:
                 issues.append({"severity": "high", "type": "voice_out_of_sync", "at": round(ln["start"], 1),
                                "detail": f"the line's first words aren't heard near its caption: \"{ln['text'][:50]}\""})

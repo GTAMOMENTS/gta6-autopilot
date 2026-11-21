@@ -330,3 +330,14 @@ def test_technical_black_and_clipping_are_medium(tmp_path):
     issues = qa.technical(v)
     assert "black" in kinds(issues, "medium")
     assert "clipping" in kinds(issues, "medium")
+
+
+def test_whisper_number_spelling_counts_as_heard(whisper):
+    # Whisper writes "Number four:" as "No. 4" - that is the line, on time (a long video was blocked for this)
+    whisper(heard((7.5, "No. 4: gravity always wins, especially when you jump.")))
+    assert qa.voice_check(VIDEO, [line("Number four: gravity always wins, especially when you jump.", 7.5)]) == []
+
+
+def test_next_real_word_is_tried_when_the_first_is_misheard(whisper):
+    whisper(heard((3.0, "Numbr two escaping on a scooter is already funny.")))
+    assert qa.voice_check(VIDEO, [line("Number two: escaping on a scooter is already funny.", 3.0)]) == []
