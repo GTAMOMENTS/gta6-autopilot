@@ -732,7 +732,8 @@ def ground_lines(clip: Path, items: list[dict], what: str) -> list[str] | None:
         if not (3 <= len(new.split()) <= 24) or "GTA VI" in new:
             new = old
         elif num_old and not new.lower().startswith(num_old.group(1).lower()):
-            new = f"{num_old.group(1)}: {re.sub(r'^(number\s+\w+|#\d+)[:,.]?\s*', '', new, flags=re.I)}"
+            body = re.sub(r"^(number\s+\w+|#\d+)[:,.]?\s*", "", new, flags=re.I)
+            new = f"{num_old.group(1)}: {body}"
         elif old.rstrip().endswith("?") and not new.rstrip().endswith("?"):
             new = old  # the closing question stays a question
         elif set(re.findall(r"\d+", new)) - set(re.findall(r"\d+", old)) - {"6"}:
