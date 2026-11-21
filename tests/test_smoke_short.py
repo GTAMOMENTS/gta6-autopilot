@@ -52,6 +52,7 @@ def short_world(monkeypatch, make_clip, fake_tts, sandbox):
         out.update(verified_by_video=True, ai_source="gemini-video")
         return out
     monkeypatch.setattr(gemini_writer, "write_clip_copy", write_copy)
+    monkeypatch.setattr(qa, "line_check", lambda path, lines, kind: [])  # its own tests: tests/test_qa_linecheck.py
     monkeypatch.setattr(qa, "ai_review", lambda path, context: (seen.__setitem__("qa_context", context) or
                                                                 {"publish": True, "score": 8, "issues": [], "summary": "ok",
                                                                  "pro_level": 6, "improvements": ["tighter hook"]}))
