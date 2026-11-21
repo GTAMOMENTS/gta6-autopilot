@@ -223,3 +223,17 @@ def prompt_note(fmt: dict | None, tour: bool) -> str:
                      "viewer can SEE and copy, in order; every line must match what is on screen when it is said; "
                      "no vague filler (\"look for these spots\", \"watch out\") and no lines about things not shown.")
     return "\n".join(lines)
+
+
+_NUMWORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+
+
+def countdown_missing(texts: list[str], n: int) -> list[int]:
+    """Which countdown numbers (n..1) the script never announces ("Number four", "number 4", "#4", "and number
+    one"). A Top 5 that skips a number looked broken to viewers and QA (5 -> 3)."""
+    said = set()
+    for t in texts:
+        for m in re.finditer(r"(?:number|#)\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b", t.lower()):
+            v = m.group(1)
+            said.add(int(v) if v.isdigit() else _NUMWORDS[v])
+    return [k for k in range(n, 0, -1) if k not in said]

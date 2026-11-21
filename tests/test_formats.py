@@ -186,3 +186,12 @@ def test_formats_disabled_means_no_rotation(cfg, slots):
     cfg["formats"]["enabled"] = False
     assert formats._rotation(cfg) == []
     assert formats.current_format(cfg, slots["vertical_clip"]) is None
+
+
+def test_countdown_missing_numbers():
+    # QA blocked Top 5s that went 5 -> 3 (a number dropped) - a countdown must announce every number
+    assert formats.countdown_missing(["Top 5. Number five: a", "Number four: b", "Number three: c",
+                                      "Number two: d"], 5) == [1]
+    assert formats.countdown_missing(["Top five. Number 5 a", "number four", "#3 lol", "Number two b",
+                                      "And number one, the best"], 5) == []
+    assert formats.countdown_missing(["Here are five fails", "Number three: c"], 5) == [5, 4, 2, 1]
