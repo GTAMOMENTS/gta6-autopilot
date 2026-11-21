@@ -104,10 +104,8 @@
       "tiktok": 5,
       "x": 3
     },
-    "paused_platforms": [
-      "instagram"
-    ],
-    "_paused_note": "2026-11-20: Instagram flagged the account ('content may not be original to you' - not recommended to non-followers). Owner's choice: pause Instagram until there is original footage; request the review later. Remove 'instagram' from this list to resume.",
+    "paused_platforms": [],
+    "_paused_note": "2026-11-20 Instagram flagged 'content may not be original' -> paused. 2026-11-21 the owner's Profile status shows Recommendation eligibility OK again -> resumed, without raw stream clips (see no_raw_clips_on). Put 'instagram' back in paused_platforms to pause it again.",
     "min_hashtags": 3,
     "default_hashtags": [
       "#GTA6",
@@ -119,7 +117,11 @@
     "shorts_hashtag": true,
     "shorts_tag_in_title": false,
     "x_text_max": 200,
-    "_packaging_note": "Captions per platform (publisher.build_captions): YouTube title = search words first ('GTA 6' within title_keyword_within characters) + numbered series, no hashtags in the title (shorts_tag_in_title=true puts #Shorts back); description = AI description (2 keyword-rich sentences) + question + series/keywords + credit + 3-5 hashtags incl. #Shorts (shorts_hashtag). TikTok/Instagram: first line carries 'GTA 6' + topic, then 3-5 hashtags. X: one line of at most x_text_max characters, no links, credit, 3 hashtags. Every post has min_hashtags..5 hashtags (padded from default_hashtags); brand / cheat / low-value hashtags are always dropped."
+    "_packaging_note": "Captions per platform (publisher.build_captions): YouTube title = search words first ('GTA 6' within title_keyword_within characters) + numbered series, no hashtags in the title (shorts_tag_in_title=true puts #Shorts back); description = AI description (2 keyword-rich sentences) + question + series/keywords + credit + 3-5 hashtags incl. #Shorts (shorts_hashtag). TikTok/Instagram: first line carries 'GTA 6' + topic, then 3-5 hashtags. X: one line of at most x_text_max characters, no links, credit, 3 hashtags. Every post has min_hashtags..5 hashtags (padded from default_hashtags); brand / cheat / low-value hashtags are always dropped.",
+    "no_raw_clips_on": [
+      "instagram"
+    ],
+    "_no_raw_clips_note": "Raw stream clips (the streamer's own voice + subtitles, no narration) are the most 'unoriginal' posts and most of what Instagram flagged - they skip these platforms; narrated videos still go everywhere."
   },
   "sources": {
     "providers": [

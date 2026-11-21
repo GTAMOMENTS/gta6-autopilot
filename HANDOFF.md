@@ -205,3 +205,10 @@ charm pack, learning, stream clips, long video, English-only + choppy filter, Ge
   `money_guide` to `long_video.rotation` to bring it back. Manual tests: slot `money_clip`, long format `money_guide`.
 - New strict check for ALL videos (PR #46): `qa.line_check` - frames taken while each narration line is spoken, one
   focused AI question per line ("does the picture show what this line says?"); any "no" blocks the video.
+
+## 11. Instagram resumed (owner, 2026-11-21)
+- The owner's Instagram Profile status shows Recommendation eligibility OK again (Monetization "Established presence"
+  only means the account is too new to earn money). `publishing.paused_platforms` is empty again.
+- Raw stream clips (streamer's own voice + subtitles, no narration) skip Instagram (`publishing.no_raw_clips_on`) - they
+  were most of what got flagged; narrated Video A / B go to Instagram. If the originality flag returns: put
+  "instagram" back into `paused_platforms`.
