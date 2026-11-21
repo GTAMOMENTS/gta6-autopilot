@@ -179,13 +179,27 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
             reel.unlink(missing_ok=True)
             script_problems.append("no AI could write the script")
             return None
+        if (fmt or {}).get("countdown"):
+            from formats import countdown_missing
+            missing = countdown_missing([sh["text"] for sh in shots], int(fmt["countdown"]))
+            if missing:  # a Top 5 that skips a number looks broken - never post one (no voice spent on it)
+                log.warning("[tour] ✋ countdown script skips number(s) %s - trying the next clip", missing)
+                reel.unlink(missing_ok=True)
+                script_problems.append(f"countdown skipped {missing}")
+                return None
         clip_id = "gta6_" + now_local().strftime("%Y%m%d_%H%M") + "_" + hashlib.md5(c.key.encode()).hexdigest()[:6]
         voiced = synthesize_lines([{"t": 0.0, "text": sh["text"]} for sh in shots], clip_id)
         max_total = float(vcfg.get("tour_max_sec", 80))
         segments, cursor, kept = [], 0.0, []
-        for sh, v in zip(shots, voiced):
-            dur = min(max(v["dur"] + 0.45, 3.0), 12.0)
+        for i_sh, (sh, v) in enumerate(zip(shots, voiced)):
+            # room the renderer's line placement expects (0.35 s between lines + an end margin) - with less, it
+            # dropped a "middle" line, i.e. a countdown number
+            dur = min(max(v["dur"] + 0.5, 3.0), v["dur"] + 2.5) + (0.9 if i_sh == len(shots) - 1 else 0.0)
             if cursor + dur > max_total:
+                if (fmt or {}).get("countdown"):
+                    log.warning("[tour] ✋ the countdown doesn't fit in %.0f s - trying the next clip", max_total)
+                    reel.unlink(missing_ok=True)
+                    return None
                 break
             a = min(max(0.0, sh["start"] - 0.3), max(0.0, sec_dur - dur))
             if segments and (fmt or {}).get("continuous"):
