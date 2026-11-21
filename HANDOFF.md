@@ -186,5 +186,12 @@ charm pack, learning, stream clips, long video, English-only + choppy filter, Ge
   chapters always valid (no chapter < 10 s), `_segment` holds the last frame if a source ends early.
 - **QA context (#41):** QA is told these edit features are intentional; the AI-review upload copy must be full length;
   long videos log "timeline: last narration ends X, end screen Y-Z, file W".
-- Open: money guide QA twice said "ends abruptly" (cause unconfirmed - check the timeline log line in the next run);
+- **Night of 2026-11-20 (PRs #43-#44):** Money Tips need concrete on-screen money proof (`required_evidence` with money
+  words, `formats.money_tips.evidence_terms`) + how-to script rules (`tutorial`), QA judges usefulness; narration
+  pieces keep a safe tail (+0.35 s, last line +0.6 s - Whisper word ends are early); money trend topics with
+  glitch/exploit/cheat/hack are skipped; voice_out_of_sync details list the words heard.
+- First real Money Tip with all upgrades posted 2026-11-21 ~02:30 TRT (YouTube https://youtube.com/shorts/EsXseWiLRF0,
+  X, TikTok; QA 9, pro 8) - real GTA 6 but a weak tip (mostly a chase) -> the proof rules above.
+- Open: money guide QA said the end was "cut off" (timeline log showed the outro inside the end screen -> likely
+  clipped last syllables, fixed in #44 - verify); Gemini free quota runs out after ~6 test runs + the schedule;
   usage limits: 5 agents in parallel hit the 5-hour limit in ~90 min - run at most 3 at once.
