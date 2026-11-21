@@ -233,3 +233,7 @@ charm pack, learning, stream clips, long video, English-only + choppy filter, Ge
 - `analytics.view_examples()`: with >= `learning.view_examples_min` (4) videos that have stats, the best ones (views
   per sqrt(age in days)) become examples for the writer (banner, opening line, title) and the weakest ones a style to
   avoid. Injected in `formats.prompt_note` and `critic.polish`. Switch off: `learning.view_examples: false`.
+- 2026-11-21 Video A failed (nothing posted): Gemini Flash out of quota (test runs earlier that day), only Flash-Lite
+  left; the one good clip lost its script over one line failing the pre-check twice, then the 25-min clip budget ran out
+  after 4 clips (3 were fakes). Fixes: `sources.time_budget_min` 55 (job timeout is 120); `video.precheck_attempts` 3 -
+  the last rewrite asks for a plain description of what is on screen.

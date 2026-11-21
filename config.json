@@ -169,7 +169,7 @@
     "section_length_sec": 120,
     "clip_style": "auto",
     "max_attempts": 8,
-    "time_budget_min": 25,
+    "time_budget_min": 55,
     "required_title_terms": [
       "gta 6",
       "gta vi",
@@ -652,6 +652,7 @@
     "ground_lines": true,
     "_ground_lines_note": "After the edit is picked, each narration line is rewritten by the AI looking at frames of the exact footage it plays over (gemini_writer.ground_lines) - the one-shot script drifted off the picture and the QA line check blocked most Shorts.",
     "precheck_lines": true,
+    "precheck_attempts": 3,
     "repair": true
   },
   "blocked_keywords": [

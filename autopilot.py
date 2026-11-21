@@ -121,7 +121,8 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
 
     def _prepare_lines(path, items, what) -> list[str] | None:
         """Prevent instead of reject: 1) each line written for its own footage (frames of its shot); 2) a cheap check
-        of lines vs frames BEFORE voice + render; lines that still don't match get one targeted rewrite (told why).
+        of lines vs frames BEFORE voice + render; lines that still don't match get targeted rewrites (told why; the last
+        one asks for a plain description of what is on screen).
         None = still wrong -> skip this clip now, before spending voice + render + QA on it."""
         import lessons
         import qa
@@ -134,7 +135,8 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         if not vcfg.get("precheck_lines", True):
             return texts
         bad = []
-        for attempt in (1, 2):
+        tries = max(1, int(vcfg.get("precheck_attempts", 3)))
+        for attempt in range(1, tries + 1):
             issues = qa.line_check(path, [{**it, "text": t} for it, t in zip(items, texts)], "short")
             bad = [i for i in issues if i.get("type") == "line_not_shown" and isinstance(i.get("index"), int)]
             if not bad:
@@ -145,11 +147,16 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
                 return texts
             log.info("[precheck] %d line(s) don't match their footage (attempt %d): %s", len(bad), attempt,
                      [texts[i["index"]][:50] for i in bad])
-            if attempt == 2:
+            if attempt == tries:
                 break
             idx = [i["index"] for i in bad]
             why = ("These lines were REJECTED because their frames don't show what they say - describe only what IS "
                    "visible:\n" + "\n".join(f'- "{texts[i["index"]]}": {i.get("reason", "")}' for i in bad))
+            if attempt >= 2:  # failed twice: a plain, safe description beats losing the whole clip
+                why += ("\nLAST TRY - write a PLAIN line about only what is unmistakably on screen in these frames: the "
+                        "place, the vehicle / character, the action (e.g. a police chase along a beach road at sunset). "
+                        "Do NOT mention menus, the HUD, weapon wheels, game features or mechanics unless they fill the "
+                        "frames.")
             fixed = ground_lines(path, [{**items[k], "text": texts[k]} for k in idx], what, extra=why)
             if not fixed:
                 break

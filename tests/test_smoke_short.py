@@ -146,3 +146,32 @@ def test_short_repair_fixes_only_the_wrong_line(cfg, short_world, fake_tts, sand
     assert any("car flying straight off the ramp" in ln["text"] for ln in rec["copy"]["commentary"])
     stages = [a["stage"] for a in lessons._load()["attempts"]]
     assert stages[-2:] == ["final", "repair"] and lessons._load()["attempts"][-1]["pass"] is True
+
+
+def test_precheck_last_try_saves_the_clip(cfg, short_world, fake_tts, sandbox, monkeypatch):
+    """A line that fails the pre-check twice gets a plain 'what is on screen' rewrite before the clip is thrown away
+    (a real run lost its only good clip over one weapon-wheel line)."""
+    calls = {"n": 0, "extra": []}
+
+    def line_check(path, lines, kind):
+        calls["n"] += 1
+        if calls["n"] <= 2 and any("Five stars" in ln["text"] or "weapon wheel" in ln["text"] for ln in lines):
+            k = next(i for i, ln in enumerate(lines) if "Five stars" in ln["text"] or "weapon wheel" in ln["text"])
+            return [{"severity": "high", "type": "line_not_shown", "at": lines[k]["start"], "index": k,
+                     "reason": "no weapon wheel in the frames", "detail": "not shown"}]
+        return []
+    monkeypatch.setattr(qa, "line_check", line_check)
+
+    def ground(clip, items, what, extra=""):
+        calls["extra"].append(extra)
+        if "LAST TRY" in extra:
+            return ["A car flies off the ramp with cops right behind." for _ in items]
+        if "REJECTED" in extra:
+            return ["He opens the weapon wheel mid jump." for _ in items]
+        return [it["text"] for it in items]
+    monkeypatch.setattr(gemini_writer, "ground_lines", ground)
+    slot = {"type": "vertical_clip", "platforms": ["x"], "time": "19:40"}
+    ok, rec = autopilot.run_video_slot(slot, dry_run=True, fmt=formats.format_by_id("stunts_crashes", cfg))
+    assert ok, rec
+    assert sum("LAST TRY" in e for e in calls["extra"]) == 1
+    assert any("cops right behind" in ln["text"] for ln in rec["copy"]["commentary"])
