@@ -199,6 +199,7 @@ def test_tiny_guide_render(monkeypatch, cfg, sandbox, fake_tts):
     def ai_editor(path, context):
         qa_seen["context"] = context
         return {"publish": True, "score": 8, "issues": [], "summary": "clean", "pro_level": 7, "improvements": []}
+    monkeypatch.setattr(qa, "line_check", lambda path, lines, kind: [])  # its own tests: tests/test_qa_linecheck.py
     monkeypatch.setattr(qa, "ai_review", ai_editor)
     technical = spy_technical(monkeypatch)
     import publisher

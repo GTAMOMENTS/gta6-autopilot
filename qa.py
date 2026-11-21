@@ -223,6 +223,73 @@ def ai_review(path: Path, context: str) -> dict | None:
         return None
 
 
+LINE_PROMPT = """You check whether the narration of a finished GTA 6 video matches its PICTURE. {facts}
+Above, for each numbered narration line, are frames taken WHILE that line is spoken.
+For EACH line decide:
+- "yes": the frames show what the line describes (the action, place, object or result it talks about)
+- "no": the line describes an action / place / object / result that is NOT visible in its frames - e.g.
+  "grab the cash from the back alley" while the frames show someone riding a bike down a road, or "open the
+  safe" when no safe is on screen. How-to steps and claims about money must be visible to count.
+- "general": the line makes no visual claim (a hook like "this is the easiest money in GTA 6", a question to
+  the viewer, a joke, an opinion, a number card like "Number three.")
+Be strict with "no". Video type: {kind}.
+Lines:
+{lines}
+Return ONLY JSON: {{"lines": [{{"line": number, "verdict": "yes" | "no" | "general", "reason": str}}]}}"""
+
+
+def _frame(path: Path, t: float, width: int = 640) -> bytes | None:
+    import subprocess
+    res = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(0.0, t):.2f}", "-i", str(path), "-frames:v", "1",
+                          "-vf", f"scale={width}:-2", "-q:v", "4", "-f", "image2pipe", "-vcodec", "mjpeg", "-"],
+                         capture_output=True, timeout=60)
+    return res.stdout if res.returncode == 0 and len(res.stdout) > 1500 else None
+
+
+def line_check(path: Path, lines: list[dict], kind: str) -> list[dict]:
+    """Does the picture show what each narration line says? One focused AI question on frames taken while each
+    line is spoken (the general AI review scored a Money Tip 9/10 whose "grab the cash from the back alley"
+    line played over a bike ride - the owner caught it)."""
+    import gemini_writer
+    c = _cfg()
+    if not lines or not c.get("line_check", True) or not env("GEMINI_API_KEY"):
+        return []
+    from google.genai import types
+    dur = probe(path)["duration"] or 0
+    per_line = 2 if kind != "long" else 1
+    use = lines[: int(c.get("line_check_max_lines", 40))]
+    contents, listing = [], []
+    for i, ln in enumerate(use, 1):
+        a, d = float(ln["start"]), float(ln.get("dur", 2.5))
+        times = [a + d * 0.5] if per_line == 1 else [a + min(0.4, d * 0.2), a + d * 0.75]
+        imgs = [f for f in (_frame(path, min(t, max(0.0, dur - 0.2))) for t in times) if f]
+        if not imgs:
+            continue
+        contents.append(f"Line {i} frames:")
+        contents += [types.Part.from_bytes(data=b, mime_type="image/jpeg") for b in imgs]
+        listing.append(f'{i}. "{ln["text"]}"')
+    if not listing:
+        return []
+    contents.append(LINE_PROMPT.format(facts=gemini_writer._game_context(), kind=kind, lines="\n".join(listing)))
+    gemini_writer._unavailable_until = 0.0
+    data = gemini_writer._generate_json(contents, temperature=0.1, prefer_pro=True)
+    if not isinstance(data, dict) or not isinstance(data.get("lines"), list):
+        return [{"severity": "high" if c.get("require_ai_review", True) else "low", "type": "line_check_unavailable",
+                 "detail": "no AI could compare the narration lines with the picture"}]
+    issues = []
+    for v in data["lines"]:
+        try:
+            i = int(v.get("line"))
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if 1 <= i <= len(use) and str(v.get("verdict", "")).lower().strip() == "no":
+            ln = use[i - 1]
+            issues.append({"severity": "high", "type": "line_not_shown", "at": round(float(ln["start"]), 1),
+                           "detail": f"the picture doesn't show what the narrator says: \"{ln['text'][:70]}\" "
+                                     f"({str(v.get('reason', ''))[:120]})"})
+    return issues
+
+
 def check(path: Path, kind: str, lines: list[dict] | None = None, still_ok: list | None = None,
           context: str = "") -> dict:
     """Full QA. kind: short | stream | long. Returns {"pass", "score", "issues", "report"}."""
@@ -231,6 +298,11 @@ def check(path: Path, kind: str, lines: list[dict] | None = None, still_ok: list
         return {"pass": True, "issues": [], "score": None, "report": "QA disabled"}
     issues = technical(path, still_ok)
     issues += voice_check(path, lines or [])
+    try:
+        issues += line_check(path, lines or [], kind)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[qa] line check failed: %.150s", exc)
+        issues.append({"severity": "high", "type": "line_check_unavailable", "detail": f"line check crashed: {exc}"[:200]})
     ai = ai_review(path, context)
     score = None
     if ai is None:
