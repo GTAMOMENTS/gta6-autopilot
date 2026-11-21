@@ -748,7 +748,35 @@ def _only_quota_errors(detail: dict) -> bool:
     return bool(errors) and all(any(w in e for w in words) for e in errors)
 
 
+def _fallback_stream_clip(cfg: dict, slot: dict, dry_run: bool, why: str) -> tuple[bool, dict] | None:
+    """A video slot posted nothing -> post the most viral famous-streamer clip instead (streamer's own voice +
+    subtitles: far less AI work than a narrated video, so it still works on a low-quota day). Owner: "if nothing got
+    posted u should push a short clip". None = not tried (switched off / no time left)."""
+    fb = cfg.get("fallback", {})
+    if not fb.get("stream_clip_on_fail", True):
+        return None
+    left = float(fb.get("max_elapsed_min", 80)) * 60 - (time.time() - _T0)
+    if left < float(fb.get("min_left_min", 8)) * 60:
+        log.info("[fallback] no time left for a backup stream clip")
+        return None
+    log.warning("[fallback] nothing posted (%.150s) - posting the most viral streamer clip instead", why)
+    import stream_clips
+    try:
+        ok, detail = stream_clips.run_for_slot(slot["platforms"], dry_run, deadline=time.time() + left)
+    except Exception as exc:  # noqa: BLE001 - the backup must never crash the run
+        log.warning("[fallback] stream clip failed: %.200s", exc)
+        return None
+    detail["fallback_for"] = str(why)[:300]
+    log.info("[fallback] %s", "✅ backup stream clip done" if ok else "no stream clip passed either")
+    return ok, detail
+
+
+_T0 = time.time()
+
+
 def main() -> int:
+    global _T0
+    _T0 = time.time()
     setup_logging()
     ap = argparse.ArgumentParser()
     ap.add_argument("--slot", default=env("SLOT", "auto"))
@@ -873,9 +901,11 @@ def main() -> int:
             pass
         from formats import advance_format, current_format, format_by_id, mark_topic, specialize
         fmt = current_format(cfg, slot)
+        tried_streams = False
         if fmt and fmt["id"] == "stream_reactions" and cfg.get("stream_clips", {}).get("in_main_schedule", True):
             # the most viral famous-streamer clip right now (streamer's own voice + subtitles)
             import stream_clips
+            tried_streams = True
             ok, detail = stream_clips.run_for_slot(slot["platforms"], args.dry_run)
             if not ok and detail.get("no_stream_clip"):
                 log.info("[streams] no viral stream clip today - following a trend instead")
@@ -890,6 +920,12 @@ def main() -> int:
                     advance_format(fmt, ok)
                 if ok:
                     mark_topic(fmt)
+        if not ok and "skipped" not in detail and not tried_streams:
+            fb = _fallback_stream_clip(cfg, slot, args.dry_run,
+                                       detail.get("error") or str(detail.get("results") or "failed"))
+            if fb:
+                ok = fb[0] or ok
+                detail = fb[1] if fb[0] else {**detail, "fallback": fb[1].get("error", "failed")}
     else:
         ok, detail = run_text_slot(slot, args.dry_run)
 
