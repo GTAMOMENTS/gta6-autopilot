@@ -1088,7 +1088,9 @@
     "refresh_hours": 6,
     "track_days": 10,
     "max_fetch_per_run": 6,
-    "_note": "Pulls each video's YouTube views/likes/comments (free, via yt-dlp) and favours the formats that perform best, while still exploring the others."
+    "_note": "Pulls each video's YouTube views/likes/comments (free, via yt-dlp) and favours the formats that perform best, while still exploring the others.",
+    "view_examples": true,
+    "view_examples_min": 4
   },
   "stream_clips": {
     "enabled": true,
@@ -1321,7 +1323,8 @@
     "max_repeated_frames": 0.15,
     "min_word_match": 0.6,
     "max_voice_offset": 0.6,
-    "_note": "Strict QA before every publish: technical checks, Whisper voice-vs-captions, AI editor watching the final video. Any high-severity issue = not published."
+    "_note": "Strict QA before every publish: technical checks, Whisper voice-vs-captions, AI editor watching the final video. Any high-severity issue = not published.",
+    "backup_review_frames": 8
   },
   "trends": {
     "enabled": true,

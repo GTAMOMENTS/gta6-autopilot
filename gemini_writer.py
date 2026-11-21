@@ -12,7 +12,6 @@ Robustness:
 """
 from __future__ import annotations
 
-import json
 import logging
 import random
 import re
@@ -695,11 +694,11 @@ def ground_lines(clip: Path, items: list[dict], what: str, extra: str = "") -> l
     Before this, the AI wrote all lines at once from a long low-res proxy and its timing drifted: "chaos on the
     highway" over a street fight, "running from cops on a cruise ship" over a truck (QA line check)."""
     import subprocess
-    from google.genai import types
-    if not items or not env("GEMINI_API_KEY") or time.time() < _unavailable_until:
+    import ai_fallback
+    if not items or not (env("GEMINI_API_KEY") or ai_fallback.available()):
         return None
     dur = probe(clip)["duration"] or 0
-    contents, listing = [], []
+    groups, listing = [], []
     for i, it in enumerate(items, 1):
         a = max(0.0, float(it["start"]))
         d = max(1.0, float(it.get("dur") or 2.5))
@@ -712,14 +711,13 @@ def ground_lines(clip: Path, items: list[dict], what: str, extra: str = "") -> l
                 imgs.append(res.stdout)
         if not imgs:
             return None
-        contents.append(f"Line {i} frames:")
-        contents += [types.Part.from_bytes(data=b, mime_type="image/jpeg") for b in imgs]
+        groups.append((f"Line {i} frames", imgs))
         listing.append(f'{i}. "{it["text"]}"')
     prompt = GROUND_PROMPT.format(facts=_game_context(), what=what[:300], lines="\n".join(listing))
     if extra:  # lessons from our own QA, or why these exact lines were rejected
         prompt += "\n" + extra[:1500]
-    contents.append(prompt)
-    data = _generate_json(contents, temperature=0.5)
+    import vision  # Gemini first, then the backup AIs that can see images
+    data = vision.ask(groups, prompt, key="lines", num="line", temperature=0.5, prefer_pro=False)
     if not isinstance(data, dict) or not isinstance(data.get("lines"), list):
         return None
     by = {}

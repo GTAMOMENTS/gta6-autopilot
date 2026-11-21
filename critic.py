@@ -398,6 +398,13 @@ def polish(fields: dict, limits: dict, context: str, money: bool | None = None, 
         guide=guide, honesty=honesty, keep=f" ({', '.join(keep_now)})" if keep_now else "",
         searches=("\n  What GTA 6 players search right now (use one word for word ONLY if it honestly matches the "
                   "video): " + "; ".join(searches)) if searches else "")
+    try:  # what got the most / fewest views on our channel - learn from it
+        import analytics
+        views = analytics.view_examples()
+        if views:
+            prompt += "\n\n" + views
+    except Exception:  # noqa: BLE001
+        pass
     data = ai_fallback.chat_json(prompt, temperature=0.7)
     if not isinstance(data, dict):
         return fields

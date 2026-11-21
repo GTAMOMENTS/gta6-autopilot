@@ -89,3 +89,32 @@ def format_scores() -> dict[str, dict]:
         d["n"] = len(vals)
         d["score"] = round(vals[len(vals) // 2], 3)
     return out
+
+
+def view_examples(n: int = 3) -> str:
+    """Learn what gets VIEWS: our best and worst performing videos (views adjusted for age), with the banner, the
+    opening line (hook) and the title they had -> examples for the writer and the critic. Empty until there are
+    enough videos with stats."""
+    from source_fetcher import load_manifest
+    cfg = load_config().get("learning", {})
+    if not cfg.get("view_examples", True):
+        return ""
+    min_age = float(cfg.get("min_age_hours", 12))
+    rows = []
+    for item in _items(load_manifest()):
+        st, cp = item.get("stats"), item.get("copy") or {}
+        if item.get("removed") or not isinstance(st, dict) or st.get("age_h", 0) < min_age:
+            continue
+        lines = cp.get("commentary") or cp.get("shots") or []
+        hook = str((lines[0] if lines else {}).get("text", ""))[:110]
+        score = st["views"] / math.sqrt(max(1.0, st.get("age_h", 24) / 24))  # views per sqrt(day): fair to new videos
+        rows.append((score, st["views"], str(cp.get("banner", ""))[:60], hook, str(cp.get("youtube_title", ""))[:90]))
+    if len(rows) < int(cfg.get("view_examples_min", 4)):
+        return ""
+    rows.sort(reverse=True)
+    top, low = rows[:n], rows[-n:]
+    out = ["WHAT GOT THE MOST VIEWS on our channel (learn the style of the hook / banner / title - don't copy words):"]
+    out += [f'- {v} views | banner "{b}" | opening line "{h}" | title "{t}"' for _, v, b, h, t in top]
+    out.append("What got the FEWEST views (avoid that style):")
+    out += [f'- {v} views | banner "{b}" | opening line "{h}"' for _, v, b, h, t in low if (_, v, b, h, t) not in top]
+    return "\n".join(out)

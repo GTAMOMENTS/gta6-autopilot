@@ -101,23 +101,17 @@ def _ask(paths: list[Path]) -> list[dict | None] | None:
     """One AI call for these clips: a raw verdict dict per path (None = the AI skipped that clip),
     or None if no AI could look at all."""
     import gemini_writer
-    from google.genai import types
     c = _cfg()
     n, w = int(c.get("frames", 4)), int(c.get("width", 1280))
     with ThreadPoolExecutor(max_workers=max(1, min(4, len(paths)))) as ex:  # ffmpeg seeks in parallel
         shots = list(ex.map(lambda p: frames(p, n, w), paths))
-    contents, k = [], 0
-    for i, imgs in enumerate(shots, 1):
-        if not imgs:
-            continue
-        k += 1
-        contents.append(f"Clip {i}:")
-        contents += [types.Part.from_bytes(data=b, mime_type="image/jpeg") for b in imgs]
-    if not k:
+    valid = [i for i, imgs in enumerate(shots) if imgs]
+    if not valid:
         return None
-    contents.append(PROMPT.format(facts=gemini_writer._game_context(), k=len(paths)))
-    gemini_writer._unavailable_until = 0.0
-    data = gemini_writer._generate_json(contents, temperature=0.1, prefer_pro=True)
+    import vision  # Gemini first, then the backup AIs that can see images
+    data = vision.ask([(f"Clip {j}", shots[i]) for j, i in enumerate(valid, 1)],
+                      PROMPT.format(facts=gemini_writer._game_context(), k=len(valid)), key="clips", num="clip",
+                      temperature=0.1, prefer_pro=True)
     if not isinstance(data, dict) or not isinstance(data.get("clips"), list):
         return None
     by = {}
@@ -126,7 +120,10 @@ def _ask(paths: list[Path]) -> list[dict | None] | None:
             by[int(v.get("clip"))] = v
         except (TypeError, ValueError, AttributeError):
             continue
-    return [by.get(i) if shots[i - 1] else None for i in range(1, len(paths) + 1)]
+    out: list[dict | None] = [None] * len(paths)
+    for j, i in enumerate(valid, 1):
+        out[i] = by.get(j)
+    return out
 
 
 def check(paths: list[Path], meta: list[dict] | None = None) -> list[dict] | None:
@@ -148,7 +145,8 @@ def check(paths: list[Path], meta: list[dict] | None = None) -> list[dict] | Non
             out[i] = _result(e["game"], e["confidence"], e.get("evidence"), need, cached=True)
     todo = [i for i, r in enumerate(out) if r is None]
     if todo:
-        raw = _ask([paths[i] for i in todo]) if env("GEMINI_API_KEY") else None
+        import ai_fallback
+        raw = _ask([paths[i] for i in todo]) if (env("GEMINI_API_KEY") or ai_fallback.available()) else None
         if raw is None:
             if len(todo) == len(paths):
                 return None

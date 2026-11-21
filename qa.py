@@ -9,7 +9,6 @@ Verdict: pass / fail with a list of issues (+ timestamps). A report is written n
 """
 from __future__ import annotations
 
-import json
 import logging
 import re
 from pathlib import Path
@@ -210,25 +209,57 @@ Return ONLY JSON: {{"publish": bool, "score": int (1-10), "issues": [{{"at": sec
 
 
 def ai_review(path: Path, context: str) -> dict | None:
+    """The AI editor: Gemini watches + listens to the whole video; if Gemini can't (busy / out of quota), a backup
+    AI reviews frames sampled across the video + the narration with its times."""
     import gemini_writer
-    if not env("GEMINI_API_KEY"):
-        return None
-    try:
-        gemini_writer._unavailable_until = 0.0
-        up = gemini_writer._upload_video(path)
-        if up is None:
-            return None
-        data = gemini_writer._generate_json([up, AI_PROMPT.format(game=gemini_writer._game_context(),
-                                                                  context=context[:3000])],
-                                            temperature=0.2, prefer_pro=True)
+    data = None
+    if env("GEMINI_API_KEY"):
         try:
-            gemini_writer._client().files.delete(name=up.name)
-        except Exception:  # noqa: BLE001
-            pass
-        return data if isinstance(data, dict) and "publish" in data else None
-    except Exception as exc:  # noqa: BLE001
-        log.warning("[qa] AI review failed: %.200s", exc)
+            gemini_writer._unavailable_until = 0.0
+            up = gemini_writer._upload_video(path)
+            if up is not None:
+                data = gemini_writer._generate_json([up, AI_PROMPT.format(game=gemini_writer._game_context(),
+                                                                          context=context[:3000])],
+                                                    temperature=0.2, prefer_pro=True)
+                try:
+                    gemini_writer._client().files.delete(name=up.name)
+                except Exception:  # noqa: BLE001
+                    pass
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[qa] AI review failed: %.200s", exc)
+    if isinstance(data, dict) and "publish" in data:
+        return data
+    return _ai_review_frames(path, context)
+
+
+FRAMES_NOTE = """You cannot watch or hear this video: you get {n} still frames sampled across it ({legend}) plus the
+narration with its times (in the notes below). Judge what frames can show: does the picture at each narration time
+fit what is said, repeated or unrelated shots, not GTA 6, spoilers, nudity / unsafe content, readable captions.
+Do not guess about the sound."""
+
+
+def _ai_review_frames(path: Path, context: str) -> dict | None:
+    import base64
+    import ai_fallback
+    import gemini_writer
+    if not ai_fallback.available():
         return None
+    dur = probe(path)["duration"] or 0
+    n = int(_cfg().get("backup_review_frames", 8))
+    pairs = [(t, f) for t, f in ((dur * (0.06 + 0.88 * k / max(1, n - 1)), None) for k in range(n))]
+    pairs = [(t, _frame(path, t)) for t, _ in pairs]
+    pairs = [(t, f) for t, f in pairs if f]
+    if not pairs:
+        return None
+    legend = ", ".join(f"image {i + 1} = {t:.1f}s" for i, (t, _) in enumerate(pairs))
+    prompt = FRAMES_NOTE.format(n=len(pairs), legend=legend) + "\n\n" + AI_PROMPT.format(
+        game=gemini_writer._game_context(), context=context[:3000])
+    data = ai_fallback.chat_json(prompt, frames=[base64.b64encode(f).decode() for _, f in pairs], temperature=0.2)
+    if isinstance(data, dict) and "publish" in data:
+        log.info("[qa] AI editor: a backup AI reviewed %d frames + the narration (Gemini unavailable)", len(pairs))
+        data["summary"] = f"(backup AI, frames only) {data.get('summary', '')}"
+        return data
+    return None
 
 
 LINE_PROMPT = """You check whether the narration of a finished GTA 6 video matches its PICTURE. {facts}
@@ -260,27 +291,28 @@ def line_check(path: Path, lines: list[dict], kind: str) -> list[dict]:
     line played over a bike ride - the owner caught it)."""
     import gemini_writer
     c = _cfg()
-    if not lines or not c.get("line_check", True) or not env("GEMINI_API_KEY"):
+    import ai_fallback
+    if not lines or not c.get("line_check", True) or not (env("GEMINI_API_KEY") or ai_fallback.available()):
         return []
-    from google.genai import types
     dur = probe(path)["duration"] or 0
     per_line = 2 if kind != "long" else 1
     use = lines[: int(c.get("line_check_max_lines", 40))]
-    contents, listing = [], []
-    for i, ln in enumerate(use, 1):
+    groups, listing, idx = [], [], []
+    for i, ln in enumerate(use):
         a, d = float(ln["start"]), float(ln.get("dur", 2.5))
         times = [a + d * 0.5] if per_line == 1 else [a + min(0.4, d * 0.2), a + d * 0.75]
         imgs = [f for f in (_frame(path, min(t, max(0.0, dur - 0.2))) for t in times) if f]
         if not imgs:
             continue
-        contents.append(f"Line {i} frames:")
-        contents += [types.Part.from_bytes(data=b, mime_type="image/jpeg") for b in imgs]
-        listing.append(f'{i}. "{ln["text"]}"')
+        idx.append(i)
+        groups.append((f"Line {len(idx)} frames", imgs))
+        listing.append(f'{len(idx)}. "{ln["text"]}"')
     if not listing:
         return []
-    contents.append(LINE_PROMPT.format(facts=gemini_writer._game_context(), kind=kind, lines="\n".join(listing)))
-    gemini_writer._unavailable_until = 0.0
-    data = gemini_writer._generate_json(contents, temperature=0.1, prefer_pro=True)
+    import vision  # Gemini first, then the backup AIs that can see images
+    data = vision.ask(groups, LINE_PROMPT.format(facts=gemini_writer._game_context(), kind=kind,
+                                                 lines="\n".join(listing)), key="lines", num="line",
+                      temperature=0.1, prefer_pro=True)
     if not isinstance(data, dict) or not isinstance(data.get("lines"), list):
         return [{"severity": "high" if c.get("require_ai_review", True) else "low", "type": "line_check_unavailable",
                  "detail": "no AI could compare the narration lines with the picture"}]
@@ -290,10 +322,10 @@ def line_check(path: Path, lines: list[dict], kind: str) -> list[dict]:
             i = int(v.get("line"))
         except (TypeError, ValueError, AttributeError):
             continue
-        if 1 <= i <= len(use) and str(v.get("verdict", "")).lower().strip() == "no":
-            ln = use[i - 1]
+        if 1 <= i <= len(idx) and str(v.get("verdict", "")).lower().strip() == "no":
+            ln = use[idx[i - 1]]
             issues.append({"severity": "high", "type": "line_not_shown", "at": round(float(ln["start"]), 1),
-                           "index": i - 1, "reason": str(v.get("reason", ""))[:200],
+                           "index": idx[i - 1], "reason": str(v.get("reason", ""))[:200],
                            "detail": f"the picture doesn't show what the narrator says: \"{ln['text'][:70]}\" "
                                      f"({str(v.get('reason', ''))[:120]})"})
     return issues

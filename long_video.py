@@ -9,7 +9,6 @@
 """
 from __future__ import annotations
 
-import json
 import logging
 import math
 import re
@@ -330,6 +329,25 @@ def _batch_verdicts(moments: list[dict], prompt_for):
                 break
             log.warning("[long] AI gave no verdicts for batch %d (attempt %d)", b // size + 1, attempt)
             time.sleep(20)
+        if not verdicts:  # Gemini can't watch: a backup AI that sees images judges 2 frames per clip
+            try:
+                import qa
+                import vision
+                groups = [(f"Clip {j} ({m['streamer']})",
+                           [f for f in (qa._frame(m["path"], (m.get("dur") or 20) * r) for r in (0.3, 0.7)) if f])
+                          for j, (i, m, p, _, _) in enumerate(parts, 1)]
+                note = ("You cannot see the joined video: you get 2 still frames per clip instead (in order). Judge "
+                        "what frames can show; trim / best_t: give your best guess in seconds within each clip.\n\n")
+                data = vision._backup(groups, note + prompt_for(len(parts), "\n".join(ranges)), "clips", "clip", 0.4)
+                for v in (data or {}).get("clips", []):
+                    try:
+                        verdicts[parts[int(v.get("clip")) - 1][0]] = v
+                    except (TypeError, ValueError, IndexError, AttributeError):
+                        continue
+                if verdicts:
+                    log.info("[long] batch %d judged by a backup AI on frames", b // size + 1)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("[long] backup review failed: %.150s", exc)
         for i, m, p, _, _ in parts:
             p.unlink(missing_ok=True)
             if verdicts.get(i):
