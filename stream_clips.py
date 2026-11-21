@@ -609,7 +609,8 @@ def run_for_slot(platforms: list[str], dry_run: bool) -> tuple[bool, dict]:
         candidates = []
     result = None
     for clip in candidates[: int(c.get("max_tries", 3))]:
-        result = produce(clip, dry_run, state, platforms=platforms)
+        raw_ok = [p for p in platforms if p not in load_config().get("publishing", {}).get("no_raw_clips_on", [])]
+        result = produce(clip, dry_run, state, platforms=raw_ok)  # raw streamer clips: not on Instagram
         if result:
             break
     save_json(SLOT_STATE_FILE, state)

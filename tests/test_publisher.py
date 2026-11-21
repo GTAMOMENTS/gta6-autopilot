@@ -35,8 +35,14 @@ def posted_to(calls):
     return sorted(p for _, plats in calls for p in plats)
 
 
-def test_instagram_is_paused(providers, cfg):
-    assert "instagram" in cfg["publishing"]["paused_platforms"]
+def test_instagram_resumed_but_no_raw_stream_clips(cfg):
+    # 2026-11-21: Instagram's recommendation eligibility is OK again -> resumed; raw stream clips stay off it
+    assert "instagram" not in cfg["publishing"]["paused_platforms"]
+    assert cfg["publishing"]["no_raw_clips_on"] == ["instagram"]
+
+
+def test_paused_platform_is_skipped(providers, cfg):
+    cfg["publishing"]["paused_platforms"] = ["instagram"]
     results = publisher.publish_video(VIDEO, ["instagram", "x", "tiktok", "youtube"], dict(COPY), "SomeCreator")
     assert "instagram" not in posted_to(providers)
     assert "instagram" not in results
@@ -51,7 +57,8 @@ def test_unpausing_posts_to_instagram_again(providers, cfg):
     assert results["instagram"]["ok"] and results["instagram"]["provider"] == "zernio"
 
 
-def test_only_paused_platforms_posts_nothing(providers):
+def test_only_paused_platforms_posts_nothing(providers, cfg):
+    cfg["publishing"]["paused_platforms"] = ["instagram"]
     assert publisher.publish_video(VIDEO, ["instagram"], dict(COPY), "") == {}
     assert providers == []
 
