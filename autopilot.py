@@ -187,6 +187,15 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
                 reel.unlink(missing_ok=True)
                 script_problems.append(f"countdown skipped {missing}")
                 return None
+        if vcfg.get("ground_lines", True):
+            # each line rewritten to match the footage it will play over (frames of its own shot)
+            from gemini_writer import ground_lines
+            new = ground_lines(reel, [{"text": sh["text"], "start": max(0.0, sh["start"] - 0.3),
+                                       "dur": len(sh["text"].split()) / 2.6 + 0.5} for sh in shots],
+                               f"{(fmt or {}).get('name', 'GTA 6 Short')} - {copy.get('scene_summary', '')}")
+            if new:
+                shots = [{**sh, "text": t} for sh, t in zip(shots, new)]
+                copy["shots"] = shots
         clip_id = "gta6_" + now_local().strftime("%Y%m%d_%H%M") + "_" + hashlib.md5(c.key.encode()).hexdigest()[:6]
         voiced = synthesize_lines([{"t": 0.0, "text": sh["text"]} for sh in shots], clip_id)
         max_total = float(vcfg.get("tour_max_sec", 80))
@@ -336,6 +345,14 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         commentary = [{**ln, "t": round(ln["t"] + lead, 2)} for ln in commentary]
         if commentary and commentary[0]["t"] - lead <= 3.0:  # the hook line starts right after the cold open
             commentary[0] = {**commentary[0], "t": round(lead + 0.1, 2)}
+        if commentary and vcfg.get("ground_lines", True):
+            # each line rewritten to match the footage it will play over (frames from the cut clip)
+            from gemini_writer import ground_lines
+            new = ground_lines(clip, [{"text": ln["text"], "start": ln["t"], "dur": len(ln["text"].split()) / 2.6 + 0.4}
+                                      for ln in commentary],
+                               f"{(fmt or {}).get('name', 'GTA 6 Short')} - {copy.get('scene_summary', '')}")
+            if new:
+                commentary = [{**ln, "text": t} for ln, t in zip(commentary, new)]
         copy["commentary"] = commentary
         log.info("[editor] voice lines: %s", [f"{ln['t']:.0f}s {ln['text']}" for ln in commentary])
         good, why = script_ok(commentary, c.kind, copy.get("ai_source", ""))

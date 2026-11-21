@@ -648,7 +648,9 @@
       "smart_cut": true,
       "duck_ratio": 10,
       "_note": "Cold open: a 1.2 s flash of the payoff moment (punched in, white flash into the story). Payoff: riser, boom, punch-in, shake, impact flash; sudden loud actions in the game sound get a punchy hit + small punch-in. Captions: word by word, synced to the voice (Whisper word times when available), current word pops in the highlight colour, key words (numbers, money, hype words) in the emphasis colour + a small punch-in. caption_style: karaoke (whole chunk shown) or reveal (words appear as spoken). question_card: the closing question replaces the banner at the end, then the CTA. smart_cut: Whisper starts/ends the cut at a pause in the footage's own speech and the narration slides into gaps of the in-game dialogue. duck_ratio: how hard the game sound dips under the voice. music_action_boost: music a bit louder on action beats (+50%), still ducked under the voice. All text stays in the TikTok/Reels/Shorts safe zone; low-res footage is zoomed less (max_upscale). Sound effects are generated (no copyright)."
-    }
+    },
+    "ground_lines": true,
+    "_ground_lines_note": "After the edit is picked, each narration line is rewritten by the AI looking at frames of the exact footage it plays over (gemini_writer.ground_lines) - the one-shot script drifted off the picture and the QA line check blocked most Shorts."
   },
   "blocked_keywords": [
     "nsfw",

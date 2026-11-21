@@ -673,6 +673,76 @@ def rescue_commentary(copy: dict, length: float) -> list[dict]:
     return [{"t": 0.0, "text": hook}, {"t": max(3.0, length - 4), "text": random.choice(_OUTROS)}]
 
 
+GROUND_PROMPT = """You are the narrator-writer of a GTA 6 YouTube Shorts / TikTok channel. {facts}
+The video is: {what}
+Above, for each numbered narration line, are frames from the exact footage that will be on screen WHILE that line
+is spoken. Rewrite every line so it talks ONLY about what its own frames show (the action, place, vehicle, character,
+result you can SEE). Rules:
+- keep the line's job: the first line stays a hook, a line starting "Number N" keeps exactly that start, a final
+  question stays a question to the viewer
+- casual, punchy YouTuber voice, 5-18 words, say "GTA 6", no story spoilers, no hashtags or emojis
+- never mention anything that is not visible in that line's frames (no "highway" if the frames show a street, no
+  "cruise ship" if they show a truck); never invent numbers, prices or names
+- if a line already matches its frames, return it unchanged
+Current lines:
+{lines}
+Return ONLY JSON: {{"lines": [{{"line": number, "text": str}}]}}"""
+
+
+def ground_lines(clip: Path, items: list[dict], what: str) -> list[str] | None:
+    """Rewrite narration lines so each one describes the footage it plays over. items: [{"text", "start", "dur"}]
+    with times inside `clip`. Returns the new texts (same order) or None (no AI / bad answer -> keep the old ones).
+    Before this, the AI wrote all lines at once from a long low-res proxy and its timing drifted: "chaos on the
+    highway" over a street fight, "running from cops on a cruise ship" over a truck (QA line check)."""
+    import subprocess
+    from google.genai import types
+    if not items or not env("GEMINI_API_KEY") or time.time() < _unavailable_until:
+        return None
+    dur = probe(clip)["duration"] or 0
+    contents, listing = [], []
+    for i, it in enumerate(items, 1):
+        a = max(0.0, float(it["start"]))
+        d = max(1.0, float(it.get("dur") or 2.5))
+        imgs = []
+        for t in (a + min(0.4, d * 0.2), a + d * 0.5, a + d * 0.85):
+            res = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{min(t, max(0.0, dur - 0.2)):.2f}", "-i", str(clip),
+                                  "-frames:v", "1", "-vf", "scale=640:-2", "-q:v", "4", "-f", "image2pipe",
+                                  "-vcodec", "mjpeg", "-"], capture_output=True, timeout=60)
+            if res.returncode == 0 and len(res.stdout) > 1500:
+                imgs.append(res.stdout)
+        if not imgs:
+            return None
+        contents.append(f"Line {i} frames:")
+        contents += [types.Part.from_bytes(data=b, mime_type="image/jpeg") for b in imgs]
+        listing.append(f'{i}. "{it["text"]}"')
+    contents.append(GROUND_PROMPT.format(facts=_game_context(), what=what[:300], lines="\n".join(listing)))
+    data = _generate_json(contents, temperature=0.5)
+    if not isinstance(data, dict) or not isinstance(data.get("lines"), list):
+        return None
+    by = {}
+    for v in data["lines"]:
+        try:
+            by[int(v.get("line"))] = re.sub(r"\s+", " ", str(v.get("text") or "")).strip().strip('"')
+        except (TypeError, ValueError, AttributeError):
+            continue
+    out = []
+    for i, it in enumerate(items, 1):
+        new, old = by.get(i) or "", it["text"]
+        num_old = re.match(r"\s*(number\s+\w+|#\d+)", old, re.I)
+        if not (3 <= len(new.split()) <= 24) or "GTA VI" in new:
+            new = old
+        elif num_old and not new.lower().startswith(num_old.group(1).lower()):
+            new = f"{num_old.group(1)}: {re.sub(r'^(number\s+\w+|#\d+)[:,.]?\s*', '', new, flags=re.I)}"
+        elif old.rstrip().endswith("?") and not new.rstrip().endswith("?"):
+            new = old  # the closing question stays a question
+        elif set(re.findall(r"\d+", new)) - set(re.findall(r"\d+", old)) - {"6"}:
+            new = old  # no invented numbers
+        out.append(new)
+    changed = sum(1 for a, b in zip(out, items) if a != b["text"])
+    log.info("[script] lines grounded on their footage: %d of %d rewritten", changed, len(items))
+    return out
+
+
 def script_ok(lines: list[dict], kind: str, ai_source: str) -> tuple[bool, str]:
     """Only post videos with a real script written by an AI that actually saw the clip."""
     g = load_config().get("quality_gate", {})
