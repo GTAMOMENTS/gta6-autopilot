@@ -1236,7 +1236,7 @@ def render(clip: Path, clip_id: str, banner: str, commentary: list[dict],
                  len(shakes), src_w, src_h)
     grade = "eq=contrast=1.05:saturation=1.1,unsharp=5:5:0.4:5:5:0.0,"
     fc = (f"{video_chain};[base]fps=30{zoom_f},{grade}ass='{ass_escaped}',format=yuv420p[vout];"
-          f"[1:a]{norm},aresample=48000,alimiter=limit=0.85:level=0,apad[aout]")  # limiter last + headroom (AAC overshoots)
+          f"[1:a]{norm},aresample=48000,alimiter=limit=0.79:level=0,apad[aout]")  # limiter last + headroom (AAC overshoots)
     cmd = ["ffmpeg", "-y", "-hide_banner", *vin, "-i", str(mix_wav),
            "-filter_complex", fc, "-map", "[vout]", "-map", "[aout]",
            "-c:v", "libx264", "-preset", vcfg.get("preset", "veryfast"), "-crf", str(vcfg.get("crf", 20)),
