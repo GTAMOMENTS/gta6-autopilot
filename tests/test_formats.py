@@ -43,13 +43,22 @@ HOT_TOPICS = [
 
 # --------------------------------------------------------------------------- Video B: GTA 6 Money Tip
 
-def test_video_b_always_money_tips_and_topics_rotate(cfg, slots):
-    f1 = formats.current_format(cfg, slots["money_clip"])
+# money content was dropped from the schedule (2026-11-21) but the format must still work when a slot asks for it
+MONEY_SLOT = {"time": "01:40", "type": "money_clip", "format": "money_tips", "platforms": ["x", "tiktok", "youtube"]}
+
+
+def test_video_b_is_normal_rotation_now(cfg, slots):
+    assert "format" not in slots["video_b"]
+    assert formats.current_format(cfg, slots["video_b"])["id"] != "money_tips", "slot_only format never in rotation"
+
+
+def test_money_slot_always_money_tips_and_topics_rotate(cfg, slots):
+    f1 = formats.current_format(cfg, MONEY_SLOT)
     assert f1["id"] == "money_tips" and f1["topic"] == "Fastest Early-Game Money"
     assert f1["topic_from_trends"] is False
     assert f1["name"].endswith(": Fastest Early-Game Money")
     formats.mark_topic(f1)
-    f2 = formats.current_format(cfg, slots["money_clip"])
+    f2 = formats.current_format(cfg, MONEY_SLOT)
     assert f2["topic"] == "Selling Cars For Cash"
 
 
@@ -57,7 +66,7 @@ def test_money_topics_cycle_through_all_then_repeat(cfg, slots):
     topics = [t["topic"] for t in formats.format_by_id("money_tips", cfg)["topics"]]
     seen = []
     for _ in range(len(topics) + 1):
-        f = formats.current_format(cfg, slots["money_clip"])
+        f = formats.current_format(cfg, MONEY_SLOT)
         seen.append(f["topic"])
         formats.mark_topic(f)
     assert seen[:len(topics)] == topics, "every topic once, in config order"
@@ -66,27 +75,27 @@ def test_money_topics_cycle_through_all_then_repeat(cfg, slots):
 
 def test_hot_money_trend_jumps_the_queue_once(cfg, slots):
     save_trends(HOT_TOPICS, STRONG)
-    f3 = formats.current_format(cfg, slots["money_clip"])
+    f3 = formats.current_format(cfg, MONEY_SLOT)
     assert f3["topic"] == "Fastest Money After Launch" and f3["topic_from_trends"] is True
     assert f3["queries"][0] == "GTA 6 fastest money", "the trend's own searches come first"
     assert len(f3["queries"]) <= 8
     formats.mark_topic(f3)
-    f4 = formats.current_format(cfg, slots["money_clip"])
+    f4 = formats.current_format(cfg, MONEY_SLOT)
     assert f4["topic"] == "Fastest Early-Game Money", "a used trend must not repeat"
     assert f4["topic_from_trends"] is False
 
 
 def test_weak_money_trend_does_not_jump_the_queue(cfg, slots):
     save_trends([{**HOT_TOPICS[1], "demand": 6}], STRONG)  # money_tips.trend_min_demand = 7
-    f = formats.current_format(cfg, slots["money_clip"])
+    f = formats.current_format(cfg, MONEY_SLOT)
     assert f["topic"] == "Fastest Early-Game Money"
 
 
 def test_format_env_overrides_everything(cfg, slots, monkeypatch):
     monkeypatch.setenv("FORMAT", "car_chases")
-    assert formats.current_format(cfg, slots["money_clip"])["id"] == "car_chases"
+    assert formats.current_format(cfg, MONEY_SLOT)["id"] == "car_chases"
     monkeypatch.setenv("FORMAT", "no_such_format")
-    assert formats.current_format(cfg, slots["money_clip"])["id"] == "money_tips"
+    assert formats.current_format(cfg, MONEY_SLOT)["id"] == "money_tips"
 
 
 # --------------------------------------------------------------------------- Video A rotation

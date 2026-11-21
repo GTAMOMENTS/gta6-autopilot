@@ -34,20 +34,25 @@ def test_format_env_not_a_long_kind_is_ignored(monkeypatch):
     assert lv._long_kinds({})[0] == "moments"
 
 
-def test_rotation_moments_then_money_guide():
+def test_rotation_moments_with_trend_fallback(cfg):
+    """Owner 2026-11-21: money guides dropped - long videos are moments, a trend guide as fallback."""
     streams(STRONG)
+    assert lv._long_kinds({}) == ["moments", "trend_guide"]
+    assert lv._long_kinds({"last_kind": "moments"}) == ["moments", "trend_guide"]
+
+
+def test_money_guide_rotation_still_works_when_configured(cfg):
+    streams(STRONG)
+    cfg["long_video"]["rotation"] = ["moments", "money_guide"]
     assert lv._long_kinds({}) == ["moments", "money_guide", "trend_guide"]
     assert lv._long_kinds({"last_kind": "moments"}) == ["money_guide", "moments", "trend_guide"]
-    assert lv._long_kinds({"last_kind": "money_guide"}) == ["moments", "money_guide", "trend_guide"]
     assert lv._long_kinds({"last_kind": "trend_guide"})[0] == "moments", "unknown last kind = start of rotation"
 
 
-def test_quiet_streams_trend_guide_replaces_moments():
+def test_quiet_streams_trend_guide_replaces_moments(cfg):
     streams(QUIET)
-    order = lv._long_kinds({"last_kind": "money_guide"})
-    assert order[0] == "trend_guide" and order[-1] == "moments"
     order = lv._long_kinds({"last_kind": "moments"})
-    assert order[0] == "money_guide" and order[-1] == "moments", "money guide's turn stays; moments last resort"
+    assert order[0] == "trend_guide" and order[-1] == "moments", "moments only as the last resort"
 
 
 def test_no_viewer_data_counts_as_strong():

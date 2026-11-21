@@ -19,7 +19,7 @@ OWNER_PLAN = [
     ("50 13 * * *", "x_text_morning"),        # 16:50 TRT
     ("40 16 * * *", "vertical_clip"),         # 19:40 TRT  Video A
     ("10 19 * * *", "x_question_nostalgia"),  # 22:10 TRT
-    ("40 22 * * *", "money_clip"),            # 01:40 TRT  Video B (next day in Turkey)
+    ("40 22 * * *", "video_b"),               # 01:40 TRT  Video B (next day in Turkey)
     ("20 1 * * *", "x_daily_recap"),          # 04:20 TRT
 ]
 
@@ -80,7 +80,7 @@ def test_unknown_cron_time_matches_nothing(cfg):
 def test_resolve_slot_uses_schedule_cron(cfg, monkeypatch):
     monkeypatch.setenv("SCHEDULE_CRON", "40 22 * * *")
     slot = autopilot.resolve_slot(cfg, "auto")
-    assert slot["type"] == "money_clip" and slot.get("format") == "money_tips"
+    assert slot["type"] == "video_b" and not slot.get("format"), "Video B = normal rotation (money dropped)"
     assert not slot.get("manual")
 
 
@@ -95,7 +95,7 @@ def test_video_slots_routes(cfg):
     slots = {s["type"]: s for s in cfg["schedule"]}
     assert slots["long_video"]["platforms"] == ["youtube"]
     assert slots["long_video"].get("every_days") == 3
-    assert slots["money_clip"]["format"] == "money_tips"
+    assert "format" not in slots["video_b"], "money dropped 2026-11-21: Video B uses the rotation"
     for t in ("x_text_morning", "x_question_nostalgia", "x_daily_recap"):
         assert slots[t]["platforms"] == ["x"]
 

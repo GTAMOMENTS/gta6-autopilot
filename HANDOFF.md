@@ -37,7 +37,7 @@ Written 2026-11-19 by the previous assistant. Repo: https://github.com/GTAMOMENT
 | 16:50 | 50 13 | x_text_morning | X text: question / poll (uses today's trends) |
 | 19:40 | 40 16 | vertical_clip = **Video A** | rotation format -> Instagram, X, YouTube Shorts (YouTube only from 2026-11-27, `platform_from`) |
 | 22:10 | 10 19 | x_question_nostalgia | X text: hot take / this-or-that |
-| 01:40 | 40 22 | money_clip = **Video B** | "GTA 6 Money Tip #N" (format `money_tips`) -> Instagram, X, TikTok, YouTube Shorts |
+| 01:40 | 40 22 | video_b = **Video B** | second video from the normal rotation -> X, TikTok, YouTube Shorts (money content dropped 2026-11-21) |
 | 04:20 | 20 1 | x_daily_recap | X text: recap |
 Manual runs: Actions -> Run workflow -> `slot` (check_setup, voice_samples, vertical_clip, money_clip, trends, test_all, remake,
 stream_clip, long_video, approve_long, text slots), `dry_run`, `format` (Shorts formats, or long kinds moments / money_guide /
@@ -195,3 +195,13 @@ charm pack, learning, stream clips, long video, English-only + choppy filter, Ge
 - Open: money guide QA said the end was "cut off" (timeline log showed the outro inside the end screen -> likely
   clipped last syllables, fixed in #44 - verify); Gemini free quota runs out after ~6 test runs + the schedule;
   usage limits: 5 agents in parallel hit the 5-hour limit in ~90 min - run at most 3 at once.
+
+## 10. Money content dropped (owner, 2026-11-21)
+- The owner dropped money content for now: Money Tips kept narrating things the picture didn't show (a posted one said
+  "grab the cash from the back alley" over a bike ride). Video B (01:40 TRT, slot `video_b`) is a second video from the
+  normal rotation; long videos are stream-moment countdowns with a trend guide as fallback (`long_video.rotation`,
+  `long_video.fallbacks`).
+- The money code stays (format `money_tips`, `money_guide`): add `"format": "money_tips"` to the Video B slot or
+  `money_guide` to `long_video.rotation` to bring it back. Manual tests: slot `money_clip`, long format `money_guide`.
+- New strict check for ALL videos (PR #46): `qa.line_check` - frames taken while each narration line is spoken, one
+  focused AI question per line ("does the picture show what this line says?"); any "no" blocks the video.
