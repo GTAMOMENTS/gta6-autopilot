@@ -228,6 +228,13 @@ def prompt_note(fmt: dict | None, tour: bool) -> str:
             lines.append(hints)
     except Exception:  # noqa: BLE001
         pass
+    try:  # what got the most / fewest views on our channel (hooks, banners, titles)
+        import analytics
+        views = analytics.view_examples()
+        if views:
+            lines.append(views)
+    except Exception:  # noqa: BLE001
+        pass
     if fmt.get("must_show"):
         lines.append(f"REQUIRED FOR THIS FORMAT: the footage must clearly show {fmt['must_show']}. Set "
                      "shows_required=true ONLY if you actually see it happen, and give required_t = the second "

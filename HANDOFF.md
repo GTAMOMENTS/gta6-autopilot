@@ -222,3 +222,14 @@ charm pack, learning, stream clips, long video, English-only + choppy filter, Ge
 - **Learn:** `lessons.py` logs every QA result (`queue/qa_lessons.json`, real runs only); recurring script mistakes (real
   examples) + lines that passed go into the writer's prompts (`formats.prompt_note`, `ground_lines`); formats that keep
   failing are rested (`lessons.should_rest`); each run logs "[learn] QA history: first-pass rate ...".
+
+## 13. Backup AIs for every image check + learning what gets views (owner, 2026-11-21)
+- Owner asked why the other AI keys weren't used when Gemini's free quota ran out: every image / video check was
+  Gemini-only. `vision.ask(groups, prompt, key, num)` now tries Gemini first, then the backups that can see images
+  (`ai_fallback.chat_json(..., frames=)`) - frames flattened with a legend, split into chunks of <= 8 images, numbers
+  mapped back. Used by `authentic._ask` (is it GTA 6?), `qa.line_check`, `gemini_writer.ground_lines` and as
+  `long_video._batch_verdicts`' last resort. `qa.ai_review` falls back to `_ai_review_frames` (8 frames + timed
+  narration; summary starts "(backup AI, frames only)").
+- `analytics.view_examples()`: with >= `learning.view_examples_min` (4) videos that have stats, the best ones (views
+  per sqrt(age in days)) become examples for the writer (banner, opening line, title) and the weakest ones a style to
+  avoid. Injected in `formats.prompt_note` and `critic.polish`. Switch off: `learning.view_examples: false`.
