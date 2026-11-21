@@ -1698,7 +1698,7 @@ def render_long(moments: list[dict], pkg: dict, clip_id: str, mode: str = "momen
             sfx_labels.append(music_in)
     afc = (";".join(chains) + ";" if chains else "") + voice + duck + \
         f"{mix_in}{''.join(sfx_labels)}amix=inputs={n_in + len(sfx_labels)}:normalize=0:duration=first," \
-        "loudnorm=I=-14:TP=-1.5:LRA=11,alimiter=limit=0.95,apad[aout]"
+        "loudnorm=I=-14:TP=-1.5:LRA=11,alimiter=limit=0.89:level=0,apad[aout]"
     ass_esc = str(ass).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
     out = READY_DIR / f"{clip_id}.mp4"
     res = run(["ffmpeg", "-y", "-hide_banner", *inputs, "-filter_complex", f"[0:v]ass='{ass_esc}'[vout];{afc}",
