@@ -260,3 +260,7 @@ charm pack, learning, stream clips, long video, English-only + choppy filter, Ge
   numbered list over one scene, "lacks humor and punchlines"). Added: comedy craft in the writer prompt (set-up ->
   punchline, roast decisions, NPC inner voice, a laugh every two lines), "ONE CONTINUOUS SCENE, NOT A LIST" for
   single moments, and 3 different scripts per attempt (`video.script_candidates`) - the judge picks the best passing.
+- Dry run 2: scripts became genuinely funny (roast angle) but the judge scored 4-6: it demanded "Top 5" numbering
+  (the writer is told not to number one edit), penalised the required closing question and wanted place names; the
+  writer then followed that feedback and got worse. The judge prompt now carries the channel rules (never counted as
+  problems) + calibration anchors (the two bad posted scripts = 2-3/10, a roast script = 8/10).

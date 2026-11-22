@@ -116,3 +116,18 @@ def test_writer_returns_three_different_scripts(monkeypatch, make_clip):
     assert "set-up -> punchline" in seen["prompt"]
     assert out["angle"] == "roast" and [a["angle"] for a in out["alternatives"]] == ["hype"], "too-short scripts dropped"
     assert out["story"] == out["alternatives"][0]["story"] == "a cop car theft goes wrong"
+
+
+def test_judge_prompt_carries_the_channel_rules_and_anchors(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(ai_fallback, "available", lambda: True)
+    monkeypatch.setattr(ai_fallback, "chat_json", lambda prompt, frames=None, temperature=0.9:
+                        seen.setdefault("p", prompt) and {"score": 8, "makes_sense": True, "promise_kept": True})
+    sj.judge([{"t": 0, "text": t} for t in GOOD], {"fmt": "Top 5 funniest moments"})
+    p = seen["p"]
+    assert "last line is a short question to the viewer (required" in p
+    assert "it is correct that nothing is numbered" in p and "THEME, not a demand for numbers" in p
+    assert "2/10" in p and "8/10" in p
+    seen.clear()
+    sj.judge([{"t": 0, "text": t} for t in GOOD], {}, numbered_ok=True, countdown=3)
+    assert "this is a countdown" in seen["p"]
