@@ -1,0 +1,140 @@
+"""Script judge: reads the WHOLE narration like a viewer and decides if it is good enough to post.
+
+The owner (2026-11-22) on two posted Shorts that QA scored 9/10: "the script is so inconsistent, doesn't make sense,
+starts with how to steal a car yet it never steals it, unfunny, not compelling - 0/10". The QA editor judged the
+picture and the edit, never the story. This judge asks only about the script:
+  - does it make sense from start to finish (one story, each line follows the last)?
+  - does the video deliver what the hook / banner / title promise?
+  - is it entertaining (funny / hyped / useful) - or a dry list of what is on screen?
+  - plus certain checks with no AI: broken numbering, fake first person ("I tried..."), the same word in every line,
+    no closing question.
+A different AI from the writer judges (text models first: no Gemini quota, and no writer judging its own work).
+"""
+from __future__ import annotations
+
+import logging
+import re
+
+from common import load_config
+
+log = logging.getLogger("autopilot")
+
+NUM_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+             "ten": 10}
+STOP = set("""this that with from they them their there then than what when where which while your about into over
+just like have been were will would could should these those here only also very really still even back down
+going gonna watch look gets okay right after before every some more most much make makes made guy guys dude""".split())
+NAMES = {"gta", "jason", "lucia", "leonida"}
+
+PROMPT = """You are the strict head of content of a GTA 6 YouTube Shorts / TikTok channel with millions of views.
+Judge this narration script AS A VIEWER WHO HEARS IT. GAME FACTS: {facts}
+
+Format: {fmt}
+Banner on screen: "{banner}" | Title: "{title}"
+What really happens in the video (from the AI that watched it): {story}
+Script (seconds: line):
+{script}
+Problems found automatically: {static}
+
+Score it 1-10 (7 = good enough for a channel with millions of views; real top creators are 8-9):
+- does it make sense from start to finish as ONE story? does each line follow from the line before?
+- does the video deliver what the hook / banner / title promise? (promising "how to steal a car" when no car gets
+  stolen = 2 at most)
+- is it entertaining - funny, surprising, hyped, or genuinely useful - or a dry list of what is on screen / filler?
+  (a list of descriptions = 3 at most)
+- natural English, no repeated words in every line, no fake first person ("I tried"), numbering correct (if any)
+Return ONLY JSON: {{"score": number, "makes_sense": bool, "promise_kept": bool, "entertaining": bool,
+"problems": [str], "best_fix": str}}"""
+
+
+def _cfg() -> dict:
+    return load_config().get("script_judge", {})
+
+
+def _num(tok: str) -> int | None:
+    tok = tok.lower().strip(":.,")
+    return int(tok) if tok.isdigit() else NUM_WORDS.get(tok)
+
+
+def static_problems(lines: list[str], numbered_ok: bool = False, countdown: int | None = None) -> list[str]:
+    """Certain problems, no AI needed."""
+    out = []
+    texts = [str(x).strip() for x in lines if str(x).strip()]
+    if not texts:
+        return ["empty script"]
+    nums = []
+    for t in texts:
+        m = re.match(r"\s*(?:number|no\.?|#)\s*(\w+)", t, re.I)
+        if m and _num(m.group(1)) is not None:
+            nums.append(_num(m.group(1)))
+    if nums:
+        if not numbered_ok:
+            out.append("numbered items over ONE continuous scene (it is not a list) - tell it as a story")
+        else:
+            n = countdown or max(nums)
+            if sorted(nums) != list(range(1, n + 1)):
+                out.append(f"broken numbering {nums}: a countdown must say every number from {n} down to 1 once")
+            elif nums != sorted(nums, reverse=True):
+                out.append(f"numbering out of order {nums}: count DOWN to number one")
+    fp = [t for t in texts if re.search(r"\b(I|I'm|I've|I'll|I'd|my)\b", re.sub(r"(?i)\boh my\b", "", t))]
+    if fp:
+        out.append(f'fake first person ("{fp[0][:50]}"): the narrator talks ABOUT Jason / Lucia / the player')
+    if len(texts) >= 4:
+        counts: dict[str, int] = {}
+        for t in texts:
+            for w in set(re.findall(r"[a-z']{4,}", t.lower())):
+                if w not in STOP and w not in NAMES and w != "number" and w not in NUM_WORDS:
+                    counts[w] = counts.get(w, 0) + 1
+        rep = sorted((n, w) for w, n in counts.items() if n >= max(3, round(len(texts) * 0.65)))
+        if rep:
+            out.append(f'"{rep[-1][1]}" in {rep[-1][0]} of {len(texts)} lines - vary the words')
+    if not texts[-1].rstrip().endswith("?"):
+        out.append("no closing question to the viewer")
+    return out
+
+
+def judge(lines: list[dict], ctx: dict, numbered_ok: bool = False, countdown: int | None = None) -> dict:
+    """{"ok", "score", "problems", "by", "static"}. ctx: fmt, banner, title, story. ok=False when the script is not good
+    enough - or when no AI could judge it and script_judge.required is on (strict)."""
+    import ai_fallback
+    import gemini_writer
+    c = _cfg()
+    texts = [ln["text"] for ln in lines]
+    static = static_problems(texts, numbered_ok, countdown)
+    prompt = PROMPT.format(facts=gemini_writer._game_context(), fmt=ctx.get("fmt", "GTA 6 Short"),
+                           banner=ctx.get("banner", ""), title=ctx.get("title", ""),
+                           story=ctx.get("story") or "(unknown)",
+                           script="\n".join(f'{float(ln.get("t", 0)):.1f}s: {ln["text"]}' for ln in lines),
+                           static="; ".join(static) or "none")
+    data, by = None, ""
+    if ai_fallback.available():
+        data = ai_fallback.chat_json(prompt, temperature=0.2)
+        by = (data or {}).get("_ai_model", "")
+    if not isinstance(data, dict) or "score" not in data:
+        data = gemini_writer._generate_json(prompt, temperature=0.2) if not data else data
+        by = by or "gemini"
+    need = float(c.get("min_score", 7))
+    if not isinstance(data, dict) or "score" not in data:
+        log.warning("[judge] no AI could judge the script")
+        return {"ok": not c.get("required", True) and not static, "score": None, "problems": static,
+                "by": "", "static": static}
+    try:
+        score = float(data.get("score"))
+    except (TypeError, ValueError):
+        score = 0.0
+    problems = [str(p)[:200] for p in (data.get("problems") or []) if str(p).strip()][:6]
+    if data.get("best_fix"):
+        problems.append("fix: " + str(data["best_fix"])[:200])
+    hard = data.get("makes_sense") is False or data.get("promise_kept") is False
+    ok = score >= need and not static and not hard
+    log.info("[judge] script %.0f/10 by %s%s%s", score, by or "?", " ✅" if ok else " ✋",
+             (" | " + "; ".join(static + problems))[:400] if not ok else "")
+    return {"ok": ok, "score": score, "problems": static + problems, "by": by, "static": static}
+
+
+def feedback(verdict: dict) -> str:
+    """Tell the writer why its script was rejected."""
+    return ("YOUR LAST SCRIPT WAS REJECTED by the head of content"
+            + (f" ({verdict['score']:.0f}/10)" if verdict.get("score") is not None else "") + ":\n"
+            + "\n".join(f"- {p}" for p in verdict.get("problems", [])[:8])
+            + "\nWrite a NEW, much better script for the whole video - don't patch the old one.")

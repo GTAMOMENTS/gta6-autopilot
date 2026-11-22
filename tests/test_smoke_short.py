@@ -52,6 +52,17 @@ def short_world(monkeypatch, make_clip, fake_tts, sandbox):
         out.update(verified_by_video=True, ai_source="gemini-video")
         return out
     monkeypatch.setattr(gemini_writer, "write_clip_copy", write_copy)
+
+    def final_script(clip, copy, fmt=None, lead=0.0, spans=None, feedback="", slots=None):
+        seen.setdefault("writer", []).append({"feedback": feedback, "slots": slots, "lead": lead})
+        if slots:
+            return {"lines": [dict(s) for s in slots], "banner": "", "title": "", "story": "a car flies off a ramp"}
+        return {"lines": [{"t": round(lead + 0.1 + i * 3, 2), "text": ln} for i, ln in enumerate(LINES)],
+                "banner": "", "title": "", "story": "a car flies off a ramp"}
+    monkeypatch.setattr(gemini_writer, "write_final_script", final_script)
+    import script_judge
+    monkeypatch.setattr(script_judge, "judge", lambda lines, ctx, numbered_ok=False, countdown=None:
+                        {"ok": True, "score": 8.0, "problems": [], "by": "test/judge", "static": []})
     monkeypatch.setattr(qa, "line_check", lambda path, lines, kind: [])  # its own tests: tests/test_qa_linecheck.py
     monkeypatch.setattr(qa, "ai_review", lambda path, context: (seen.__setitem__("qa_context", context) or
                                                                 {"publish": True, "score": 8, "issues": [], "summary": "ok",
@@ -116,11 +127,11 @@ def test_short_smoke_render(cfg, short_world, fake_tts, sandbox):
     assert short_world["fmt"]["id"] == "stunts_crashes"
 
 
-def test_short_repair_fixes_only_the_wrong_line(cfg, short_world, fake_tts, sandbox, monkeypatch):
-    """Final QA flags one line -> only that line is rewritten + re-voiced, the video re-rendered once, then it passes
-    (instead of throwing the clip away)."""
+def test_short_repair_rewrites_the_whole_script_from_the_whole_video(cfg, short_world, fake_tts, sandbox, monkeypatch):
+    """Final QA flags a line -> the AI watches the whole cut again and rewrites the WHOLE script (same times, one
+    story), judged again, re-rendered once - never a frame-by-frame patch of one line."""
     import lessons
-    calls = {"n": 0, "ground": []}
+    calls = {"n": 0}
 
     def line_check(path, lines, kind):
         calls["n"] += 1
@@ -129,49 +140,48 @@ def test_short_repair_fixes_only_the_wrong_line(cfg, short_world, fake_tts, sand
                      "reason": "frames show a parked car", "detail": "the picture doesn't show it"}]
         return []
     monkeypatch.setattr(qa, "line_check", line_check)
+    real = gemini_writer.write_final_script
 
-    def ground(clip, items, what, extra=""):
-        calls["ground"].append([it["text"] for it in items])
-        if "REJECTED" not in extra:  # first pass (before voice): keep the lines
-            return [it["text"] for it in items]
-        return ["Look at that car flying straight off the ramp." if "Five stars" in it["text"] else it["text"]
-                for it in items]
-    monkeypatch.setattr(gemini_writer, "ground_lines", ground)
-    fmt = formats.format_by_id("stunts_crashes", cfg)
+    def writer(clip, copy, fmt=None, lead=0.0, spans=None, feedback="", slots=None):
+        if slots:
+            short_world.setdefault("repair", []).append((feedback, [s["t"] for s in slots]))
+            return {"lines": [{"t": s["t"], "text": "Look at that car flying straight off the ramp." if i == 1 else s["text"]}
+                              for i, s in enumerate(slots)], "banner": "", "title": "", "story": "ramp jump"}
+        return real(clip, copy, fmt, lead, spans, feedback, slots)
+    monkeypatch.setattr(gemini_writer, "write_final_script", writer)
     slot = {"type": "vertical_clip", "platforms": ["x"], "time": "19:40"}
-    ok, rec = autopilot.run_video_slot(slot, dry_run=True, fmt=fmt)
+    ok, rec = autopilot.run_video_slot(slot, dry_run=True, fmt=formats.format_by_id("stunts_crashes", cfg))
     assert ok, rec
     assert calls["n"] == 3, "pre-check, final QA, QA after the repair"
-    assert calls["ground"][-1] == [LINES[1]], "only the rejected line is rewritten"
+    fb, times = short_world["repair"][0]
+    assert "QA REJECTED" in fb and "WHOLE script" in fb and len(times) == len(LINES)
     assert any("car flying straight off the ramp" in ln["text"] for ln in rec["copy"]["commentary"])
     stages = [a["stage"] for a in lessons._load()["attempts"]]
     assert stages[-2:] == ["final", "repair"] and lessons._load()["attempts"][-1]["pass"] is True
 
 
-def test_precheck_last_try_saves_the_clip(cfg, short_world, fake_tts, sandbox, monkeypatch):
-    """A line that fails the pre-check twice gets a plain 'what is on screen' rewrite before the clip is thrown away
-    (a real run lost its only good clip over one weapon-wheel line)."""
-    calls = {"n": 0, "extra": []}
+def test_rejected_script_goes_back_to_the_writer(cfg, short_world, fake_tts, sandbox, monkeypatch):
+    """The judge rejects the first script -> the writer watches the whole video again with the reasons and writes a
+    NEW script; a line that doesn't match the picture does the same. Only then voice + render."""
+    import script_judge
+    verdicts = iter([{"ok": False, "score": 3.0, "problems": ["promises a car theft that never happens"], "by": "j",
+                      "static": []},
+                     {"ok": True, "score": 8.0, "problems": [], "by": "j", "static": []},
+                     {"ok": True, "score": 8.0, "problems": [], "by": "j", "static": []}])
+    monkeypatch.setattr(script_judge, "judge", lambda lines, ctx, numbered_ok=False, countdown=None: next(verdicts))
+    checks = {"n": 0}
 
     def line_check(path, lines, kind):
-        calls["n"] += 1
-        if calls["n"] <= 2 and any("Five stars" in ln["text"] or "weapon wheel" in ln["text"] for ln in lines):
-            k = next(i for i, ln in enumerate(lines) if "Five stars" in ln["text"] or "weapon wheel" in ln["text"])
-            return [{"severity": "high", "type": "line_not_shown", "at": lines[k]["start"], "index": k,
-                     "reason": "no weapon wheel in the frames", "detail": "not shown"}]
+        checks["n"] += 1
+        if checks["n"] == 1:  # the 2nd script: one line doesn't match its moment
+            return [{"severity": "high", "type": "line_not_shown", "index": 2, "reason": "no cop car on screen"}]
         return []
     monkeypatch.setattr(qa, "line_check", line_check)
-
-    def ground(clip, items, what, extra=""):
-        calls["extra"].append(extra)
-        if "LAST TRY" in extra:
-            return ["A car flies off the ramp with cops right behind." for _ in items]
-        if "REJECTED" in extra:
-            return ["He opens the weapon wheel mid jump." for _ in items]
-        return [it["text"] for it in items]
-    monkeypatch.setattr(gemini_writer, "ground_lines", ground)
     slot = {"type": "vertical_clip", "platforms": ["x"], "time": "19:40"}
     ok, rec = autopilot.run_video_slot(slot, dry_run=True, fmt=formats.format_by_id("stunts_crashes", cfg))
     assert ok, rec
-    assert sum("LAST TRY" in e for e in calls["extra"]) == 1
-    assert any("cops right behind" in ln["text"] for ln in rec["copy"]["commentary"])
+    fbs = [w["feedback"] for w in short_world["writer"]]
+    assert fbs[0] == "" and "REJECTED by the head of content (3/10)" in fbs[1] and "car theft" in fbs[1]
+    assert "DON'T MATCH WHAT IS ON SCREEN" in fbs[2] and "no cop car" in fbs[2]
+    assert all(w["slots"] is None for w in short_world["writer"][:3]), "a Short's script is written for the whole video"
+    assert len(fake_tts.prompts) == 1, "voice only for the script that passed"

@@ -649,10 +649,13 @@
       "duck_ratio": 10,
       "_note": "Cold open: a 1.2 s flash of the payoff moment (punched in, white flash into the story). Payoff: riser, boom, punch-in, shake, impact flash; sudden loud actions in the game sound get a punchy hit + small punch-in. Captions: word by word, synced to the voice (Whisper word times when available), current word pops in the highlight colour, key words (numbers, money, hype words) in the emphasis colour + a small punch-in. caption_style: karaoke (whole chunk shown) or reveal (words appear as spoken). question_card: the closing question replaces the banner at the end, then the CTA. smart_cut: Whisper starts/ends the cut at a pause in the footage's own speech and the narration slides into gaps of the in-game dialogue. duck_ratio: how hard the game sound dips under the voice. music_action_boost: music a bit louder on action beats (+50%), still ducked under the voice. All text stays in the TikTok/Reels/Shorts safe zone; low-res footage is zoomed less (max_upscale). Sound effects are generated (no copyright)."
     },
-    "ground_lines": true,
+    "ground_lines": false,
     "_ground_lines_note": "After the edit is picked, each narration line is rewritten by the AI looking at frames of the exact footage it plays over (gemini_writer.ground_lines) - the one-shot script drifted off the picture and the QA line check blocked most Shorts.",
     "precheck_lines": true,
     "precheck_attempts": 3,
+    "script_attempts": 3,
+    "_script_note": "Owner 2026-11-22: the AI watches the WHOLE final video and writes ONE script (gemini_writer.write_final_script); a different AI judges it (script_judge.py); lines are checked against the picture; failures go back to the writer for a NEW script. No more frame-by-frame line rewriting (ground_lines is no longer used).",
+    "max_dialogue_share": 0.6,
     "repair": true
   },
   "blocked_keywords": [
@@ -1093,6 +1096,11 @@
     "view_examples": true,
     "view_examples_min": 4
   },
+  "script_judge": {
+    "_note": "Reads the whole narration like a viewer: makes sense? promise kept? entertaining? + certain checks (numbering, fake 'I', repeated words, closing question). Below min_score -> the writer writes a new script; no AI to judge + required -> not posted.",
+    "min_score": 7,
+    "required": true
+  },
   "fallback": {
     "_note": "A video slot that posted nothing posts the most viral famous-streamer clip instead (owner 2026-11-21). The run only starts it while less than max_elapsed_min have passed (job timeout 120 min).",
     "stream_clip_on_fail": true,
@@ -1321,6 +1329,7 @@
   },
   "_schedule_note": "Owner's plan (2026-11-20): Video A (rotation) 19:40 TRT -> Instagram, X, YouTube Shorts (from week 2); Video B (normal rotation, money dropped 2026-11-21) 01:40 TRT -> Instagram, X, TikTok, YouTube Shorts; X texts 16:50 / 22:10 / 04:20; long video every 3 days (15:10 TRT, owner publishes). Viral stream clips are part of Video A (no separate posts). Times must match the crons in .github/workflows/main.yml.",
   "qa": {
+    "min_script_score": 7,
     "enabled": true,
     "require_ai_review": true,
     "min_score": 7,
