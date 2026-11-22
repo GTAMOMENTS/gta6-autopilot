@@ -264,3 +264,7 @@ charm pack, learning, stream clips, long video, English-only + choppy filter, Ge
   (the writer is told not to number one edit), penalised the required closing question and wanted place names; the
   writer then followed that feedback and got worse. The judge prompt now carries the channel rules (never counted as
   problems) + calibration anchors (the two bad posted scripts = 2-3/10, a roast script = 8/10).
+- Dry run 3 made the first video with the new system (judge 7/10, QA 9, script 10/10) - artifact of run 45030379337.
+  It still had 8 s and 11 s without narration: `script_judge.dead_air` now rejects gaps > `script_judge.max_silence_sec`
+  (6 s, game dialogue counts as talking) and narration under `min_coverage` (60%) of the quiet time; the writer is told
+  to fill the video.

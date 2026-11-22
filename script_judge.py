@@ -75,6 +75,26 @@ def _num(tok: str) -> int | None:
     return int(tok) if tok.isdigit() else NUM_WORDS.get(tok)
 
 
+def dead_air(lines: list[dict], length: float, lead: float = 0.0, spans=None, wps: float = 2.7) -> list[str]:
+    """Long stretches where nobody talks (no narration and no game dialogue) - real creators talk almost all the
+    time. A dry run's script left 12 s and 14 s of silence."""
+    c = _cfg()
+    max_gap = float(c.get("max_silence_sec", 6.0))
+    busy = sorted([(float(ln["t"]), float(ln["t"]) + len(str(ln["text"]).split()) / wps) for ln in lines] +
+                  [(float(a), float(b)) for a, b in (spans or [])])
+    out, cursor = [], lead
+    for a, b in busy + [(length - 0.5, length)]:
+        if a - cursor > max_gap:
+            out.append(f"{a - cursor:.0f} s of silence ({cursor:.0f}-{a:.0f}s) - fill it with a line about what "
+                       "happens there")
+        cursor = max(cursor, b)
+    talk = sum(len(str(ln["text"]).split()) for ln in lines) / wps
+    room = max(1.0, length - lead - sum(max(0.0, float(b) - float(a)) for a, b in (spans or [])))
+    if talk < float(c.get("min_coverage", 0.6)) * room:
+        out.append(f"the narrator talks only {talk:.0f} of {room:.0f} quiet seconds - write more (and longer) lines")
+    return out[:3]
+
+
 def static_problems(lines: list[str], numbered_ok: bool = False, countdown: int | None = None) -> list[str]:
     """Certain problems, no AI needed."""
     out = []
@@ -112,7 +132,8 @@ def static_problems(lines: list[str], numbered_ok: bool = False, countdown: int 
     return out
 
 
-def judge(lines: list[dict], ctx: dict, numbered_ok: bool = False, countdown: int | None = None) -> dict:
+def judge(lines: list[dict], ctx: dict, numbered_ok: bool = False, countdown: int | None = None,
+          timing: dict | None = None) -> dict:
     """{"ok", "score", "problems", "by", "static"}. ctx: fmt, banner, title, story. ok=False when the script is not good
     enough - or when no AI could judge it and script_judge.required is on (strict)."""
     import ai_fallback
@@ -120,6 +141,8 @@ def judge(lines: list[dict], ctx: dict, numbered_ok: bool = False, countdown: in
     c = _cfg()
     texts = [ln["text"] for ln in lines]
     static = static_problems(texts, numbered_ok, countdown)
+    if timing and timing.get("length"):  # timing = {"length", "lead", "spans"} (not for fixed tour slots)
+        static += dead_air(lines, float(timing["length"]), float(timing.get("lead", 0)), timing.get("spans"))
     prompt = PROMPT.format(facts=gemini_writer._game_context(), fmt=ctx.get("fmt", "GTA 6 Short"),
                            banner=ctx.get("banner", ""), title=ctx.get("title", ""),
                            story=ctx.get("story") or "(unknown)",

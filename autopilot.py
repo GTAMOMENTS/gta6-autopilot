@@ -154,7 +154,9 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
                 trial = {**copy, "banner": cand.get("banner") or copy.get("banner", ""),
                          "youtube_title": cand.get("title") or copy.get("youtube_title", "")}
                 v = script_judge.judge(cand["lines"], _script_ctx(trial, cand.get("story", "")),
-                                       numbered_ok=bool(countdown), countdown=countdown)
+                                       numbered_ok=bool(countdown), countdown=countdown,
+                                       timing=None if slots else {"length": probe(video)["duration"], "lead": lead,
+                                                                  "spans": spans})
                 if best_v is None or (v["ok"], v["score"] or 0) > (best_v["ok"], best_v["score"] or 0):
                     best, best_v = cand, v
             w, verdict, lines = best, best_v, best["lines"]

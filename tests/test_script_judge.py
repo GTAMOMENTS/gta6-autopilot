@@ -131,3 +131,24 @@ def test_judge_prompt_carries_the_channel_rules_and_anchors(monkeypatch):
     seen.clear()
     sj.judge([{"t": 0, "text": t} for t in GOOD], {}, numbered_ok=True, countdown=3)
     assert "this is a countdown" in seen["p"]
+
+
+MARINA = [(1.7, "Bro rented a scooter in Leonida and chose immediate violence."),
+          (7.0, "Tourists just wanted a relaxing morning by the bay."),
+          (13.0, "Instead, they got mowed down by a guy in a tank top."),
+          (20.0, "Parking enforcement on these docks is getting out of hand."),
+          (32.0, "He's treating the marina like his personal bowling alley."),
+          (41.0, "Look at him casually drifting past another crime scene."),
+          (55.2, "Would you trust this guy with a rental deposit?")]
+
+
+def test_dead_air_is_caught():
+    lines = [{"t": t, "text": x} for t, x in MARINA]
+    probs = sj.dead_air(lines, 59.2, lead=1.2)
+    assert any("(24-32s)" in p for p in probs) and any("(44-55s)" in p for p in probs)
+    assert any("talks only" in p for p in probs)
+    # the characters talking in the gap is fine - nobody needs to talk over them
+    assert not any("24-32s" in p for p in sj.dead_air(lines, 59.2, lead=1.2, spans=[(22.0, 32.0)]))
+    full = [{"t": 1.3 + i * 4.5, "text": "He keeps finding new ways to make this marina regret everything today."}
+            for i in range(13)]
+    assert sj.dead_air(full, 59.2, lead=1.2) == []

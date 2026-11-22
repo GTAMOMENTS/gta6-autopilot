@@ -1100,7 +1100,9 @@
   "script_judge": {
     "_note": "Reads the whole narration like a viewer: makes sense? promise kept? entertaining? + certain checks (numbering, fake 'I', repeated words, closing question). Below min_score -> the writer writes a new script; no AI to judge + required -> not posted.",
     "min_score": 7,
-    "required": true
+    "required": true,
+    "max_silence_sec": 6.0,
+    "min_coverage": 0.6
   },
   "fallback": {
     "_note": "A video slot that posted nothing posts the most viral famous-streamer clip instead (owner 2026-11-21). The run only starts it while less than max_elapsed_min have passed (job timeout 120 min).",

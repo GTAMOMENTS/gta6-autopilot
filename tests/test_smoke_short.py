@@ -61,7 +61,7 @@ def short_world(monkeypatch, make_clip, fake_tts, sandbox):
                 "banner": "", "title": "", "story": "a car flies off a ramp"}
     monkeypatch.setattr(gemini_writer, "write_final_script", final_script)
     import script_judge
-    monkeypatch.setattr(script_judge, "judge", lambda lines, ctx, numbered_ok=False, countdown=None:
+    monkeypatch.setattr(script_judge, "judge", lambda lines, ctx, numbered_ok=False, countdown=None, timing=None:
                         {"ok": True, "score": 8.0, "problems": [], "by": "test/judge", "static": []})
     monkeypatch.setattr(qa, "line_check", lambda path, lines, kind: [])  # its own tests: tests/test_qa_linecheck.py
     monkeypatch.setattr(qa, "ai_review", lambda path, context: (seen.__setitem__("qa_context", context) or
@@ -168,7 +168,7 @@ def test_rejected_script_goes_back_to_the_writer(cfg, short_world, fake_tts, san
                       "static": []},
                      {"ok": True, "score": 8.0, "problems": [], "by": "j", "static": []},
                      {"ok": True, "score": 8.0, "problems": [], "by": "j", "static": []}])
-    monkeypatch.setattr(script_judge, "judge", lambda lines, ctx, numbered_ok=False, countdown=None: next(verdicts))
+    monkeypatch.setattr(script_judge, "judge", lambda lines, ctx, numbered_ok=False, countdown=None, timing=None: next(verdicts))
     checks = {"n": 0}
 
     def line_check(path, lines, kind):
@@ -205,7 +205,7 @@ def test_best_of_three_scripts_is_used(cfg, short_world, fake_tts, sandbox, monk
                 "alternatives": [{**base, "lines": mk(alt_lines), "angle": "deadpan"},
                                  {**base, "lines": mk(LINES[::-1]), "angle": "hype"}]}
     monkeypatch.setattr(gemini_writer, "write_final_script", writer)
-    monkeypatch.setattr(script_judge, "judge", lambda lines, ctx, numbered_ok=False, countdown=None: (
+    monkeypatch.setattr(script_judge, "judge", lambda lines, ctx, numbered_ok=False, countdown=None, timing=None: (
         {"ok": True, "score": 8.0, "problems": [], "by": "j", "static": []} if lines[0]["text"].startswith("He had")
         else {"ok": False, "score": 5.0, "problems": ["not funny"], "by": "j", "static": []}))
     slot = {"type": "vertical_clip", "platforms": ["x"], "time": "19:40"}

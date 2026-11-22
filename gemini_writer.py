@@ -1160,8 +1160,10 @@ def write_final_script(clip: Path, copy: dict, fmt: dict | None = None, lead: fl
         return None
     quiet = length - lead - sum(max(0.0, b - a) for a, b in (spans or []))
     words = int(max(25, min(150, quiet * 2.3)))
-    amount = (f"about {words} words in total, {max(4, words // 16)}-{max(5, words // 9)} lines of 1-2 spoken "
-              f"sentences (max 24 words each)") if not slots else "one line per slot, max 24 words each"
+    amount = (f"FILL THE VIDEO like top creators (they talk almost the whole time): about {words} words in total, "
+              f"{max(5, words // 14)}-{max(6, words // 8)} lines of 1-2 spoken sentences (max 24 words each), never more "
+              f"than 5 seconds without a line unless the characters are talking") if not slots else \
+        "one line per slot, max 24 words each"
     slot_txt = SLOTS_NOTE.format(n=len(slots), rows="\n".join(f'{i}. t={s["t"]:.1f}s: "{s["text"]}"'
                                                               for i, s in enumerate(slots, 1))) if slots else ""
     prompt = FINAL_PROMPT.format(
