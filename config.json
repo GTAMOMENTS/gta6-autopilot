@@ -654,6 +654,7 @@
     "precheck_lines": true,
     "precheck_attempts": 3,
     "script_attempts": 3,
+    "script_candidates": 3,
     "_script_note": "Owner 2026-11-22: the AI watches the WHOLE final video and writes ONE script (gemini_writer.write_final_script); a different AI judges it (script_judge.py); lines are checked against the picture; failures go back to the writer for a NEW script. No more frame-by-frame line rewriting (ground_lines is no longer used).",
     "max_dialogue_share": 0.6,
     "repair": true

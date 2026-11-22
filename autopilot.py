@@ -140,19 +140,27 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         feedback, last_issues = "", []
         for attempt in range(1, tries + 1):
             w = write_final_script(video, copy, fmt, lead=lead, spans=spans, feedback=feedback,
-                                   slots=[{"t": it["t"], "text": it["text"]} for it in items] if slots else None)
+                                   slots=[{"t": it["t"], "text": it["text"]} for it in items] if slots else None,
+                                   n=1 if slots else max(1, int(vcfg.get("script_candidates", 3))))
             if not w:
                 log.warning("[script] no AI could watch the whole video and write the script")
                 return None
-            lines = w["lines"]
-            log.info("[script] attempt %d - written after watching the whole video: %s", attempt,
-                     [f"{ln['t']:.0f}s {ln['text']}" for ln in lines])
-            trial = {**copy, "banner": w.get("banner") or copy.get("banner", ""),
-                     "youtube_title": w.get("title") or copy.get("youtube_title", "")}
-            verdict = script_judge.judge(lines, _script_ctx(trial, w.get("story", "")), numbered_ok=bool(countdown),
-                                         countdown=countdown)
+            # several different scripts per attempt: the judge scores each, the best one that passes is used
+            best, best_v = None, None
+            for cand in [w] + list(w.get("alternatives") or []):
+                log.info("[script] attempt %d%s - written after watching the whole video: %s", attempt,
+                         f" ({cand['angle']})" if cand.get("angle") else "",
+                         [f"{ln['t']:.0f}s {ln['text']}" for ln in cand["lines"]])
+                trial = {**copy, "banner": cand.get("banner") or copy.get("banner", ""),
+                         "youtube_title": cand.get("title") or copy.get("youtube_title", "")}
+                v = script_judge.judge(cand["lines"], _script_ctx(trial, cand.get("story", "")),
+                                       numbered_ok=bool(countdown), countdown=countdown)
+                if best_v is None or (v["ok"], v["score"] or 0) > (best_v["ok"], best_v["score"] or 0):
+                    best, best_v = cand, v
+            w, verdict, lines = best, best_v, best["lines"]
             if not verdict["ok"]:
-                feedback = script_judge.feedback(verdict)
+                feedback = script_judge.feedback(verdict) + (
+                    "\nThe rejected script was:\n" + "\n".join(f'{ln["t"]:.0f}s: {ln["text"]}' for ln in lines))
                 last_issues = [{"severity": "high", "type": "script_quality", "detail": p}
                                for p in verdict["problems"][:3]]
                 continue

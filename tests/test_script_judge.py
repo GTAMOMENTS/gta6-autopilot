@@ -91,3 +91,28 @@ def test_writer_watches_the_whole_video_and_returns_a_fitted_script(monkeypatch,
     words_end = ts[-1] + len(out["lines"][-1]["text"].split()) / 2.7
     assert words_end <= 20 and out["lines"][-1]["text"].endswith("?"), "the closing question fits and stays"
     assert out["banner"] == "COP CAR CHAOS" and out["title"] == "GTA 6 Cop Car Chaos"
+
+
+def test_writer_returns_three_different_scripts(monkeypatch, make_clip):
+    clip = make_clip("cut3.mp4", dur=20)
+    monkeypatch.setenv("GEMINI_API_KEY", "x")
+
+    class Up:
+        name = "files/2"
+    monkeypatch.setattr(gemini_writer, "_upload_video", lambda p: Up())
+    monkeypatch.setattr(gemini_writer, "_client", lambda: type("C", (), {"files": type("F", (), {
+        "delete": staticmethod(lambda name: None)})()})())
+    seen = {}
+
+    def gen(contents, temperature=0.9, prefer_pro=False):
+        seen["prompt"] = contents[1]
+        one = [{"t": i * 3.0, "text": t} for i, t in enumerate(GOOD)]
+        return {"story": "a cop car theft goes wrong", "scripts": [
+            {"angle": "roast", "lines": one, "banner": "COP CAR GONE WRONG", "title": "GTA 6 Cop Car Gone Wrong"},
+            {"angle": "hype", "lines": one[::-1]}, {"angle": "deadpan", "lines": one[:2]}]}
+    monkeypatch.setattr(gemini_writer, "_generate_json", gen)
+    out = gemini_writer.write_final_script(clip, {"banner": "OLD"}, fmt={"name": "Top 5 funniest moments"}, n=3)
+    assert "3 DIFFERENT complete scripts" in seen["prompt"] and "NOT A LIST" in seen["prompt"]
+    assert "set-up -> punchline" in seen["prompt"]
+    assert out["angle"] == "roast" and [a["angle"] for a in out["alternatives"]] == ["hype"], "too-short scripts dropped"
+    assert out["story"] == out["alternatives"][0]["story"] == "a cop car theft goes wrong"

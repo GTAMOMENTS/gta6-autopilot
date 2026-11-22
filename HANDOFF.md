@@ -256,3 +256,7 @@ charm pack, learning, stream clips, long video, English-only + choppy filter, Ge
 - Footage where characters talk > `video.max_dialogue_share` (60%) is skipped for narration.
 - QA editor now scores the script (`script_score`, high issue below `qa.min_script_score` 7) and the `_QA.txt` report
   lists the narration + the judge's score.
+- Dry run 2026-11-22: the judge (cerebras/gpt-oss-120b) rejected all 3 scripts of the first clip (5, 5, 4/10:
+  numbered list over one scene, "lacks humor and punchlines"). Added: comedy craft in the writer prompt (set-up ->
+  punchline, roast decisions, NPC inner voice, a laugh every two lines), "ONE CONTINUOUS SCENE, NOT A LIST" for
+  single moments, and 3 different scripts per attempt (`video.script_candidates`) - the judge picks the best passing.
