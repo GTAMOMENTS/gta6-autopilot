@@ -53,7 +53,7 @@ def short_world(monkeypatch, make_clip, fake_tts, sandbox):
         return out
     monkeypatch.setattr(gemini_writer, "write_clip_copy", write_copy)
 
-    def final_script(clip, copy, fmt=None, lead=0.0, spans=None, feedback="", slots=None):
+    def final_script(clip, copy, fmt=None, lead=0.0, spans=None, feedback="", slots=None, n=1):
         seen.setdefault("writer", []).append({"feedback": feedback, "slots": slots, "lead": lead})
         if slots:
             return {"lines": [dict(s) for s in slots], "banner": "", "title": "", "story": "a car flies off a ramp"}
@@ -142,12 +142,12 @@ def test_short_repair_rewrites_the_whole_script_from_the_whole_video(cfg, short_
     monkeypatch.setattr(qa, "line_check", line_check)
     real = gemini_writer.write_final_script
 
-    def writer(clip, copy, fmt=None, lead=0.0, spans=None, feedback="", slots=None):
+    def writer(clip, copy, fmt=None, lead=0.0, spans=None, feedback="", slots=None, n=1):
         if slots:
             short_world.setdefault("repair", []).append((feedback, [s["t"] for s in slots]))
             return {"lines": [{"t": s["t"], "text": "Look at that car flying straight off the ramp." if i == 1 else s["text"]}
                               for i, s in enumerate(slots)], "banner": "", "title": "", "story": "ramp jump"}
-        return real(clip, copy, fmt, lead, spans, feedback, slots)
+        return real(clip, copy, fmt, lead, spans, feedback, slots, n)
     monkeypatch.setattr(gemini_writer, "write_final_script", writer)
     slot = {"type": "vertical_clip", "platforms": ["x"], "time": "19:40"}
     ok, rec = autopilot.run_video_slot(slot, dry_run=True, fmt=formats.format_by_id("stunts_crashes", cfg))
@@ -185,3 +185,31 @@ def test_rejected_script_goes_back_to_the_writer(cfg, short_world, fake_tts, san
     assert "DON'T MATCH WHAT IS ON SCREEN" in fbs[2] and "no cop car" in fbs[2]
     assert all(w["slots"] is None for w in short_world["writer"][:3]), "a Short's script is written for the whole video"
     assert len(fake_tts.prompts) == 1, "voice only for the script that passed"
+
+
+def test_best_of_three_scripts_is_used(cfg, short_world, fake_tts, sandbox, monkeypatch):
+    """Each attempt writes 3 different scripts; the judge scores all of them and the best one that passes is voiced
+    (no second attempt needed)."""
+    import script_judge
+    alt_lines = ["He had one job today: land the jump and drive home quietly.",
+                 "He chose violence instead, and the ramp chose gravity.",
+                 "The cops behind him are still trying to work out what just happened.",
+                 "Honestly? Ten out of ten commitment, zero out of ten planning.",
+                 "Would you have tried that jump or taken the boring bridge?"]
+
+    def writer(clip, copy, fmt=None, lead=0.0, spans=None, feedback="", slots=None, n=1):
+        short_world.setdefault("n", []).append(n)
+        base = {"banner": "", "title": "", "story": "ramp jump"}
+        mk = lambda ls: [{"t": round(lead + 0.1 + i * 2.5, 2), "text": t} for i, t in enumerate(ls)]
+        return {**base, "lines": mk(LINES), "angle": "roast",
+                "alternatives": [{**base, "lines": mk(alt_lines), "angle": "deadpan"},
+                                 {**base, "lines": mk(LINES[::-1]), "angle": "hype"}]}
+    monkeypatch.setattr(gemini_writer, "write_final_script", writer)
+    monkeypatch.setattr(script_judge, "judge", lambda lines, ctx, numbered_ok=False, countdown=None: (
+        {"ok": True, "score": 8.0, "problems": [], "by": "j", "static": []} if lines[0]["text"].startswith("He had")
+        else {"ok": False, "score": 5.0, "problems": ["not funny"], "by": "j", "static": []}))
+    slot = {"type": "vertical_clip", "platforms": ["x"], "time": "19:40"}
+    ok, rec = autopilot.run_video_slot(slot, dry_run=True, fmt=formats.format_by_id("stunts_crashes", cfg))
+    assert ok, rec
+    assert short_world["n"] == [3], "one attempt, three scripts"
+    assert [ln["text"] for ln in rec["copy"]["commentary"]][:2] == alt_lines[:2]

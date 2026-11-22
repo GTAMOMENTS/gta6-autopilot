@@ -1054,21 +1054,35 @@ Write it like the best GTA Shorts creators:
   to steal a car" if no car gets stolen). If the video doesn't show the format's topic, write about what it DOES
   show (honesty beats the topic) and give a new banner and title that this video delivers
 - every line talks about what is happening at ITS moment in the video (you watched it - use the real timeline)
-- entertaining: funny or hyped reactions, a smart observation, why it is crazy or useful - NOT a dry list of what is
-  on screen ("running across the road toward a pickup truck" is a bad line, "the getaway plan? Sprint. Just sprint."
-  is a good one)
+- ENTERTAINING like the top creators - this is what makes people watch to the end and share:
+  * comedy: set-up -> punchline; roast the character's terrible decisions; give bystanders / NPCs an inner voice;
+    exaggerate; deadpan understatement; a call-back to an earlier line; at least one laugh every two lines
+  * the biggest laugh or the craziest beat lands right before the closing question
+  * hype / drama for chases and stunts: build tension, then react to the payoff like you can't believe it
+  * NEVER a dry list of what is on screen: "running across the road toward a pickup truck" is a bad line;
+    "He had one job: park the scooter. He chose war." / "The tourists paid for a relaxing vacation. They got
+    Jason." / "Crime reported? Officer, he's just exploring the dock... at forty miles an hour." are good lines
+    (examples of the style - never copy them)
+  * short, punchy, spoken English - like talking to a friend, not reading a description
 - talk about Jason / Lucia / "he" / "she" / "this guy" - never pretend to be the player ("I tried...", "my car")
-- numbered items ("Number 3: ...") ONLY if the video really shows separate items - then count down to 1 and say
-  every number once
+- {numbering}
 - vary the words (don't repeat the same noun in every line); say "GTA 6" at most once
 - {amount}
 - the last line, about 3-4 seconds before the end, is a short question to the viewer about THIS video
 - no story spoilers, no hashtags, no emojis
 {slots}{feedback}
 {hints}
-Return ONLY JSON: {{"story": "one sentence: what really happens in this video", "lines": [{{"t": seconds, "text":
-str}}], "banner": "4-7 word banner this video delivers (or the current one)", "title": "YouTube title this video
-delivers, with GTA 6 in it (or the current one)"}}"""
+{shape}"""
+
+ONE_SHAPE = """Return ONLY JSON: {{"story": "one sentence: what really happens in this video", "lines": [{{"t": seconds,
+"text": str}}], "banner": "4-7 word banner this video delivers (or the current one)", "title": "YouTube title this
+video delivers, with GTA 6 in it (or the current one)"}}"""
+
+MANY_SHAPE = """Write {n} DIFFERENT complete scripts for this video, each with its own angle (1: roast / comedy,
+2: hype / disbelief, 3: deadpan / understatement) - each must be good enough to post on its own.
+Return ONLY JSON: {{"story": "one sentence: what really happens in this video", "scripts": [{{"angle": str,
+"lines": [{{"t": seconds, "text": str}}], "banner": "4-7 word banner this video delivers", "title": "YouTube title
+this video delivers, with GTA 6 in it"}}]}}"""
 
 SLOTS_NOTE = """THE EDIT IS FIXED: there are exactly {n} narration slots, at these times (with the current lines - rewrite
 them all as one story, keep each slot's time and keep each line short enough for its slot):
@@ -1105,8 +1119,36 @@ def _fit_lines(lines: list[dict], length: float, lead: float, wps: float = 2.7) 
     return out
 
 
+def _parse_script(d: dict, length: float, lead: float, slots: list[dict] | None) -> dict | None:
+    raw = d.get("lines") or d.get("commentary") or []
+    lines = []
+    for ln in raw if isinstance(raw, list) else []:
+        try:
+            t = float(ln.get("t"))
+        except (TypeError, ValueError, AttributeError):
+            continue
+        text = re.sub(r"\s+", " ", str(ln.get("text") or ln.get("line") or "")).strip().strip('"')
+        text = re.sub(r"#\w+", "", text).strip()
+        if 2 <= len(text.split()) <= 32 and -0.5 <= t <= length - 0.8:
+            lines.append({"t": max(0.0, t), "text": text})
+    if slots:
+        if len(lines) != len(slots):
+            log.warning("[script] the writer returned %d lines for %d fixed slots", len(lines), len(slots))
+            return None
+        lines = [{"t": s["t"], "text": ln["text"]} for s, ln in zip(slots, lines)]
+    else:
+        if len(lines) < 3:
+            return None
+        lines = _fit_lines(lines, length, lead)
+    banner = re.sub(r"\s+", " ", str(d.get("banner") or "")).strip().strip('"')
+    title = re.sub(r"\s+", " ", str(d.get("title") or "")).strip().strip('"')
+    return {"lines": lines, "banner": banner if 2 <= len(banner.split()) <= 9 else "",
+            "title": title if 3 <= len(title.split()) <= 16 and re.search(r"gta\s*(6|vi)", title, re.I) else "",
+            "angle": str(d.get("angle") or "")[:40]}
+
+
 def write_final_script(clip: Path, copy: dict, fmt: dict | None = None, lead: float = 0.0, spans=None,
-                       feedback: str = "", slots: list[dict] | None = None) -> dict | None:
+                       feedback: str = "", slots: list[dict] | None = None, n: int = 1) -> dict | None:
     """The AI watches the WHOLE final video (with sound) and writes ONE script for it.
     slots=[{"t", "text"}]: the edit is fixed (tours / repairs) - one line per slot, same times.
     Returns {"lines": [{"t", "text"}], "banner", "story", "model"} or None (no AI could watch the video)."""
@@ -1129,6 +1171,11 @@ def write_final_script(clip: Path, copy: dict, fmt: dict | None = None, lead: fl
         fmt=f"{(fmt or {}).get('name', 'GTA 6 Short')}. {(fmt or {}).get('brief', '')}".strip()[:600],
         banner=copy.get("banner", ""), title=copy.get("youtube_title", ""), hints=_writer_hints(fmt), summary=str(copy.get("scene_summary", ""))[:400],
         dialogue=_spans_note(spans, length), amount=amount, slots=slot_txt,
+        numbering=("numbered items: the edit already has its slots - keep each slot's role; if it is a countdown, "
+                   "count down to number one and say every number once" if slots else
+                   "THIS IS ONE CONTINUOUS SCENE, NOT A LIST: never number anything (no \"Number 5\"), even if the "
+                   "format's name says Top 5 - tell it as one story"),
+        shape=MANY_SHAPE.format(n=n) if n > 1 and not slots else ONE_SHAPE,
         feedback=("\n" + feedback.strip() + "\n") if feedback else "")
     _unavailable_until = 0.0
     try:
@@ -1147,31 +1194,14 @@ def write_final_script(clip: Path, copy: dict, fmt: dict | None = None, lead: fl
             pass
     if not isinstance(data, dict):
         return None
-    raw = data.get("lines") or data.get("commentary") or []
-    lines = []
-    for ln in raw if isinstance(raw, list) else []:
-        try:
-            t = float(ln.get("t"))
-        except (TypeError, ValueError, AttributeError):
-            continue
-        text = re.sub(r"\s+", " ", str(ln.get("text") or ln.get("line") or "")).strip().strip('"')
-        text = re.sub(r"#\w+", "", text).strip()
-        if 2 <= len(text.split()) <= 32 and -0.5 <= t <= length - 0.8:
-            lines.append({"t": max(0.0, t), "text": text})
-    if slots:
-        if len(lines) != len(slots):
-            log.warning("[script] the writer returned %d lines for %d fixed slots", len(lines), len(slots))
-            return None
-        lines = [{"t": s["t"], "text": ln["text"]} for s, ln in zip(slots, lines)]
-    else:
-        if len(lines) < 3:
-            return None
-        lines = _fit_lines(lines, length, lead)
-    banner = re.sub(r"\s+", " ", str(data.get("banner") or "")).strip().strip('"')
-    title = re.sub(r"\s+", " ", str(data.get("title") or "")).strip().strip('"')
-    return {"lines": lines, "banner": banner if 2 <= len(banner.split()) <= 9 else "",
-            "title": title if 3 <= len(title.split()) <= 16 and re.search(r"gta\s*(6|vi)", title, re.I) else "",
-            "story": str(data.get("story") or "")[:300]}
+    many = data.get("scripts") if isinstance(data.get("scripts"), list) else [data]
+    found = [x for x in (_parse_script(d, length, lead, slots) for d in many if isinstance(d, dict)) if x]
+    if not found:
+        return None
+    story = str(data.get("story") or many[0].get("story") or "")[:300]
+    for x in found:
+        x["story"] = story
+    return {**found[0], "alternatives": found[1:]}
 
 
 def _writer_hints(fmt: dict | None) -> str:
