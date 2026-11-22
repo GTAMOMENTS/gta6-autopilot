@@ -36,13 +36,32 @@ Script (seconds: line):
 {script}
 Problems found automatically: {static}
 
+CHANNEL RULES - correct by design, never count them as problems:
+- the last line is a short question to the viewer (required on every video)
+- {structure}
+- the format name (e.g. "Top 5 funniest moments") is the THEME, not a demand for numbers or an exact item count
+- naming places / characters / game features is optional
+
 Score it 1-10 (7 = good enough for a channel with millions of views; real top creators are 8-9):
-- does it make sense from start to finish as ONE story? does each line follow from the line before?
-- does the video deliver what the hook / banner / title promise? (promising "how to steal a car" when no car gets
-  stolen = 2 at most)
+- does it make sense from start to finish? does each line follow from the line before (a run of jokes about one
+  character's chaos counts as one story)?
+- does the video deliver what the first line / banner / title promise? (promising "how to steal a car" when no car
+  gets stolen = 2 at most)
 - is it entertaining - funny, surprising, hyped, or genuinely useful - or a dry list of what is on screen / filler?
   (a list of descriptions = 3 at most)
 - natural English, no repeated words in every line, no fake first person ("I tried"), numbering correct (if any)
+
+CALIBRATION (score like this):
+- 2/10 (dry, repetitive, fake "I", no story): "I tried stealing this dirt bike right from the NPC and it worked in GTA
+  6! / This dirt bike handles the track jumps surprisingly well right off the line. / The suspension on this dirt bike
+  handles the dirt track bumps so smoothly. / Would you try this dirt track trial or stick to sports cars?"
+- 3/10 (hook never delivered, broken numbering, captions of frames): "You will not believe how easy it is to steal a
+  cop car in GTA 6. / Number two: Opening the car trunk to check stored gear. / Number seven: Running across the sunlit
+  road toward a parked pickup truck. / Would you risk your cash to save a stolen ride?"
+- 8/10 (real creator: every line a joke or a reaction, about what happens, builds to a payoff): "This man walked up
+  to the bike like he was the main character. / He was not. Ten out of ten style, zero out of ten landing. / Then he
+  picks a fight with an SUV. The SUV did not lose. / Supercar versus palm tree... the tree remains undefeated. / Could
+  you survive five minutes in Vice City without becoming a cartoon?"
 Return ONLY JSON: {{"score": number, "makes_sense": bool, "promise_kept": bool, "entertaining": bool,
 "problems": [str], "best_fix": str}}"""
 
@@ -105,7 +124,10 @@ def judge(lines: list[dict], ctx: dict, numbered_ok: bool = False, countdown: in
                            banner=ctx.get("banner", ""), title=ctx.get("title", ""),
                            story=ctx.get("story") or "(unknown)",
                            script="\n".join(f'{float(ln.get("t", 0)):.1f}s: {ln["text"]}' for ln in lines),
-                           static="; ".join(static) or "none")
+                           static="; ".join(static) or "none",
+                           structure=("this is a countdown: the numbered items must be complete and in order" if numbered_ok
+                                      else "this is ONE edit told as a story or a run of jokes - it is correct that "
+                                           "nothing is numbered"))
     data, by = None, ""
     if ai_fallback.available():
         data = ai_fallback.chat_json(prompt, temperature=0.2)
