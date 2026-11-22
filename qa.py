@@ -198,14 +198,20 @@ Check for:
   at that time: it must show what the line talks about. A line that explains an action / place while the video
   shows something unrelated (e.g. "loot the safe" over a car driving down a road) is a HIGH severity montage error.
   Also flag a cut to unrelated footage in the middle of an explanation.
+- SCRIPT (judge it as a viewer who hears it - top creators' Shorts are the bar): does the narration make sense from
+  start to finish as ONE story? does the video deliver what the banner / title / first line promise (a hook about
+  "how to steal a car" when no car gets stolen is HIGH)? is it entertaining - funny, hyped, surprising or useful -
+  or a dry list of what is on screen, filler, repeated words, a fake "I" narrator, broken numbering (all HIGH)?
+  A beautiful edit with a script that makes no sense is NOT publishable: score it 5 or lower.
 - content: not GTA 6, story spoilers, non-English streamer, nudity / slurs / real violence
 - overall: would a professional editor publish this as is?
 Then, separately, judge it against the edits of TOP gaming YouTubers / TikTokers (pro_level 1-10) and list the
 concrete changes that would close the gap (improvements): hook in the first 2 seconds, pacing / dead moments,
 cut rhythm, zooms / emphasis, caption style and readability, narration energy and wording, sound design and
 music, thumbnail-worthy moments, ending / call to action. Be specific ("cut the first 3 s, start on the crash").
-Return ONLY JSON: {{"publish": bool, "score": int (1-10), "issues": [{{"at": seconds, "severity": "high"|"medium"|"low",
- "type": str, "detail": str}}], "summary": str, "pro_level": int (1-10), "improvements": [str]}}"""
+Return ONLY JSON: {{"publish": bool, "score": int (1-10), "script_score": int (1-10), "issues": [{{"at": seconds,
+ "severity": "high"|"medium"|"low", "type": str, "detail": str}}], "summary": str, "pro_level": int (1-10),
+ "improvements": [str]}}"""
 
 
 def ai_review(path: Path, context: str) -> dict | None:
@@ -332,7 +338,7 @@ def line_check(path: Path, lines: list[dict], kind: str) -> list[dict]:
 
 
 def check(path: Path, kind: str, lines: list[dict] | None = None, still_ok: list | None = None,
-          context: str = "") -> dict:
+          context: str = "", script_review: dict | None = None) -> dict:
     """Full QA. kind: short | stream | long. Returns {"pass", "score", "issues", "report"}."""
     c = _cfg()
     if not c.get("enabled", True):
@@ -359,11 +365,26 @@ def check(path: Path, kind: str, lines: list[dict] | None = None, still_ok: list
             issues.append({"severity": "high", "type": "ai_verdict", "detail": ai.get("summary", "AI editor said no")})
         if score < int(c.get("min_score", 7)):
             issues.append({"severity": "high", "type": "ai_score", "detail": f"AI editor score {score}/10"})
+        try:
+            sscore = int(ai.get("script_score")) if ai.get("script_score") is not None else None
+        except (TypeError, ValueError):
+            sscore = None
+        if sscore is not None and kind != "stream" and sscore < int(c.get("min_script_score", 7)):
+            issues.append({"severity": "high", "type": "script_quality",
+                           "detail": f"AI editor: script {sscore}/10 (doesn't make sense / promise not kept / dull)"})
     high = [i for i in issues if str(i.get("severity")) == "high"]
     ok = not high
     lines_out = [f"QA {'PASSED' if ok else 'FAILED'} ({kind}) - AI score: {score if score is not None else 'n/a'}"]
     lines_out += [f"- [{i.get('severity')}] {i.get('type')}" + (f" at {i['at']}s" if i.get("at") is not None else "")
                   + f": {i.get('detail', '')}" for i in issues]
+    if (ai or {}).get("script_score") is not None:
+        lines_out.append(f"SCRIPT (AI editor): {(ai or {}).get('script_score')}/10")
+    if script_review and script_review.get("score") is not None:
+        lines_out.append(f"SCRIPT (judge {script_review.get('by', '')}): {script_review['score']:.0f}/10"
+                         + (f" - story: {script_review['story']}" if script_review.get("story") else ""))
+    if lines:  # the owner reads the script in the report (it never showed before)
+        lines_out.append("NARRATION:")
+        lines_out += [f"  [{float(ln.get('start', ln.get('t', 0))):.1f}s] {ln.get('text', '')}" for ln in lines]
     tips = [str(t)[:220] for t in ((ai or {}).get("improvements") or []) if str(t).strip()][:8]
     pro = (ai or {}).get("pro_level")
     if tips or pro is not None:  # not blocking - the to-do list for making the edits look like top YouTubers'

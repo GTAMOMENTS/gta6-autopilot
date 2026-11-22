@@ -1028,3 +1028,163 @@ Return ONLY JSON: {{"text": "..."}}"""
         return text
     pool = [t for t in _TEXT_FALLBACK[kind] if t not in recent_texts] or _TEXT_FALLBACK[kind]
     return random.choice(pool)
+
+
+# --------------------------------------------------------------------------- whole-video script (owner, 2026-11-22)
+# "the writing shall occur after the AI watched the whole video, then write a good script for the whole video - not
+# frame by frame". Rewriting each line from 3 still frames (ground_lines) turned scripts into captions of frames
+# ("Number seven: running across the sunlit road toward a pickup truck") - posted videos made no sense.
+
+FINAL_PROMPT = """GAME FACTS (newer than your training data - trust them): {facts}
+
+You are the head writer of a top GTA 6 YouTube Shorts / TikTok channel (millions of views).
+WATCH THE WHOLE VIDEO ABOVE FIRST, with the sound, from the first to the last second. Then write the narration for
+the WHOLE video.
+
+The video is {length:.0f} seconds long. {lead_note}
+Format: {fmt}
+Banner on screen: "{banner}" | Title: "{title}"
+Notes from the editor (may be wrong - trust what you watched): {summary}
+{dialogue}
+Write it like the best GTA Shorts creators:
+- ONE story that makes sense from start to finish: hook -> what is going on -> build-up -> the payoff -> a reaction
+  -> a question. Every line follows from the line before; someone who only HEARS the narration understands what
+  happened and why it is worth watching
+- the first line is a hook that THIS video really pays off. Never promise anything the video doesn't show (no "how
+  to steal a car" if no car gets stolen). If the video doesn't show the format's topic, write about what it DOES
+  show (honesty beats the topic) and give a new banner and title that this video delivers
+- every line talks about what is happening at ITS moment in the video (you watched it - use the real timeline)
+- entertaining: funny or hyped reactions, a smart observation, why it is crazy or useful - NOT a dry list of what is
+  on screen ("running across the road toward a pickup truck" is a bad line, "the getaway plan? Sprint. Just sprint."
+  is a good one)
+- talk about Jason / Lucia / "he" / "she" / "this guy" - never pretend to be the player ("I tried...", "my car")
+- numbered items ("Number 3: ...") ONLY if the video really shows separate items - then count down to 1 and say
+  every number once
+- vary the words (don't repeat the same noun in every line); say "GTA 6" at most once
+- {amount}
+- the last line, about 3-4 seconds before the end, is a short question to the viewer about THIS video
+- no story spoilers, no hashtags, no emojis
+{slots}{feedback}
+{hints}
+Return ONLY JSON: {{"story": "one sentence: what really happens in this video", "lines": [{{"t": seconds, "text":
+str}}], "banner": "4-7 word banner this video delivers (or the current one)", "title": "YouTube title this video
+delivers, with GTA 6 in it (or the current one)"}}"""
+
+SLOTS_NOTE = """THE EDIT IS FIXED: there are exactly {n} narration slots, at these times (with the current lines - rewrite
+them all as one story, keep each slot's time and keep each line short enough for its slot):
+{rows}
+Return exactly {n} lines, in this order, with these times.
+"""
+
+
+def _spans_note(spans, length: float) -> str:
+    spans = [(round(a, 1), round(b, 1)) for a, b in (spans or []) if b > a]
+    if not spans:
+        return ""
+    talk = sum(b - a for a, b in spans)
+    return (f"The characters in the video talk for {talk:.0f} of {length:.0f} s, at: "
+            + ", ".join(f"{a}-{b}s" for a, b in spans[:20])
+            + ". Place the narration in the quiet moments between them (never talk over the characters).\n")
+
+
+def _fit_lines(lines: list[dict], length: float, lead: float, wps: float = 2.7) -> list[dict]:
+    """Order the lines, start the hook right after the cold open and keep each line from running into the next."""
+    out = []
+    for ln in sorted(lines, key=lambda x: x["t"]):
+        t = max(ln["t"], lead + 0.1 if not out else out[-1]["t"] + len(out[-1]["text"].split()) / wps + 0.35)
+        out.append({"t": round(t, 2), "text": ln["text"]})
+    if out and out[0]["t"] - lead <= 3.0:
+        out[0]["t"] = round(lead + 0.1, 2)
+    while len(out) > 2 and out[-1]["t"] + len(out[-1]["text"].split()) / wps > length - 0.3:
+        last = out.pop()  # the closing question must fit: it replaces the line before it if needed
+        if len(out) > 2:
+            out.pop()
+        prev_end = out[-1]["t"] + len(out[-1]["text"].split()) / wps + 0.35
+        t = max(prev_end, length - len(last["text"].split()) / wps - 0.6)
+        out.append({"t": round(t, 2), "text": last["text"]})
+    return out
+
+
+def write_final_script(clip: Path, copy: dict, fmt: dict | None = None, lead: float = 0.0, spans=None,
+                       feedback: str = "", slots: list[dict] | None = None) -> dict | None:
+    """The AI watches the WHOLE final video (with sound) and writes ONE script for it.
+    slots=[{"t", "text"}]: the edit is fixed (tours / repairs) - one line per slot, same times.
+    Returns {"lines": [{"t", "text"}], "banner", "story", "model"} or None (no AI could watch the video)."""
+    global _unavailable_until
+    if not env("GEMINI_API_KEY"):
+        return None
+    length = probe(clip)["duration"] or 0
+    if length <= 3:
+        return None
+    quiet = length - lead - sum(max(0.0, b - a) for a, b in (spans or []))
+    words = int(max(25, min(150, quiet * 2.3)))
+    amount = (f"about {words} words in total, {max(4, words // 16)}-{max(5, words // 9)} lines of 1-2 spoken "
+              f"sentences (max 24 words each)") if not slots else "one line per slot, max 24 words each"
+    slot_txt = SLOTS_NOTE.format(n=len(slots), rows="\n".join(f'{i}. t={s["t"]:.1f}s: "{s["text"]}"'
+                                                              for i, s in enumerate(slots, 1))) if slots else ""
+    prompt = FINAL_PROMPT.format(
+        facts=_game_context(), length=length,
+        lead_note=(f"The first {lead:.1f} s are a cold open (a flash of the big moment), then the story starts - the "
+                   f"hook line starts at {lead + 0.1:.1f}s." if lead else "The hook line starts at 0.1s."),
+        fmt=f"{(fmt or {}).get('name', 'GTA 6 Short')}. {(fmt or {}).get('brief', '')}".strip()[:600],
+        banner=copy.get("banner", ""), title=copy.get("youtube_title", ""), hints=_writer_hints(fmt), summary=str(copy.get("scene_summary", ""))[:400],
+        dialogue=_spans_note(spans, length), amount=amount, slots=slot_txt,
+        feedback=("\n" + feedback.strip() + "\n") if feedback else "")
+    _unavailable_until = 0.0
+    try:
+        up = _upload_video(clip)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[script] video upload failed: %.150s", exc)
+        return None
+    if up is None:
+        return None
+    try:
+        data = _generate_json([up, prompt], temperature=0.8, prefer_pro=True)
+    finally:
+        try:
+            _client().files.delete(name=up.name)
+        except Exception:  # noqa: BLE001
+            pass
+    if not isinstance(data, dict):
+        return None
+    raw = data.get("lines") or data.get("commentary") or []
+    lines = []
+    for ln in raw if isinstance(raw, list) else []:
+        try:
+            t = float(ln.get("t"))
+        except (TypeError, ValueError, AttributeError):
+            continue
+        text = re.sub(r"\s+", " ", str(ln.get("text") or ln.get("line") or "")).strip().strip('"')
+        text = re.sub(r"#\w+", "", text).strip()
+        if 2 <= len(text.split()) <= 32 and -0.5 <= t <= length - 0.8:
+            lines.append({"t": max(0.0, t), "text": text})
+    if slots:
+        if len(lines) != len(slots):
+            log.warning("[script] the writer returned %d lines for %d fixed slots", len(lines), len(slots))
+            return None
+        lines = [{"t": s["t"], "text": ln["text"]} for s, ln in zip(slots, lines)]
+    else:
+        if len(lines) < 3:
+            return None
+        lines = _fit_lines(lines, length, lead)
+    banner = re.sub(r"\s+", " ", str(data.get("banner") or "")).strip().strip('"')
+    title = re.sub(r"\s+", " ", str(data.get("title") or "")).strip().strip('"')
+    return {"lines": lines, "banner": banner if 2 <= len(banner.split()) <= 9 else "",
+            "title": title if 3 <= len(title.split()) <= 16 and re.search(r"gta\s*(6|vi)", title, re.I) else "",
+            "story": str(data.get("story") or "")[:300]}
+
+
+def _writer_hints(fmt: dict | None) -> str:
+    """Our own memory: recent script mistakes + lines that passed, and what got the most / fewest views."""
+    out = []
+    try:
+        import lessons
+        out.append(lessons.prompt_hints((fmt or {}).get("id")))
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        import analytics
+        out.append(analytics.view_examples())
+    except Exception:  # noqa: BLE001
+        pass
+    return "\n".join(x for x in out if x)

@@ -18,7 +18,7 @@ from common import STATE_DIR, load_config, load_json, save_json
 
 log = logging.getLogger("autopilot")
 LESSONS_FILE = STATE_DIR / "qa_lessons.json"
-SCRIPT_TYPES = {"line_not_shown", "voice_mismatch"}  # mistakes the writer can avoid (not footage / tech problems)
+SCRIPT_TYPES = {"line_not_shown", "voice_mismatch", "script_quality"}  # mistakes the writer can avoid (not footage / tech problems)
 
 
 def _cfg() -> dict:
@@ -72,6 +72,9 @@ def prompt_hints(fmt_id: str | None = None, kind: str = "short") -> str:
         parts.append("RECENT MISTAKES TO AVOID (from our own QA): narration that describes something the picture "
                      "doesn't show at that moment. Every line must describe what is visible WHILE it is spoken.")
         parts += [f"- {e}" for e in examples]
+    if counts.get("script_quality"):
+        parts.append("- recent scripts were REJECTED as boring / making no sense / not delivering their hook: tell "
+                     "ONE story with a real payoff, keep every promise the hook makes, react like a real creator")
     if any(t.startswith("countdown") for t in counts):
         parts.append("- a countdown must announce every number from N down to 1, one per item")
     good = (_load().get("good", {}) or {}).get(fmt_id or "_", [])[-2:]

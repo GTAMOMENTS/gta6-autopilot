@@ -241,3 +241,18 @@ charm pack, learning, stream clips, long video, English-only + choppy filter, Ge
   now posts the most viral famous-streamer clip in the same run (`autopilot._fallback_stream_clip` ->
   `stream_clips.run_for_slot`, not on Instagram). Only started while < `fallback.max_elapsed_min` (80) have passed;
   the format rotation still records the narrated format's failure. Off: `fallback.stream_clip_on_fail: false`.
+
+## 14. Whole-video script + script judge (owner, 2026-11-22: "the script is so inconsistent ... 0/10")
+- Two posted Shorts (dirt bike, "steal a cop car") had QA 9/10 but scripts that made no sense: `ground_lines`
+  rewrote every line alone from 3 still frames -> captions of frames ("Number seven: running across the sunlit road
+  toward a pickup truck"); one script was "rescued" from a scene description; QA judged only picture + edit.
+- Owner: "the writing shall occur after the AI watched the whole video, then write a good script for the whole video".
+  Now (`autopilot._write_checked`): `gemini_writer.write_final_script` - Gemini watches the WHOLE final cut (cold
+  open + story, with sound, dialogue gaps given) and writes ONE story script (+ banner / title the video delivers)
+  -> `script_judge.judge` (a different AI, text models first: makes sense? promise kept? entertaining? + certain
+  checks: numbering, fake "I", same word in every line, closing question; min 7/10) -> `qa.line_check` -> any
+  failure goes back to the writer with the reasons for a NEW whole script (`video.script_attempts` 3), else next clip.
+  Tours keep one line per shot (`slots`), repairs rewrite the whole script too. `ground_lines` is no longer used.
+- Footage where characters talk > `video.max_dialogue_share` (60%) is skipped for narration.
+- QA editor now scores the script (`script_score`, high issue below `qa.min_script_score` 7) and the `_QA.txt` report
+  lists the narration + the judge's score.

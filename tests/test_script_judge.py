@@ -1,0 +1,93 @@
+"""The script judge and the whole-video writer - built from the two posted Shorts the owner rated 0/10."""
+import ai_fallback
+import gemini_writer
+import script_judge as sj
+
+DIRT_BIKE = ["I tried stealing this dirt bike right from the NPC and it worked in GTA 6!",
+             "This dirt bike handles the track jumps surprisingly well right off the line.",
+             "Let's see if we can hit these dirt track jumps without crashing.",
+             "Bro, that mid-air flip on the dirt track was actually clean!",
+             "Now we gotta go back and steal another dirt bike from this guy.",
+             "The suspension on this dirt bike handles the dirt track bumps so smoothly.",
+             "Would you try this dirt track trial or stick to sports cars?"]
+COP_CAR = ["You will not believe how easy it is to steal a cop car in GTA 6.",
+           "Number two: Checking out the trunk reveals cocaine right next to an assault rifle.",
+           "Number three: Opening the car trunk to check stored gear in GTA 6.",
+           "Number four: Throwing punches at the police officer right next to the patrol car trunk.",
+           "Number five: Beating down another police officer in the parking lot during the shootout.",
+           "Number six: Sprinting away from the scene across the street past local storefronts.",
+           "Number seven: Running across the sunlit road toward a parked pickup truck.",
+           "Would you risk your cash to save a stolen ride in GTA 6?"]
+GOOD = ["Jason thought one cop car would be an easy grab.",
+        "Then the trunk pops open - and that is NOT standard police gear.",
+        "Five officers later, the plan is officially falling apart.",
+        "So he does the only reasonable thing: he runs.",
+        "Would you have kept the car or grabbed the trunk and bailed?"]
+
+
+def test_the_two_bad_shorts_fail_the_certain_checks():
+    dirt = sj.static_problems(DIRT_BIKE)
+    assert any("fake first person" in p for p in dirt) and any('"dirt"' in p for p in dirt)
+    cop = sj.static_problems(COP_CAR)
+    assert any("numbered items over ONE continuous scene" in p for p in cop)
+    assert any("broken numbering" in p for p in sj.static_problems(COP_CAR, numbered_ok=True))
+
+
+def test_a_good_story_passes_the_certain_checks():
+    assert sj.static_problems(GOOD) == []
+    assert sj.static_problems(["Oh my, look at him go.", "He actually lands it.", "Clean.", "Would you try it?"]) == []
+    countdown = ["Top 3 GTA 6 hideouts.", "Number three: the swamp shack.", "Number two: the rooftop.",
+                 "Number one: the yacht.", "Which one is yours?"]
+    assert sj.static_problems(countdown, numbered_ok=True, countdown=3) == []
+    assert "numbering out of order" in sj.static_problems(
+        ["Hook.", "Number one: a.", "Number two: b.", "Number three: c.", "Which?"], numbered_ok=True)[0]
+
+
+def test_judge_needs_a_good_score_and_a_kept_promise(monkeypatch):
+    monkeypatch.setattr(ai_fallback, "available", lambda: True)
+    answer = {"score": 8, "makes_sense": True, "promise_kept": True, "entertaining": True, "problems": [],
+              "_ai_model": "cerebras/gpt-oss-120b"}
+    monkeypatch.setattr(ai_fallback, "chat_json", lambda prompt, frames=None, temperature=0.9: dict(answer))
+    lines = [{"t": i * 3.0, "text": t} for i, t in enumerate(GOOD)]
+    v = sj.judge(lines, {"fmt": "Trending", "banner": "COP CAR GONE WRONG", "story": "a cop car theft goes wrong"})
+    assert v["ok"] and v["score"] == 8 and v["by"] == "cerebras/gpt-oss-120b"
+    answer.update(score=9, promise_kept=False, problems=["hook promises a car theft, no car is stolen"])
+    v = sj.judge(lines, {})
+    assert not v["ok"] and "no car is stolen" in sj.feedback(v)
+    answer.update(score=9, promise_kept=True)
+    assert not sj.judge([{"t": i * 3.0, "text": t} for i, t in enumerate(COP_CAR)], {})["ok"], "certain problems block"
+
+
+def test_no_judge_means_no_post(monkeypatch):
+    monkeypatch.setattr(ai_fallback, "available", lambda: False)
+    monkeypatch.setattr(gemini_writer, "_generate_json", lambda *a, **k: None)
+    assert sj.judge([{"t": 0, "text": t} for t in GOOD], {})["ok"] is False
+
+
+def test_writer_watches_the_whole_video_and_returns_a_fitted_script(monkeypatch, make_clip):
+    clip = make_clip("cut.mp4", dur=20)
+    monkeypatch.setenv("GEMINI_API_KEY", "x")
+    seen = {}
+
+    class Up:
+        name = "files/1"
+    monkeypatch.setattr(gemini_writer, "_upload_video", lambda p: Up())
+    monkeypatch.setattr(gemini_writer, "_client", lambda: type("C", (), {"files": type("F", (), {
+        "delete": staticmethod(lambda name: None)})()})())
+
+    def gen(contents, temperature=0.9, prefer_pro=False):
+        seen["contents"] = contents
+        return {"story": "Jason steals a cop car", "banner": "COP CAR CHAOS", "title": "GTA 6 Cop Car Chaos",
+                "lines": [{"t": 0.0, "text": GOOD[0]}, {"t": 4.0, "text": GOOD[1]}, {"t": 4.5, "text": GOOD[2]},
+                          {"t": 9.0, "text": GOOD[3]}, {"t": 18.5, "text": GOOD[4]}]}
+    monkeypatch.setattr(gemini_writer, "_generate_json", gen)
+    out = gemini_writer.write_final_script(clip, {"banner": "OLD", "youtube_title": "GTA 6 old"}, lead=1.2,
+                                           spans=[(5.0, 7.0)], feedback="YOUR LAST SCRIPT WAS REJECTED")
+    up, prompt = seen["contents"]
+    assert isinstance(up, Up) and "WATCH THE WHOLE VIDEO" in prompt and "REJECTED" in prompt and "5.0-7.0s" in prompt
+    ts = [ln["t"] for ln in out["lines"]]
+    assert ts[0] == 1.3, "the hook starts right after the cold open"
+    assert all(b > a for a, b in zip(ts, ts[1:])), "lines never start before the previous one ended"
+    words_end = ts[-1] + len(out["lines"][-1]["text"].split()) / 2.7
+    assert words_end <= 20 and out["lines"][-1]["text"].endswith("?"), "the closing question fits and stays"
+    assert out["banner"] == "COP CAR CHAOS" and out["title"] == "GTA 6 Cop Car Chaos"
