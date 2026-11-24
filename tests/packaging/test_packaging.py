@@ -301,3 +301,48 @@ def test_text_post_is_cleaned(monkeypatch):
     assert gemini_writer.write_text_post("x_text_morning", [], []) == "GTA 6 money tip: what's the first car you're selling?"
     mock_ai(monkeypatch, {"text": "Who saw the ending coming? The final mission is wild"})
     assert gemini_writer.write_text_post("x_text_morning", [], []) in gemini_writer._TEXT_FALLBACK["x_text_morning"]
+
+
+# --------------------------------------------------------------------------- format search phrases
+
+STUFFED = "GTA 6 police chase car chase at Vice City airport goes crazy"  # a posted Short's real title (2026-11-23)
+
+
+def test_keyword_phrases_never_span_two_phrases():
+    assert critic.keyword_list("GTA 6 police chase, car chase") == ["GTA 6 police chase", "GTA 6 car chase"]
+    assert critic.keyword_phrases("GTA 6 police chase, car chase") == ["police chase", "car chase"]
+    assert critic.keyword_phrases("GTA 6 things to do, free roam") == ["things to do", "free roam"]
+    assert critic.keyword_phrases("GTA 6 money tip, how to make money fast")[:2] == ["money tip", "how to"]
+    assert "tip how" not in critic.keyword_phrases("GTA 6 money tip, how to make money fast")
+    # one phrase without commas (old configs) works exactly as before
+    assert critic.keyword_phrases("GTA 6 police chase car chase") == ["police chase", "chase car", "car chase"]
+    assert critic.keyword_list("GTA 6") == ["GTA 6"] and critic.keyword_list("") == []
+
+
+def test_critic_may_fix_a_stuffed_title(monkeypatch):
+    mock_ai(monkeypatch, {"title": "GTA 6 police chase: he stole a car at the Vice City airport"})
+    keep = critic.keyword_phrases("GTA 6 police chase, car chase")
+    out = critic.polish({"title": STUFFED}, {"title": 90}, "a police chase at the Vice City airport", keep=keep)
+    assert out["title"] == "GTA 6 police chase: he stole a car at the Vice City airport"
+
+
+def test_every_search_phrase_is_its_own_youtube_tag():
+    caps = publisher.build_captions({"youtube_title": "He stole a car at the airport", "caption": "Would you?",
+                                     "hashtags": ["#GTA6"], "keywords": "GTA 6 police chase, car chase"}, "")
+    assert "GTA 6 police chase" in caps["tags"] and "GTA 6 car chase" in caps["tags"]
+    assert not any("," in t for t in caps["tags"]), "a comma splits a YouTube tag in two"
+
+
+def test_writer_is_told_to_use_one_search_phrase():
+    note = gemini_writer.packaging_note({"keywords": "GTA 6 police chase, car chase", "name": "Fast car chases"})
+    assert '"GTA 6 police chase" / "GTA 6 car chase" - use ONE of them' in note
+    assert 'Main search phrase of this format: "GTA 6 money tip".' in gemini_writer.packaging_note(
+        {"keywords": "GTA 6 money tip"})
+
+
+def test_a_rewrite_must_keep_one_of_the_format_phrases():
+    keep = critic.keyword_phrases("GTA 6 free roam, open world")
+    old = "GTA 6 free roam open world tour of Vice City"
+    assert critic.reject_reason("youtube_title", "GTA 6: a quiet tour of Vice City", old, old, 90, False, keep) \
+        == "dropped search keywords (free roam / open world)"
+    assert critic.reject_reason("youtube_title", "GTA 6 open world: a tour of Vice City", old, old, 90, False, keep) == ""

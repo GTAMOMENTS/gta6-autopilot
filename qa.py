@@ -1,16 +1,23 @@
 """Strict QA: every finished video is checked before it is published. Nothing posts without passing.
 
-  1. technical   - audio/video length (sync), silent stretches, frozen/choppy parts, black frames, clipping
-  2. voice check - Whisper listens to the final video: is every narration line actually said, and said WHEN it is
+Cheapest first - once something already blocks publishing, the slower checks are skipped (qa.fail_fast): they
+can't change the verdict, they only cost minutes and AI quota.
+  1. script      - the narration in the video is the script the judge approved (no line dropped for lack of room)
+  2. technical   - audio/video length (sync), silent stretches, frozen/choppy parts, black frames, clipping
+  3. voice check - Whisper listens to the final video: is every narration line actually said, and said WHEN it is
                    on screen? (words + timing)
-  3. AI editor   - Gemini watches + listens to the whole final video: montage errors, voice vs on-screen text,
+  4. picture     - does the picture show what each narration line says? (frames per line, one AI question)
+  5. AI editor   - Gemini watches + listens to the whole final video: montage errors, voice vs on-screen text,
                    narration over something else, sync, repeated clips, spoilers, non-English, non-GTA, unsafe
-Verdict: pass / fail with a list of issues (+ timestamps). A report is written next to the video.
+Verdict: pass / fail with a list of issues (+ timestamps). A report is written next to the video, with the time
+each check took and - for videos that pass - the few things a human should still look at.
 """
 from __future__ import annotations
 
 import logging
 import re
+import time
+from collections import Counter
 from pathlib import Path
 
 from common import env, load_config, probe, run
@@ -83,6 +90,28 @@ def technical(path: Path, still_ok: list[tuple[float, float]] | None = None) -> 
     except Exception:  # noqa: BLE001
         pass
     return issues
+
+
+def script_integrity(approved: list[str] | None, lines: list[dict]) -> list[dict]:
+    """Is the narration in the video the script that passed the judge? The renderer drops lines that don't fit
+    the video (video_processor.place_lines) and a tour stops at tour_max_sec - a story without its punchline or
+    closing question is not the script that was approved. One high issue per missing line (index = its place
+    in the approved script, text = the line)."""
+    if not approved:
+        return []
+    said = Counter(" ".join(str(ln.get("text", "")).split()).lower() for ln in lines)
+    out = []
+    for i, text in enumerate(approved):
+        key = " ".join(str(text).split()).lower()
+        if not key:
+            continue
+        if said[key] > 0:
+            said[key] -= 1
+            continue
+        out.append({"severity": "high", "type": "script_lines_dropped", "index": i, "text": str(text),
+                    "detail": f'approved line missing from the video (the voice-over had no room for it): '
+                              f'"{str(text)[:70]}"'})
+    return out
 
 
 def _norm_words(text: str) -> list[str]:
@@ -227,12 +256,10 @@ def ai_review(path: Path, context: str) -> dict | None:
                 data = gemini_writer._generate_json([up, AI_PROMPT.format(game=gemini_writer._game_context(),
                                                                           context=context[:3000])],
                                                     temperature=0.2, prefer_pro=True)
-                try:
-                    gemini_writer._client().files.delete(name=up.name)
-                except Exception:  # noqa: BLE001
-                    pass
         except Exception as exc:  # noqa: BLE001
             log.warning("[qa] AI review failed: %.200s", exc)
+        finally:
+            gemini_writer.release_uploads(path)  # a finished video is reviewed once
     if isinstance(data, dict) and "publish" in data:
         return data
     return _ai_review_frames(path, context)
@@ -337,26 +364,61 @@ def line_check(path: Path, lines: list[dict], kind: str) -> list[dict]:
     return issues
 
 
+HUMAN_CHECK = """HUMAN CHECK (60 s - what the automatic checks can't judge reliably):
+  [ ] the first 2 seconds: would you stop scrolling for this line + picture?
+  [ ] is it actually funny / exciting - or a description of what's on screen?
+  [ ] does the video deliver what the banner and title promise?
+  [ ] does the title read like a person wrote it (no stacked keywords)?"""
+
+
+def _line_check(path: Path, lines: list[dict], kind: str) -> list[dict]:
+    try:
+        return line_check(path, lines, kind)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[qa] line check failed: %.150s", exc)
+        return [{"severity": "high", "type": "line_check_unavailable", "detail": f"line check crashed: {exc}"[:200]}]
+
+
 def check(path: Path, kind: str, lines: list[dict] | None = None, still_ok: list | None = None,
-          context: str = "", script_review: dict | None = None) -> dict:
-    """Full QA. kind: short | stream | long. Returns {"pass", "score", "issues", "report"}."""
+          context: str = "", script_review: dict | None = None, approved: list[str] | None = None) -> dict:
+    """Full QA. kind: short | stream | long. approved: the script lines the judge passed - the video must say every
+    one of them. Returns {"pass", "score", "issues", "report", "timings", "skipped", ...}."""
     c = _cfg()
     if not c.get("enabled", True):
         return {"pass": True, "issues": [], "score": None, "report": "QA disabled"}
-    issues = technical(path, still_ok)
-    issues += voice_check(path, lines or [])
-    try:
-        issues += line_check(path, lines or [], kind)
-    except Exception as exc:  # noqa: BLE001
-        log.warning("[qa] line check failed: %.150s", exc)
-        issues.append({"severity": "high", "type": "line_check_unavailable", "detail": f"line check crashed: {exc}"[:200]})
-    ai = ai_review(path, context)
-    score = None
-    if ai is None:
-        if c.get("require_ai_review", True):
+    lines = lines or []
+    fail_fast = c.get("fail_fast", True)
+    issues: list[dict] = []
+    timings: dict[str, float] = {}
+    skipped: list[str] = []
+
+    def blocked() -> bool:
+        return fail_fast and any(str(i.get("severity")) == "high" for i in issues)
+
+    def timed(name: str, fn):
+        t0 = time.monotonic()
+        try:
+            return fn()
+        finally:
+            timings[name] = round(time.monotonic() - t0, 1)
+
+    for name, stage in (("script", lambda: script_integrity(approved, lines)),
+                        ("technical", lambda: technical(path, still_ok)),
+                        ("voice", lambda: voice_check(path, lines)),
+                        ("picture", lambda: _line_check(path, lines, kind))):
+        if blocked():
+            skipped.append(name)
+        else:
+            issues += timed(name, stage)
+    ai, score = None, None
+    if blocked():
+        skipped.append("ai")
+    else:
+        ai = timed("ai", lambda: ai_review(path, context))
+        if ai is None and c.get("require_ai_review", True):
             issues.append({"severity": "high", "type": "ai_review_unavailable",
                            "detail": "no AI could watch the final video (strict mode: not publishing)"})
-    else:
+    if ai is not None:
         score = int(ai.get("score") or 0)
         for it in ai.get("issues") or []:
             if isinstance(it, dict):
@@ -377,6 +439,9 @@ def check(path: Path, kind: str, lines: list[dict] | None = None, still_ok: list
     lines_out = [f"QA {'PASSED' if ok else 'FAILED'} ({kind}) - AI score: {score if score is not None else 'n/a'}"]
     lines_out += [f"- [{i.get('severity')}] {i.get('type')}" + (f" at {i['at']}s" if i.get("at") is not None else "")
                   + f": {i.get('detail', '')}" for i in issues]
+    if skipped:
+        lines_out.append(f"SKIPPED (already blocked - they can't change the verdict): {', '.join(skipped)}")
+    lines_out.append("TIMINGS: " + ", ".join(f"{k} {v:.1f}s" for k, v in timings.items()))
     if (ai or {}).get("script_score") is not None:
         lines_out.append(f"SCRIPT (AI editor): {(ai or {}).get('script_score')}/10")
     if script_review and script_review.get("score") is not None:
@@ -392,8 +457,11 @@ def check(path: Path, kind: str, lines: list[dict] | None = None, still_ok: list
         lines_out += [f"  * {t}" for t in tips]
     report = "\n".join(lines_out)
     log.info("[qa] %s", report.replace("\n", " | ")[:2500])
+    if ok:  # the owner's 60-second look before trusting it (in the report file, not the log)
+        report += "\n" + HUMAN_CHECK
     try:
         Path(str(path).rsplit(".", 1)[0] + "_QA.txt").write_text(report + "\n", encoding="utf-8")
     except Exception:  # noqa: BLE001
         pass
-    return {"pass": ok, "score": score, "issues": issues, "report": report, "pro_level": pro, "improvements": tips}
+    return {"pass": ok, "score": score, "issues": issues, "report": report, "pro_level": pro, "improvements": tips,
+            "timings": timings, "skipped": skipped}

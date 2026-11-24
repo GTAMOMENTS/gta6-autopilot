@@ -143,6 +143,42 @@ Run the workflow with `slot = check_setup`. It tests every secret and shows a âœ
 
 Locally: `python autopilot.py --slot vertical_clip --dry-run` (needs ffmpeg, plus a `.env` with the secrets).
 
+## Quality checks before a video posts
+
+Every Short goes through `qa.py`, **cheapest check first**. Once something already blocks publishing, the slower
+and AI checks are skipped (they can't change the verdict, they only cost time and AI quota; `qa.fail_fast`):
+
+1. **script**: the video says every line of the script the judge approved. If the voice-over had no room for a
+   line, the script is rewritten shorter and re-rendered once.
+2. **technical**: sync, silence, frozen / choppy / black picture, clipping.
+3. **voice**: Whisper hears each line when its caption shows.
+4. **picture**: an AI checks that each line matches what is on screen while it's spoken.
+5. **AI editor**: an AI watches and listens to the whole video.
+
+The `_QA.txt` report in the run's Artifacts lists the issues, the narration, how long each check took, and for
+videos that pass, a **60-second human check**: hook, humour, promise kept, title. AI scores can't judge these
+reliably; a weak Short scored 9/10 on 2026-11-23. Do a dry run and that check before trusting a new or changed
+format.
+
+## Tests
+
+Offline (no secrets, no network, posts nothing). Needs ffmpeg:
+
+```bash
+python -m pip install -r requirements-dev.txt
+```
+
+```bash
+python -m pytest -m "not slow"
+```
+
+That is the quick loop (~1 min). The full suite, which CI runs on every PR and push to `main`, adds end-to-end
+renders and real-time download tests (~8 min):
+
+```bash
+python -m pytest
+```
+
 ## Files
 
 | File | Role |

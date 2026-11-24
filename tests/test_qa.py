@@ -351,3 +351,90 @@ def test_stretched_first_word_is_not_out_of_sync(whisper):
         for i, w in enumerate("at this guy in GTA 6 stepping out of his SUV".split())]
     whisper(words)
     assert qa.voice_check(VIDEO, [line("Look at this guy in GTA 6 stepping out of his SUV", 8.2, dur=3.0)]) == []
+
+
+# --------------------------------------------------------------------------- approved script + fail-fast
+
+SCRIPT = ["He really thought this ramp was a good idea.", "Five stars on him and he still goes for it.",
+          "The cop car follows him off the edge.", "Would you have taken the bridge?"]
+
+
+def test_script_integrity_flags_lines_the_render_dropped():
+    placed = [line(t, 2.0 * i) for i, t in enumerate(SCRIPT) if i != 2]  # place_lines had no room for line 3
+    issues = qa.script_integrity(SCRIPT, placed)
+    assert [(i["type"], i["severity"], i["index"], i["text"]) for i in issues] == [
+        ("script_lines_dropped", "high", 2, SCRIPT[2])]
+    # spacing / case don't matter, every approved line said once is enough
+    assert qa.script_integrity(SCRIPT, [line("  " + t.upper() + " ", 0) for t in SCRIPT]) == []
+    assert qa.script_integrity(None, placed) == [] and qa.script_integrity([], placed) == []
+    # a line approved twice must be said twice
+    assert [i["index"] for i in qa.script_integrity([SCRIPT[0], SCRIPT[0]], [line(SCRIPT[0], 0)])] == [1]
+
+
+def test_dropped_line_blocks_before_the_slow_checks(checks, monkeypatch, tmp_path):
+    called = []
+    monkeypatch.setattr(qa, "technical", lambda path, still_ok=None: called.append("technical") or [])
+    monkeypatch.setattr(qa, "voice_check", lambda path, lines: called.append("voice") or [])
+    monkeypatch.setattr(qa, "line_check", lambda path, lines, kind: called.append("picture") or [])
+    monkeypatch.setattr(qa, "ai_review", lambda path, context: called.append("ai") or {"publish": True, "score": 9})
+    v = qa.check(tmp_path / "v.mp4", "short", lines=[line(t, 2.0 * i) for i, t in enumerate(SCRIPT[:3])],
+                 approved=SCRIPT)
+    assert v["pass"] is False and called == [], "nothing slow (or AI) runs for a video that can't be published"
+    assert [i["type"] for i in v["issues"]] == ["script_lines_dropped"]
+    assert v["skipped"] == ["technical", "voice", "picture", "ai"]
+    assert "SKIPPED (already blocked - they can't change the verdict): technical, voice, picture, ai" in v["report"]
+    assert "HUMAN CHECK" not in v["report"], "the human checklist is only for videos that pass"
+
+
+def test_technical_failure_skips_whisper_and_ai(checks, monkeypatch, tmp_path):
+    checks["technical"] = [{"severity": "high", "type": "av_length", "detail": "audio 10.00s vs video 12.00s"}]
+    asked = []
+    monkeypatch.setattr(qa, "voice_check", lambda path, lines: asked.append("voice") or [])
+    monkeypatch.setattr(qa, "ai_review", lambda path, context: asked.append("ai") or {"publish": True, "score": 9})
+    v = qa.check(tmp_path / "v.mp4", "short")
+    assert v["pass"] is False and asked == [] and v["skipped"] == ["voice", "picture", "ai"]
+    assert "ai_review_unavailable" not in [i["type"] for i in v["issues"]], "a skipped AI review is not 'unavailable'"
+
+
+def test_fail_fast_off_runs_every_check(checks, cfg, monkeypatch, tmp_path):
+    cfg["qa"]["fail_fast"] = False
+    checks["technical"] = [{"severity": "high", "type": "frozen", "detail": "picture frozen for 2.0s"}]
+    asked = []
+    monkeypatch.setattr(qa, "ai_review", lambda path, context: asked.append("ai") or {"publish": True, "score": 9})
+    v = qa.check(tmp_path / "v.mp4", "short")
+    assert v["pass"] is False and asked == ["ai"] and v["skipped"] == []
+
+
+def test_passing_report_has_timings_and_the_human_check(checks, tmp_path):
+    checks["ai"] = {"publish": True, "score": 8}
+    v = qa.check(tmp_path / "ok.mp4", "short", lines=[line(t, 2.0 * i) for i, t in enumerate(SCRIPT)],
+                 approved=SCRIPT)
+    assert v["pass"] is True and set(v["timings"]) == {"script", "technical", "voice", "picture", "ai"}
+    report = v["report"].splitlines()
+    assert any(r.startswith("TIMINGS: script ") and " ai " in r for r in report)
+    assert "HUMAN CHECK" in v["report"] and v["report"].rstrip().endswith("(no stacked keywords)?")
+    assert (tmp_path / "ok_QA.txt").read_text(encoding="utf-8") == v["report"] + "\n"
+
+
+# --------------------------------------------------------------------------- repair after QA (autopilot)
+
+def test_repairable_issues():
+    import autopilot
+    wrong = {"severity": "high", "type": "line_not_shown", "index": 1, "reason": "no safe on screen"}
+    dropped = {"severity": "high", "type": "script_lines_dropped", "index": 2, "text": SCRIPT[2]}
+    echo = {"severity": "high", "type": "ai_verdict", "detail": "narration doesn't match"}
+    assert autopilot.repairable([wrong, dropped, echo]) == [wrong, dropped]
+    assert autopilot.repairable([dropped, {"severity": "medium", "type": "black"}]) == [dropped]
+    # anything a script rewrite can't fix -> no repair (the clip is skipped)
+    assert autopilot.repairable([dropped, {"severity": "high", "type": "frozen"}]) == []
+    assert autopilot.repairable([{"severity": "high", "type": "script_quality"}]) == []
+
+
+def test_repair_note_tells_the_writer_what_to_fix():
+    import autopilot
+    placed = [line(t, 2.0 * i) for i, t in enumerate(SCRIPT[:3])]
+    note = autopilot.repair_note([{"type": "line_not_shown", "index": 1, "reason": "no stars visible"},
+                                  {"type": "script_lines_dropped", "index": 3, "text": SCRIPT[3]}], placed)
+    assert f'- "{SCRIPT[1]}": no stars visible' in note
+    assert "TOO LONG FOR THE VIDEO" in note and f'- "{SCRIPT[3]}"' in note and "a third shorter" in note
+    assert "TOO LONG" not in autopilot.repair_note([{"type": "line_not_shown", "index": 0, "reason": "x"}], placed)

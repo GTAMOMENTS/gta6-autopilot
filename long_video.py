@@ -310,13 +310,9 @@ def _batch_verdicts(moments: list[dict], prompt_for):
             try:
                 gemini_writer._unavailable_until = 0.0  # a busy moment in one batch shouldn't skip the rest
                 up = gemini_writer._upload_video(reel)
-                if up is not None:
+                if up is not None:  # the retry watches the same upload
                     data = gemini_writer._generate_json([up, prompt_for(len(parts), "\n".join(ranges))],
                                                         temperature=0.6, prefer_pro=True)
-                    try:
-                        gemini_writer._client().files.delete(name=up.name)
-                    except Exception:  # noqa: BLE001
-                        pass
             except Exception as exc:  # noqa: BLE001
                 log.warning("[long] review batch failed: %.150s", exc)
             verdicts = {}
@@ -329,6 +325,7 @@ def _batch_verdicts(moments: list[dict], prompt_for):
                 break
             log.warning("[long] AI gave no verdicts for batch %d (attempt %d)", b // size + 1, attempt)
             time.sleep(20)
+        gemini_writer.release_uploads(reel)
         if not verdicts:  # Gemini can't watch: a backup AI that sees images judges 2 frames per clip
             try:
                 import qa

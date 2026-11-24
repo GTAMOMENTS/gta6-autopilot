@@ -75,6 +75,9 @@ def prompt_hints(fmt_id: str | None = None, kind: str = "short") -> str:
     if counts.get("script_quality"):
         parts.append("- recent scripts were REJECTED as boring / making no sense / not delivering their hook: tell "
                      "ONE story with a real payoff, keep every promise the hook makes, react like a real creator")
+    if counts.get("script_lines_dropped"):
+        parts.append("- recent scripts were too long for their video: the voice-over had no room and lines were cut "
+                     "- write fewer, shorter lines and leave room for the closing question")
     if any(t.startswith("countdown") for t in counts):
         parts.append("- a countdown must announce every number from N down to 1, one per item")
     good = (_load().get("good", {}) or {}).get(fmt_id or "_", [])[-2:]

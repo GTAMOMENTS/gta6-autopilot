@@ -50,3 +50,10 @@ def test_precheck_failures_do_not_count_as_finished_videos():
     assert lessons.pass_rates().get("a") is None
     d = lessons._load()
     assert d["attempts"][-1]["stage"] == "precheck" and d["attempts"][-1]["at"] <= time.time()
+
+
+def test_too_long_scripts_teach_the_writer_to_be_shorter():
+    lessons.record("short", "car_chases", False, [{"severity": "high", "type": "script_lines_dropped", "index": 3,
+                                                   "text": "Would you?", "detail": "approved line missing"}])
+    hints = lessons.prompt_hints("car_chases")
+    assert "too long for their video" in hints and "RECENT MISTAKES" not in hints, "not a picture mismatch"

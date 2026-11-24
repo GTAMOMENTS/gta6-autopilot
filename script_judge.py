@@ -127,8 +127,15 @@ def static_problems(lines: list[str], numbered_ok: bool = False, countdown: int 
         rep = sorted((n, w) for w, n in counts.items() if n >= max(3, round(len(texts) * 0.65)))
         if rep:
             out.append(f'"{rep[-1][1]}" in {rep[-1][0]} of {len(texts)} lines - vary the words')
-    if not texts[-1].rstrip().endswith("?"):
+    last = texts[-1].rstrip()
+    max_close = int(_cfg().get("max_closing_words", 14))
+    if not last.endswith("?"):
         out.append("no closing question to the viewer")
+    elif not numbered_ok and len(last.split()) > max_close:
+        # a posted Short ended on "Bro swaps for a delivery van and tears straight across the tarmac while dodging
+        # cruisers, but would you survive this airport chase?" - the question tacked onto a 22-word line
+        out.append(f"the closing question is buried in a {len(last.split())}-word line - end with ONE short question "
+                   f"to the viewer (max {max_close} words), nothing else in that line")
     return out
 
 

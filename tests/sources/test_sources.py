@@ -16,6 +16,8 @@ import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
@@ -217,6 +219,8 @@ def _serve(root: Path, rate: int):
     return srv, f"http://127.0.0.1:{srv.server_address[1]}"
 
 
+# real throttled downloads against a local server: they wait out real timeouts (~40 s each) -> slow
+@pytest.mark.slow
 def test_section_from_info_json_and_slow_salvage():
     if not HAVE_TOOLS:
         print("  (skipped: no ffmpeg / yt-dlp)")
@@ -257,6 +261,8 @@ def test_section_from_info_json_and_slow_salvage():
         srv.shutdown()
 
 
+# real throttled downloads against a local server: they wait out real timeouts (~40 s each) -> slow
+@pytest.mark.slow
 def test_run_ytdlp_gives_up_early_when_hopeless():
     if not HAVE_TOOLS:
         return
@@ -509,6 +515,38 @@ def test_iter_clips_remembers_dailymotion_without_hd():
     assert tried == ["dm:0", "dm:1"], tried  # after 2 such videos Dailymotion is skipped for the run
     st = sf.load_manifest()["sources"]
     assert st["dm:0"]["fail_count"] >= 2  # never tried again
+
+
+def test_tour_stops_after_a_fake_first_slice():
+    """A run spent 9 min downloading 3 slices of a video the GTA 6 check then called GTA V (99%): the first slice
+    is checked before the others are fetched. Only a confident 'fake' stops it - unsure keeps downloading."""
+    _isolate()
+    cands = [sf.Candidate(f"dm:{k}", f"https://www.dailymotion.com/video/{k}", "GTA 6 free roam", "u", "dailymotion",
+                          900) for k in ("fake", "unsure")]
+    verdicts = {"dm:fake": {"game": "GTA V", "confidence": 0.99, "evidence": "Vinewood sign"},
+                "dm:unsure": {"game": "unsure", "confidence": 0.3, "evidence": "dark tunnel"}}
+    fetched, checked = [], []
+
+    def fake_dl(c, a, b, out, timeout=300):
+        fetched.append(c.key)
+        Path(out).write_bytes(b"not a real video")
+        return True
+
+    def fake_check(paths, meta=None):
+        checked.append((meta[0]["key"], tuple(meta[0]["section"])))
+        v = verdicts[meta[0]["key"]]
+        return [authentic._result(v["game"], v["confidence"], v["evidence"], 0.65)]
+    orig = (sf.discover, sf._download, authentic.check)
+    sf.discover, sf._download, authentic.check = (lambda cfg, manifest, fmt=None: cands), fake_dl, fake_check
+    try:
+        assert list(sf.iter_clips(0, max_attempts=2)) == []  # the "unsure" reel is garbage bytes: can't be joined
+    finally:
+        sf.discover, sf._download, authentic.check = orig
+    assert fetched == ["dm:fake", "dm:unsure", "dm:unsure", "dm:unsure"], fetched
+    assert [k for k, _ in checked] == ["dm:fake", "dm:unsure"] and all(b - a <= 110 for _, (a, b) in checked)
+    st = sf.load_manifest()["sources"]
+    assert st["dm:fake"]["reject_reason"] == "not GTA VI footage" and "reject_reason" not in st["dm:unsure"]
+    assert not list(sf.RAW_DIR.glob("slice*")), "slice files are cleaned up"
 
 
 if __name__ == "__main__":

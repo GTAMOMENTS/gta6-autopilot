@@ -268,3 +268,36 @@ charm pack, learning, stream clips, long video, English-only + choppy filter, Ge
   It still had 8 s and 11 s without narration: `script_judge.dead_air` now rejects gaps > `script_judge.max_silence_sec`
   (6 s, game dialogue counts as talking) and narration under `min_coverage` (60%) of the quiet time; the writer is told
   to fill the video.
+
+## 15. Faster, stricter pipeline (2026-11-24) - what the run logs showed and what changed
+Evidence (Actions logs): the last posted Short (https://youtube.com/shorts/TPyb3eDoyiY, run 45082855217) was 27 s with 4
+lines, a walking hook, a 22-word last line with the question tacked on and the stuffed title "GTA 6 police chase car
+chase at Vice City airport goes crazy" - yet judge 8/10, QA 9/10 (Flash-Lite; gemini-2.5-pro answers 404). Time goes
+to downloads and AI outages, not QA (~26 s): run 45228468044 spent ~30 of 53 min downloading slices of videos that
+were then rejected (9.5 min on one the check called GTA V 99%); in both 45228468044 and 45448945826 Gemini was
+overloaded (503) when it mattered (45448945826 dropped a hype-9 clip that had passed every gate) and the fallback
+stream clip never asked Gemini at all (see below) - nothing was posted.
+- **Approved script = posted script** (`qa.script_integrity`): `place_lines` silently dropped lines that didn't fit,
+  and tours cut lines past `tour_max_sec`. A missing approved line is a high QA issue; it is repairable
+  (`autopilot.repairable` / `repair_note`: rewrite shorter, re-voice, re-render once) and `lessons` tells the writer
+  when scripts run long. A test scenario was silently losing 2 of 5 lines before this.
+- **QA fail-fast** (`qa.fail_fast`): script -> technical -> Whisper -> picture -> AI editor; once something blocks,
+  the rest is skipped (same verdicts, less quota). `_QA.txt` lists TIMINGS per check and, for passes, a 60 s HUMAN CHECK.
+- **One Gemini upload per file per run** (`gemini_writer._upload_video` / `release_uploads`, keyed by path + size +
+  mtime; a re-render is a new file): the posted Short's 5-min reel was encoded + uploaded 3 times (~50 s each).
+  Uploads are deleted at exit (atexit) or right after single-use reviews (QA, stream clips, long batches).
+- **Tour downloads stop after a fake first slice** (`sources.tour.check_first_slice`, `source_fetcher._first_slice_fake`):
+  only a confident "not GTA 6" stops it (same rule that already blacklists the video); unsure -> download on.
+- **Fallback stream clip asks Gemini again** (`stream_clips.ai_review` resets `_unavailable_until`, like the other
+  whole-video checks): it used to upload the clip and give up without one request after an earlier outage.
+- **Search phrases, not stuffing**: `formats.*.keywords` are comma-separated phrases ("GTA 6 police chase, car
+  chase"); the writer is told to use ONE; `critic.keyword_phrases` never joins two phrases ("chase car") and a rewrite
+  must keep one of them (not all); YouTube tags get one tag per phrase (`critic.keyword_list`).
+- **Closing line**: `script_judge.static_problems` rejects a closing question buried in a long line
+  (`script_judge.max_closing_words` 14; countdowns exempt - their last slot is "Number one").
+- Tests: `python -m pytest -m "not slow"` is the quick loop (~1 min; the two real-time download tests are now `slow`);
+  CI still runs everything.
+- Not done / open: GitHub Models backup answers "OK" (text/plain) for every model in every run - endpoint or token
+  scope changed? (needs the token to debug). A "hook" criterion in the script judge was considered but held back: it
+  changes a carefully calibrated judge and may lower the post rate - try it in a dry run first. Verify all of the
+  above with an Actions dry run (`slot=vertical_clip`, `dry_run=true`) and read `[qa] ... TIMINGS` + `[gemini] reusing`.

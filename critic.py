@@ -190,11 +190,27 @@ def _meaningful(phrase: str) -> list[str]:
     return [w for w in _stems(phrase) if w not in _STOP]
 
 
+def keyword_list(keywords: str) -> list[str]:
+    """A format's search phrases, comma-separated in config ("GTA 6 police chase, car chase" ->
+    ["GTA 6 police chase", "GTA 6 car chase"]) - each one usable on its own (a YouTube tag, a title phrase)."""
+    out = []
+    for p in (keywords or "").split(","):
+        p = re.sub(r"\s+", " ", norm_gta(p)).strip()
+        if p:
+            out.append(p if has_term(p, "gta 6") else f"GTA 6 {p}")
+    return list(dict.fromkeys(out))
+
+
 def keyword_phrases(keywords: str) -> list[str]:
-    """Two-word search phrases of a format's keywords ("GTA 6 money tip how to make money fast" -> "money tip",
-    "make money", "money fast", ...): a rewrite must keep the ones the original title has."""
-    words = [w for w in re.findall(r"[a-z0-9']+", norm_gta(keywords or "").lower()) if w not in ("gta", "6")]
-    return list(dict.fromkeys(f"{a} {b}" for a, b in zip(words, words[1:])))
+    """The search phrases a rewrite must keep when the original title has them: each comma-separated phrase of a
+    format's keywords without "GTA 6" (a long one as its two-word parts: "how to make money fast" -> "make money",
+    "money fast", ...). Never across two phrases: "police chase car chase" made "chase car" a protected keyword,
+    and the critic kept the stuffed title "GTA 6 police chase car chase at Vice City airport goes crazy"."""
+    out = []
+    for phrase in (keywords or "").split(","):
+        words = [w for w in re.findall(r"[a-z0-9']+", norm_gta(phrase).lower()) if w not in ("gta", "6")]
+        out += [" ".join(words)] if len(words) <= 3 else [f"{a} {b}" for a, b in zip(words, words[1:])]
+    return list(dict.fromkeys(p for p in out if p))
 
 
 def top_searches(limit: int = 12) -> list[str]:
@@ -326,15 +342,20 @@ def _caps_words(text: str) -> int:
     return sum(1 for w in re.findall(r"\b[A-Z][A-Z']{2,}\b", text) if w.replace("'", "") not in ACRONYMS)
 
 
-def _keep_terms(field: str, original: str, keep: list[str] | None) -> list[str]:
-    """The search keywords the original has that a rewrite must keep."""
+def _keep_terms(field: str, original: str, keep: list[str] | None) -> tuple[list[str], list[str]]:
+    """The search keywords the original has that a rewrite must keep: (every one of these, at least one of these).
+    The format's own phrases (keep) are alternatives - "police chase" / "car chase": one is enough. Requiring all
+    of them protected a stuffed title ("GTA 6 police chase car chase at Vice City airport goes crazy")."""
     if field in TITLE_FIELDS:
-        terms = KEEP_TERMS + list(_cfg().get("keep_terms") or []) + list(keep or []) + top_searches(25)
+        must = KEEP_TERMS + list(_cfg().get("keep_terms") or []) + top_searches(25)
     elif field in SEARCH_FIELDS:
-        terms = ["gta 6"] + list(keep or [])
+        must = ["gta 6"]
     else:
-        return []
-    return [t for t in dict.fromkeys(x.lower() for x in terms if x) if has_term(original, t)]
+        return [], []
+
+    def present(terms):
+        return [t for t in dict.fromkeys(x.lower() for x in terms if x) if has_term(original, t)]
+    return present(must), present(keep or [])
 
 
 def reject_reason(field: str, new: str, old: str, context: str, limit: int, money: bool,
@@ -364,7 +385,10 @@ def reject_reason(field: str, new: str, old: str, context: str, limit: int, mone
         return "added hashtags"
     if field in TITLE_FIELDS and _caps_words(new) > max(int(_cfg().get("max_caps_words", 2)), _caps_words(old)):
         return "too many CAPS words"
-    lost = [t for t in _keep_terms(field, old, keep) if not has_term(new, t)]
+    must, any_of = _keep_terms(field, old, keep)
+    lost = [t for t in must if not has_term(new, t)]
+    if any_of and not any(has_term(new, t) for t in any_of):
+        lost.append(" / ".join(any_of))
     if lost:
         return f"dropped search keywords ({', '.join(lost)})"
     return ""
@@ -388,7 +412,12 @@ def polish(fields: dict, limits: dict, context: str, money: bool | None = None, 
     listing = "\n".join(f'- {k} (max {limits.get(k, 100)} characters): "{v}"' for k, v in fields.items())
     guide = "\n".join(f"- {k}: {FIELD_GUIDE[k]}" for k in fields if k in FIELD_GUIDE) or "-"
     searches = top_searches(10)
-    keep_now = sorted({t for k, v in fields.items() for t in _keep_terms(k, v, keep)})
+    keep_now = sorted({t for k, v in fields.items() for t in _keep_terms(k, v, keep)[0]})
+    alts = sorted({t for k, v in fields.items() for t in _keep_terms(k, v, keep)[1]} - set(keep_now))
+    if len(alts) == 1:
+        keep_now.append(alts[0])
+    elif alts:
+        keep_now.append("one of: " + " / ".join(alts))
     honesty = ("MONEY VIDEO: the methods are legit gameplay - NEVER words that suggest cheats, glitches, hacks, "
                "exploits, mods or tricks (hack, glitch, exploit, cheat, mod, trick, unlimited, infinite); say tips / "
                "ways / methods / guide instead" if money else

@@ -432,18 +432,21 @@ def ai_review(path: Path, clip: dict) -> dict | None:
         return None
     prompt = PROMPT.format(streamer=clip["streamer"], platform=clip["platform"].title(),
                            title=clip["title"], duration=probe(path)["duration"])
+    # A busy spell earlier in the run must not skip this check: the fallback stream clip runs right after the
+    # narrated video failed - often because Gemini was overloaded minutes before. Without this reset it never
+    # asked Gemini at all (2026-11-23 / 11-24: uploaded, "no AI could watch", nothing posted).
+    gemini_writer._unavailable_until = 0.0
     try:
         uploaded = gemini_writer._upload_video(path)
     except Exception as exc:  # noqa: BLE001
         log.warning("[streams] video upload to Gemini failed: %s", exc)
         return None
+    if uploaded is None:
+        return None
     try:
         return gemini_writer._generate_json([uploaded, prompt], temperature=0.6)
     finally:
-        try:
-            gemini_writer._client().files.delete(name=uploaded.name)
-        except Exception:  # noqa: BLE001
-            pass
+        gemini_writer.release_uploads(path)
 
 
 # --------------------------------------------------------------------------- render + post
