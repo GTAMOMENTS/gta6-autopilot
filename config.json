@@ -512,7 +512,8 @@
       "whole_video_min_sec": 150,
       "whole_video_max_sec": 330,
       "check_first_slice": true,
-      "_note": "Long videos (>= slices*slice_sec*2) -> 3 slices joined. For countdown formats (top 5s), a 150-660 s video is used as one reel of up to whole_video_max_sec. check_first_slice: the GTA 6 check runs on the first slice before the others are downloaded - a confidently fake video (GTA V / mod) is dropped after one slice instead of three."
+      "parallel_slices": true,
+      "_note": "Long videos (>= slices*slice_sec*2) -> 3 slices joined. For countdown formats (top 5s), a 150-660 s video is used as one reel of up to whole_video_max_sec. check_first_slice: the GTA 6 check runs on the first slice before the others are downloaded - a confidently fake video (GTA V / mod) is dropped after one slice instead of three. parallel_slices: the other slices then download at the same time (one after another took 1-4 min each)."
     },
     "x_accounts": [
       "GtaGameClips"
@@ -656,6 +657,9 @@
     "precheck_attempts": 3,
     "script_attempts": 3,
     "script_candidates": 3,
+    "ai_busy_retries": 2,
+    "ai_busy_wait_sec": 60,
+    "_ai_busy_note": "Gemini's 'high demand' 503s come and go within minutes: when no AI can watch an approved clip to write (or repair) its script, the run waits ai_busy_wait_sec and asks again, up to ai_busy_retries times, within sources.time_budget_min - instead of dropping a clip that passed every gate.",
     "_script_note": "Owner 2026-11-22: the AI watches the WHOLE final video and writes ONE script (gemini_writer.write_final_script); a different AI judges it (script_judge.py); lines are checked against the picture; failures go back to the writer for a NEW script. No more frame-by-frame line rewriting (ground_lines is no longer used).",
     "max_dialogue_share": 0.6,
     "repair": true
@@ -697,7 +701,6 @@
   ],
   "ai_fallback": {
     "providers": [
-      "github",
       "gemma",
       "openrouter",
       "nvidia",
@@ -711,7 +714,6 @@
       "nvidia": [],
       "groq": [],
       "mistral": [],
-      "github": [],
       "gemma": [],
       "cerebras": [
         "gpt-oss-120b",
@@ -724,13 +726,12 @@
       ]
     },
     "max_models_per_provider": 4,
-    "max_total_sec": 240,
-    "_note": "Free backup AIs. 'providers' = order when frames are sent (vision); 'text_providers' = order for text-only jobs (critic, packaging). Cerebras / SambaNova need free keys (CEREBRAS_API_KEY, SAMBANOVA_API_KEY).",
+    "max_total_sec": 180,
+    "_note": "Free backup AIs. 'providers' = order when frames are sent (vision); 'text_providers' = order for text-only jobs (critic, packaging). Cerebras / SambaNova need free keys (CEREBRAS_API_KEY, SAMBANOVA_API_KEY). max_total_sec: one backup call gives up after this (the logs: answers that came at all came within ~30 s; failing chains used the whole 240 s). A model that answers twice without usable JSON is skipped for the rest of the run. GitHub Models was removed: GitHub retired it on 2026-07-30.",
     "text_providers": [
       "cerebras",
       "groq",
       "sambanova",
-      "github",
       "nvidia",
       "mistral",
       "gemma",
@@ -1327,7 +1328,7 @@
   },
   "critic": {
     "enabled": true,
-    "_note": "A second free AI (GPT-4.1 via GitHub Models first) rewrites titles / banners / hooks for more clicks without inventing anything; originals are kept if a rewrite breaks the rules.",
+    "_note": "A second free AI (the backup text models, Cerebras / Groq first) rewrites titles / banners / hooks for more clicks without inventing anything; originals are kept if a rewrite breaks the rules.",
     "max_caps_words": 2,
     "keep_terms": [],
     "_rules_note": "A rewrite is rejected if it adds numbers/names not in the video, cheat-sounding words (critic.CHEAT_WORDS; set cheat_words to replace the list - money videos may not use them at all, the AI's own 'Money Hacks' becomes 'Money Tips'), spoiler words, emojis, hashtags, links, 'GTA VI', more than max_caps_words CAPS words, or drops a search keyword the original had (critic.KEEP_TERMS + keep_terms + today's top searches). Titles always get 'GTA 6' near the front and the true countdown number."

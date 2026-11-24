@@ -1,6 +1,6 @@
 """The critic + the packaging rules.
 
-polish(): a second, strong free text model (GPT-4.1 via GitHub Models first, then the other free backups)
+polish(): a second, strong free text model (ai_fallback's text providers, Cerebras / Groq first)
 reviews the packaging the video AI wrote - title, banner/thumbnail text, caption, X text, hook - and rewrites it
 for more clicks without inventing anything. A rewrite that breaks a rule keeps the original:
   - empty / too long / too short / says "GTA VI" / has a link

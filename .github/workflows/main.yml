@@ -74,7 +74,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      models: read   # free GitHub Models AI (backup script writer), no key needed
     timeout-minutes: 120
     steps:
       - name: Checkout repository
@@ -173,7 +172,6 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           FREESOUND_API_KEY: ${{ secrets.FREESOUND_API_KEY }}
-          GITHUB_MODELS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}

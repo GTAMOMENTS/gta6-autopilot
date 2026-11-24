@@ -2,7 +2,7 @@
 
 Every image check (is it really GTA 6? does the picture show what each line says? rewrite lines for their
 footage) used Gemini only, so when Gemini's free quota ran out those checks stopped and strict mode blocked
-every video. The owner's backup keys (GitHub Models, Gemma, Mistral, OpenRouter, NVIDIA... - several can see
+every video. The owner's backup keys (Gemma, Mistral, OpenRouter, NVIDIA... - several can see
 images) now take over.
 
 ask(groups, prompt, key, num): groups = [(label, [jpeg bytes, ...])] in order. The answer is a dict with a list
