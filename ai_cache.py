@@ -7,6 +7,8 @@ The free Gemini quota is small and every run used to re-check the same footage. 
             that keep uploading GTA V / mods as "GTA 6" are skipped
   reviews   long-video batch review verdicts per (prompt, clip key, section)
   bad       clips a review found not GTA 6 / broken / spoiler / unsafe / not English / glitch -> never downloaded again
+  talky     per uploader: videos rejected because someone talks over the footage (a YouTuber's commentary, nonstop
+            dialogue) -> channels that keep doing it are skipped before any download
 
 Rules: errors (no AI answer, a clip missing from the answer) are never stored; a prompt change invalidates (the prompt
 hash is part of the entry); every entry expires (TTLs in config `authenticity` / `sources`).
@@ -59,7 +61,7 @@ def _load() -> dict:
             d = load_json(CACHE_FILE, {})
             if not isinstance(d, dict) or d.get("version") != VERSION:
                 d = {"version": VERSION}
-            for k in ("auth", "fake_src", "channels", "reviews", "bad"):
+            for k in ("auth", "fake_src", "channels", "reviews", "bad", "talky"):
                 if not isinstance(d.get(k), dict):
                     d[k] = {}
             _data = d
@@ -93,6 +95,10 @@ def _prune(d: dict) -> None:
     bdays = 86400 * float(_scfg().get("bad_clip_days", 14))
     d["bad"] = {k: v for k, v in d["bad"].items() if isinstance(v, dict) and now - v.get("at", 0) < bdays}
     cdays = 86400 * float(_acfg().get("channel_memory_days", 90))
+    for name, ch in list(d["talky"].items()):
+        ch["keys"] = {k: t for k, t in (ch.get("keys") or {}).items() if now - t < cdays}
+        if not ch["keys"]:
+            d["talky"].pop(name, None)
     for name, ch in list(d["channels"].items()):
         for kind in ("real", "fake"):
             ch[kind] = dict(sorted(((k, t) for k, t in (ch.get(kind) or {}).items() if now - t < cdays),
@@ -195,6 +201,25 @@ def channel_stats(name: str) -> tuple[int, int]:
     if not ch:
         return 0, 0
     return len(ch.get("real") or {}), len(ch.get("fake") or {})
+
+
+def talky_put(name: str, key: str) -> None:
+    """Remember that this uploader's video was rejected because someone talks over the footage."""
+    if not name or not key or not enabled():
+        return
+    with _lock:
+        ch = _load()["talky"].setdefault(channel_id(name), {"name": name, "keys": {}})
+        ch["keys"][key] = time.time()
+        _save()
+
+
+def talky_count(name: str) -> int:
+    """How many of this uploader's videos were rejected for talking over the footage (within channel memory)."""
+    if not name or not enabled():
+        return 0
+    with _lock:
+        ch = _load()["talky"].get(channel_id(name))
+    return len((ch or {}).get("keys") or {})
 
 
 def channels_summary(limit: int = 6) -> str:

@@ -262,6 +262,16 @@ def impacts(video: Path, count: int = 3, min_gap: float = 4.0, skip: list[tuple[
     return sorted(out)
 
 
+def action_events(video: Path, min_gap: float = 2.0) -> int | None:
+    """How many sudden loud moments the footage has (a crash, a shot, an explosion, a hard landing): the game sound
+    jumping well above what came just before. Walking, roaming and calm driving have next to none. Local FFmpeg,
+    no AI. None = no sound to tell from."""
+    info = probe(video)
+    if not info["has_audio"] or info["duration"] < 10:
+        return None
+    return len(impacts(video, count=100_000, min_gap=min_gap))
+
+
 def cut_highlight(src: Path, out: Path, target_sec: int, style: str = "auto") -> tuple[Path | None, list]:
     """Meter-only fallback: cut the best `target_sec` seconds from `src`."""
     info = probe(src)

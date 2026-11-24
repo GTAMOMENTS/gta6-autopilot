@@ -460,6 +460,9 @@ TASKS
      something useful, new or funny. Never filler.
    - Every shot shows something DIFFERENT (a mechanic, vehicle, animal, fight, shop, NPC reaction, funny
      detail). Never two shots of the same thing. The first shot is the most eye-catching one.
+   - Every shot shows something HAPPENING (a crash, chase, fight, stunt, funny NPC reaction, a feature being
+     used). NEVER a shot of someone just walking, standing, roaming around or driving calmly - the narrator
+     would have nothing to talk about. If the footage has fewer than 5 such moments, say so with a low hype_score.
    - VOICE: a real, likeable gamer talking to his viewers - casual, confident, a little funny ("I'm dead
      serious", "trust me", "see this?", "that's literally Bonnie and Clyde"). Compare with GTA 5 when the
      difference is obvious on screen. Read on-screen prompts, menus and HUD text to explain mechanics
