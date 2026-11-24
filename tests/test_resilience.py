@@ -97,3 +97,21 @@ def test_github_models_is_gone():
     cfg = common.load_config()["ai_fallback"]
     assert "github" not in ai_fallback.PROVIDERS
     assert "github" not in cfg["providers"] and "github" not in cfg["text_providers"]
+
+
+# --------------------------------------------------------------------------- tours: no shots where nothing happens
+
+def test_calm_shots_are_dropped_from_a_tour():
+    """Owner: "you can't do narration on a walking clip". A posted Short opened on a stroll past tourists."""
+    energy = [0.1] * 10 + [0.9] * 10 + [0.15] * 10 + [0.8] * 30  # walking, chase, walking, crash...
+    shots = [{"start": s, "text": f"shot {s}"} for s in (1, 12, 22, 31, 40, 50)]
+    kept = autopilot.drop_calm_shots(shots, energy, calm=0.25, keep_min=4)
+    assert [sh["start"] for sh in kept] == [12, 31, 40, 50], "both walking shots go, the order stays"
+    kept = autopilot.drop_calm_shots(shots, energy, calm=0.25, keep_min=5)
+    assert [sh["start"] for sh in kept] == [12, 22, 31, 40, 50], "only as many as keep the minimum: calmest first"
+    assert autopilot.drop_calm_shots(shots, [], calm=0.25, keep_min=4) == shots, "no energy data: nothing dropped"
+
+
+def test_the_editor_is_told_no_walking_shots():
+    import gemini_writer
+    assert "NEVER a shot of someone just walking" in gemini_writer.TOUR_PROMPT

@@ -78,6 +78,24 @@ def words(path: Path, start: float = 0.0, end: float | None = None) -> tuple[lis
         wav.unlink(missing_ok=True)
 
 
+def speech_share(path: Path, seconds: float = 60.0, min_prob: float = 0.4) -> float | None:
+    """Share of the first `seconds` of a clip where someone talks (Whisper words, gaps under 0.5 s joined).
+    None = Whisper isn't available (then nobody can tell - the callers carry on as before)."""
+    if _get_model() is None:
+        return None
+    length = min(float(seconds), float(probe(path)["duration"] or 0))
+    if length < 5:
+        return None
+    heard = [w for w in words(path, 0.0, length)[0] if w.get("prob", 1) >= min_prob]
+    spans: list[list[float]] = []
+    for w in sorted(heard, key=lambda x: x["start"]):
+        if spans and w["start"] - spans[-1][1] < 0.5:
+            spans[-1][1] = max(spans[-1][1], w["end"])
+        else:
+            spans.append([w["start"], w["end"]])
+    return round(min(1.0, sum(b - a for a, b in spans) / length), 2)
+
+
 def subtitle_words(found: list[dict]) -> list[dict]:
     """Whisper words -> subtitle words (censored, low-confidence noise dropped)."""
     return [{"text": censor(w["text"]), "start": w["start"], "end": max(w["end"], w["start"] + 0.12)}

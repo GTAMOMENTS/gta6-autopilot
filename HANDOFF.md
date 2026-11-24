@@ -331,3 +331,20 @@ stream clip never asked Gemini at all (see below) - nothing was posted.
   narrated Short on the new code is the next scheduled run.
 - Seen in that run, not fixed yet: Gemini Flash's daily quota was used up (429) by evening; `_generate_json` waited
   40 s even though a model on cooldown answered right after (round 1 only tried the 404 Pro model).
+
+## 18. Fewer wasted downloads + only footage where something happens (owner, 2026-11-24)
+- A live run downloaded 3 slices of 3 videos and then the AI said "someone already talks over this footage" each
+  time. Owner: "the code must find the exciting moment worth clipping - you can't do narration on a walking clip".
+- **Speech check** (`sources.speech_precheck`, `source_fetcher._talks_over`, `transcribe.speech_share`): Whisper on
+  the first 60 s of tour slice 1 (before the other slices) and of single sections (before any AI watches them);
+  over 75 % speech = rejected (`TALKY_REASON`). Free, local. Not for streams / formats with `allow_narrated`.
+- **Talky channels** (`ai_cache.talky_*`, `sources.talky_channel_after` 2): uploaders with 2 such rejections (speech
+  check, the AI gate's narrator rejection, dialogue-heavy cuts) are skipped before download.
+- **Nothing happens** (`sources.action_check`, `highlight.action_events`): sudden loud moments (crash, shot,
+  explosion) are counted before any AI watches a section / reel; under 0.5 a minute = rejected (`CALM_REASON`).
+  Formats with `calm_ok` (secrets, things to do) are exempt.
+- **No calm tour shots** (`autopilot.drop_calm_shots`, `video.tour_calm_energy` 0.25): shots in the calmest stretches
+  (walking, roaming, calm driving) are dropped while `tour_min_shots` remain; the tour prompt says the same.
+- Title scores: "wtf" -3, "moments #" -2.5 (commentary compilations), "free roam" 2 -> 1; action words decide.
+- Thresholds (75 % speech, 0.5 loud moments a minute, 0.25 energy) are first guesses from synthetic tests - read
+  `[gate] ✋ rejected ... before any AI watched it` lines in real runs and tune them in config.json.

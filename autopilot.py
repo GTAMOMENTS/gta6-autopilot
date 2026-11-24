@@ -57,6 +57,19 @@ def repair_note(issues: list[dict], placed: list[dict]) -> str:
     return "\n".join(out)
 
 
+def drop_calm_shots(shots: list[dict], energy: list[float], calm: float, keep_min: int) -> list[dict]:
+    """A tour's shots that start in the calmest stretches of the footage (walking, roaming, calm driving: the energy
+    of motion + game sound over the shot's first 4 s is under `calm`) - owner: "you can't do narration on a walking
+    clip". Dropped, calmest first, while at least keep_min shots remain; the order of the rest is kept."""
+    def level(sh: dict) -> float:
+        a = max(0, int(float(sh.get("start", 0))))
+        part = energy[a:a + 4]
+        return sum(part) / len(part) if part else 1.0  # no data for it: never "calm"
+    calm_ones = sorted((sh for sh in shots if level(sh) < calm), key=level)
+    drop = {id(sh) for sh in calm_ones[:max(0, len(shots) - keep_min)]}
+    return [sh for sh in shots if id(sh) not in drop]
+
+
 def patient(write, vcfg: dict, deadline: float):
     """Gemini's 503 "high demand" comes and goes within minutes (a run's log: busy at 18:13, answering at 18:14,
     busy again at 18:15). A clip that already passed every gate is worth a short wait: a run that dropped a hype-9
@@ -137,8 +150,8 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
     from gemini_writer import script_ok, write_clip_copy
     from highlight import best_window, cut_segments, energy_curve, energy_hints
     from publisher import _available, publish_video, routes_for
-    from source_fetcher import (AUTHENTICITY_PROVIDERS, iter_clips, load_manifest, mark_rejected, mark_used,
-                                save_manifest)
+    from source_fetcher import (AUTHENTICITY_PROVIDERS, TALKY_REASON, iter_clips, load_manifest, mark_rejected,
+                                mark_used, note_talky, save_manifest)
     from video_processor import HumanVoiceUnavailable, render, synthesize_lines
 
     cfg = load_config()
@@ -337,10 +350,19 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         save_manifest(m)
         return ok, record
 
-    def produce_tour(src, copy, sec_dur) -> tuple[bool, dict] | None:
-        """Feature tour: every shot lasts exactly as long as its narration line (the edit follows the voice)."""
+    def produce_tour(src, copy, sec_dur, energy=None) -> tuple[bool, dict] | None:
+        """Feature tour: every shot lasts exactly as long as its narration line (the edit follows the voice).
+        energy (per second of the reel): shots in the calmest stretches are dropped - not for countdowns (every
+        number must stay) or formats whose footage is calm by nature (calm_ok)."""
         c, reel = src.candidate, src.clip_path
         shots = copy["shots"]
+        if energy and not (fmt or {}).get("countdown") and not (fmt or {}).get("calm_ok"):
+            lively = drop_calm_shots(shots, energy, float(vcfg.get("tour_calm_energy", 0.25)),
+                                     int(vcfg.get("tour_min_shots", 4)))
+            if len(lively) < len(shots):
+                log.info("[tour] dropped %d calm shot(s) - nothing happens there (walking / roaming / calm driving): %s",
+                         len(shots) - len(lively), [f"{sh['start']:.0f}s" for sh in shots if sh not in lively])
+                shots = copy["shots"] = lively
         if copy.get("ai_source") in ("built-in", "text-only", ""):
             log.warning("[script] ✋ not posting: no AI could watch the footage and write the script")
             reel.unlink(missing_ok=True)
@@ -446,7 +468,7 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
             # gets its own piece of the same scene (section times from the AI), in order
             copy["shots"] = [{"start": float(ln["t"]), "text": ln["text"]} for ln in raw]
             log.info("[editor] muted footage - the edit follows the voice (%d lines)", len(copy["shots"]))
-            return produce_tour(src, copy, sec_dur)
+            return produce_tour(src, copy, sec_dur, energy)
         min_len = min(float(vcfg.get("min_clip_sec", 25)), sec_dur)
         max_len = min(float(vcfg.get("duration_sec", 50)), sec_dur)
         start, end = copy.get("clip_start"), copy.get("clip_end")
@@ -539,6 +561,7 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
                         talk, end - start)
             clip.unlink(missing_ok=True)
             script_problems.append("dialogue-heavy footage")
+            note_talky(c)  # an uploader whose videos keep doing this is skipped before download
             return None
         # the AI watches the WHOLE final video (cold open + story, with sound) and writes ONE script for it
         commentary = _write_checked(clip, copy, [], lead=lead, spans=fx.get("dialogue"))
@@ -631,7 +654,7 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
                 reason = "nudity / unsafe content"
             elif copy.get("has_narrator") and gate.get("reject_narrator", True) and c.kind != "stream" \
                     and not (fmt or {}).get("allow_narrated"):
-                reason = "someone already talks over this footage"
+                reason = TALKY_REASON
             elif copy["has_facecam"] and gate.get("reject_facecam", True) and c.kind != "stream":
                 reason = "facecam / overlay"
             elif copy["hype_score"] < min_hype:
@@ -662,7 +685,7 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
 
         try:
             if src.is_reel and len(copy.get("shots") or []) >= int(vcfg.get("tour_min_shots", 5)):
-                result = produce_tour(src, copy, sec_dur)
+                result = produce_tour(src, copy, sec_dur, energy)
             else:
                 if src.is_reel:
                     log.info("[tour] AI gave too few shots - making a single-moment video instead")
@@ -684,7 +707,7 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         b_src, b_copy, b_energy, b_dur = backup
         try:
             if b_src.is_reel and len(b_copy.get("shots") or []) >= int(vcfg.get("tour_min_shots", 5)):
-                result = produce_tour(b_src, b_copy, b_dur)
+                result = produce_tour(b_src, b_copy, b_dur, b_energy)
             else:
                 result = produce(*backup)
         except HumanVoiceUnavailable as exc:

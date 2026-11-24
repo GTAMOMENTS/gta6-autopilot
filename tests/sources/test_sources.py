@@ -552,7 +552,9 @@ def test_tour_stops_after_a_fake_first_slice():
 def _slice_world(raise_on: str = ""):
     """One tour candidate; downloads take 0.4 s and are counted while they run (+ the GTA 6 check's moment)."""
     d = _isolate()
-    tpl = _video(d / "tpl.mp4", sec=6) if HAVE_TOOLS else None
+    # gameplay with something happening: a bang every 3 s (calm footage is rejected - see _nothing_happens)
+    tpl = _sound(d / "tpl.mp4", "(0.02+0.9*between(mod(t,3),1,1.3))*sin(2*PI*300*t)", sec=6,
+                 size="1280x720") if HAVE_TOOLS else None
     cand = sf.Candidate("dm:tour", "https://www.dailymotion.com/video/tour", "GTA 6 free roam", "u", "dailymotion",
                         900)
     lock, st = threading.Lock(), {"active": 0, "peak": 0, "events": []}
@@ -641,3 +643,151 @@ if __name__ == "__main__":
                 print(f"FAIL {name}: {exc}")
     print("ALL PASSED" if not fails else f"{fails} FAILED")
     sys.exit(1 if fails else 0)
+
+
+# --------------------------------------------------------------------------- footage someone talks over
+
+import transcribe  # noqa: E402
+
+
+def _talky_world(cands, share_by_key, real_videos=False):
+    """iter_clips over `cands`; downloads write a file (a real 6 s clip if real_videos); Whisper 'hears' the speech
+    share given per candidate key; the GTA 6 check says real. Returns (fetched keys, restore function)."""
+    d = _isolate()
+    tpl = _video(d / "tpl.mp4", sec=20) if real_videos else None  # sections under 15 s are dropped earlier
+    fetched, by_path = [], {}
+
+    def fake_dl(c, a, b, out, timeout=300):
+        fetched.append(c.key)
+        by_path[str(out)] = c.key
+        shutil.copy(tpl, out) if tpl else Path(out).write_bytes(b"not a real video")
+        return True
+
+    def fake_check(paths, meta=None):
+        return [authentic._result("GTA VI", 0.95, "Vice City", 0.65) for _ in paths]
+    orig = (sf.discover, sf._download, authentic.check, transcribe.speech_share)
+    sf.discover = lambda cfg, manifest, fmt=None: cands
+    sf._download, authentic.check = fake_dl, fake_check
+    transcribe.speech_share = lambda path, seconds=60.0: share_by_key.get(by_path.get(str(path)))
+
+    def restore():
+        sf.discover, sf._download, authentic.check, transcribe.speech_share = orig
+    return fetched, restore
+
+
+def test_tour_stops_after_a_talked_over_first_slice():
+    """A live run lost 3 videos: 3 slices downloaded, then the AI said "someone already talks over this footage"."""
+    cands = [sf.Candidate(f"dm:{k}", f"https://www.dailymotion.com/video/{k}", "GTA 6 WTF moments", "TalkyChan",
+                          "dailymotion", 900) for k in ("narrated", "quiet")]
+    fetched, restore = _talky_world(cands, {"dm:narrated": 0.86, "dm:quiet": 0.2})
+    try:
+        list(sf.iter_clips(0, max_attempts=2))
+    finally:
+        restore()
+    assert fetched.count("dm:narrated") == 1, "only the first slice of the narrated video was downloaded"
+    assert fetched.count("dm:quiet") == 3, "a quiet video downloads all its slices"
+    st = sf.load_manifest()["sources"]
+    assert st["dm:narrated"]["reject_reason"] == sf.TALKY_REASON
+    assert ai_cache.talky_count("TalkyChan") == 1, "the channel is remembered"
+
+
+def test_single_section_is_checked_before_any_ai_watches_it():
+    if not HAVE_TOOLS:
+        return
+    cands = [sf.Candidate("dm:short", "https://www.dailymotion.com/video/short", "GTA 6 funny moments", "Chan",
+                          "dailymotion", 300)]  # too short for a 3-slice tour: one section
+    fetched, restore = _talky_world(cands, {"dm:short": 0.9}, real_videos=True)
+    try:
+        assert list(sf.iter_clips(0, max_attempts=1)) == []
+    finally:
+        restore()
+    assert fetched == ["dm:short"] and not list(sf.RAW_DIR.glob("section_*"))
+    assert sf.load_manifest()["sources"]["dm:short"]["reject_reason"] == sf.TALKY_REASON
+
+
+def test_formats_that_mute_the_voice_and_streams_are_not_speech_checked():
+    talky = sf.Candidate("yt:t", "https://youtube.com/watch?v=t", "GTA 6 moments", "Chan", "youtube", 300)
+    asked = []
+    orig = transcribe.speech_share
+    transcribe.speech_share = lambda path, seconds=60.0: asked.append(path) or 0.95
+    try:
+        assert sf._talks_over(talky, TMP / "x.mp4", {"allow_narrated": True}) is None
+        stream = sf.Candidate("tw:s", "https://twitch.tv/x", "GTA 6", "Streamer", "twitch_clip", 60, kind="stream")
+        assert sf._talks_over(stream, TMP / "x.mp4", None) is None
+        assert asked == [], "Whisper isn't even run"
+        assert sf._talks_over(talky, TMP / "x.mp4", None) == "95% speech in the first 60 s"
+    finally:
+        transcribe.speech_share = orig
+
+
+def test_channel_that_keeps_talking_over_its_footage_is_skipped():
+    _isolate()
+    tf = sf.TitleFilter(common.load_config())
+    a = sf.Candidate("yt:a", "https://youtube.com/watch?v=a", "GTA 6 free roam", "Talky Channel", "youtube", 900)
+    b = sf.Candidate("yt:b", "https://youtube.com/watch?v=b", "GTA 6 free roam", "Quiet Channel", "youtube", 900)
+    for key in ("yt:old1", "yt:old2"):
+        sf.mark_rejected(sf.Candidate(key, "u", "t", "Talky Channel", "youtube", 900), sf.TALKY_REASON)
+    manifest = sf.load_manifest()
+    assert [c.key for c in sf.rank([a, b], manifest, tf)] == ["yt:b"]
+    assert sorted(c.key for c in sf.rank([a, b], manifest, tf, talky_ok=True)) == ["yt:a", "yt:b"], \
+        "a format that mutes the original voice may still use it"
+
+
+def test_speech_share_measures_the_talking():
+    if not HAVE_TOOLS:
+        return
+    clip = _video(_isolate() / "talk.mp4", sec=20)
+    orig = (transcribe._get_model, transcribe.words)
+    words = [{"text": "w", "start": t, "end": t + 0.4, "prob": 0.9} for t in [x * 0.5 for x in range(32)]]  # 0-16 s
+    words.append({"text": "mumble", "start": 18.0, "end": 19.5, "prob": 0.1})  # unsure word: ignored
+    transcribe._get_model, transcribe.words = (lambda: object()), (lambda path, start=0.0, end=None: (words, {}))
+    try:
+        assert transcribe.speech_share(clip, 60) == 0.8
+        transcribe._get_model = lambda: None
+        assert transcribe.speech_share(clip, 60) is None, "no Whisper: nobody can tell"
+    finally:
+        transcribe._get_model, transcribe.words = orig
+
+
+# --------------------------------------------------------------------------- footage where nothing happens
+
+import highlight  # noqa: E402
+
+
+def _sound(path: Path, expr: str, sec: int = 60, size: str = "320x240") -> Path:
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc2=size={size}:rate=10:d={sec}",
+                    "-f", "lavfi", "-i", f"aevalsrc='{expr}':s=48000:d={sec}", "-shortest", "-c:v", "libx264",
+                    "-preset", "ultrafast", "-c:a", "aac", str(path)], check=True)
+    return path
+
+
+def test_action_events_count_the_sudden_loud_moments():
+    if not HAVE_TOOLS:
+        return
+    d = _isolate()
+    calm = _sound(d / "calm.mp4", "0.05*sin(2*PI*220*t)")  # walking around: steady ambience
+    action = _sound(d / "action.mp4", "(0.02+0.9*between(mod(t,15),10,10.4))*sin(2*PI*300*t)")  # a bang every 15 s
+    assert highlight.action_events(calm) == 0
+    assert highlight.action_events(action) == 4
+    mute = _video(d / "mute.mp4", sec=12)
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(mute), "-an", "-c", "copy", str(d / "noaudio.mp4")],
+                   check=True)
+    assert highlight.action_events(d / "noaudio.mp4") is None, "no sound: can't tell"
+
+
+def test_nothing_happens_is_rejected_before_any_ai_watches_it():
+    walk = sf.Candidate("yt:w", "https://youtube.com/watch?v=w", "GTA 6 free roam", "Chan", "youtube", 300)
+    orig = (highlight.action_events, sf.probe)
+    sf.probe = lambda path: {"duration": 120.0, "width": 1920, "height": 1080, "has_audio": True}
+    try:
+        highlight.action_events = lambda path, min_gap=2.0: 0
+        assert sf._nothing_happens(walk, TMP / "x.mp4", None).startswith("nothing happens: 0 sudden loud moment")
+        assert sf._nothing_happens(walk, TMP / "x.mp4", {"calm_ok": True}) is None, "secrets / things to do"
+        stream = sf.Candidate("tw:s", "https://twitch.tv/x", "GTA 6", "S", "twitch_clip", 60, kind="stream")
+        assert sf._nothing_happens(stream, TMP / "x.mp4", None) is None
+        highlight.action_events = lambda path, min_gap=2.0: 3  # a chase: 3 bangs in 2 minutes
+        assert sf._nothing_happens(walk, TMP / "x.mp4", None) is None
+        highlight.action_events = lambda path, min_gap=2.0: None
+        assert sf._nothing_happens(walk, TMP / "x.mp4", None) is None, "no sound: not rejected for it"
+    finally:
+        highlight.action_events, sf.probe = orig

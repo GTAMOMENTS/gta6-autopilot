@@ -377,8 +377,24 @@
       "plot",
       "lore"
     ],
+    "speech_precheck": {
+      "enabled": true,
+      "max_share": 0.75,
+      "seconds": 60,
+      "_note": "Before the other tour slices are downloaded (and before any AI watches a single section), Whisper listens to the first `seconds` of gameplay footage: someone talking over more than max_share of it (a YouTuber's commentary, nonstop cutscene dialogue) is rejected right there - free, no AI quota, ~15 s. Not for streams or formats with allow_narrated."
+    },
+    "talky_channel_after": 2,
+    "_talky_note": "An uploader with this many videos rejected because someone talks over the footage (speech check, the AI gate's narrator rejection, dialogue-heavy cuts) is skipped before download for channel_memory_days (authenticity). 0 = off.",
+    "action_check": {
+      "enabled": true,
+      "min_per_min": 0.5,
+      "_note": "Owner 2026-11-24: 'you can't do narration on a walking clip or roaming around doing nothing'. Before any AI watches a section / reel, the sudden loud moments in its game sound are counted (crash, shot, explosion, landing - highlight.action_events, local FFmpeg, free). Fewer than min_per_min per minute = nothing happens -> rejected. Formats with calm_ok (secrets, things to do) and streams are not checked."
+    },
     "preferred_title_terms": {
       "no commentary": 3.5,
+      "wtf": -3.0,
+      "moments #": -2.5,
+      "moments! #": -2.5,
       "4k": 1.0,
       "chase": 2.0,
       "shootout": 2.5,
@@ -397,7 +413,7 @@
       "top 10": 3.0,
       "craziest": 2.5,
       "fails": 2.5,
-      "free roam": 2.0,
+      "free roam": 1.0,
       "physics": 1.5,
       "ragdoll": 1.5,
       "secrets": 2.0,
@@ -631,6 +647,8 @@
     "min_clip_sec": 50,
     "tour_max_sec": 90,
     "tour_min_shots": 4,
+    "tour_calm_energy": 0.25,
+    "_tour_calm_note": "Tour shots whose first 4 s are this calm (motion + game sound energy, 0-1 within the footage: walking, roaming, calm driving) are dropped while tour_min_shots remain - not for countdowns or formats with calm_ok.",
     "game_audio_volume_tour": 0.4,
     "fx": {
       "teaser_sec": 1.2,
@@ -810,6 +828,7 @@
       },
       {
         "id": "top5_things_to_do",
+        "calm_ok": true,
         "name": "Top 5 things to do in GTA 6",
         "kind": "gameplay",
         "countdown": 5,
@@ -841,6 +860,7 @@
       },
       {
         "id": "secrets",
+        "calm_ok": true,
         "name": "Secrets and hidden details",
         "kind": "gameplay",
         "brief": "Hidden details, easter eggs and secret mechanics in the WORLD that most players miss ('you probably walked past this'). Never story secrets or plot. Only claim what you can actually see.",

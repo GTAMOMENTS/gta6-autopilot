@@ -43,6 +43,9 @@ log = logging.getLogger("autopilot")
 DM_API = "https://api.dailymotion.com/videos"
 # uploads titled "GTA 6" are often GTA V / mods: footage from these gets the focused GTA 6 check (authentic.py)
 AUTHENTICITY_PROVIDERS = ("youtube", "dailymotion", "x_account", "extra")
+# footage someone talks over (a YouTuber's commentary, nonstop dialogue) leaves no room for our narrator
+TALKY_REASON = "someone already talks over this footage"
+CALM_REASON = "nothing happens in this footage"
 
 
 def ytdlp_format(max_h: int = 1080) -> str:
@@ -485,9 +488,12 @@ def discover_trailers(cfg: dict) -> list[Candidate]:
 
 
 def rank(cands: list[Candidate], manifest: dict, tf: TitleFilter, boost: list[str] | None = None,
-         prefer_min_sec: int = 0) -> list[Candidate]:
+         prefer_min_sec: int = 0, talky_ok: bool = False) -> list[Candidate]:
+    """talky_ok: this run may use footage someone talks over (a format that mutes the original voice)."""
+    import ai_cache
     import authentic
     srcs = manifest["sources"]
+    talky_after = int(load_config().get("sources", {}).get("talky_channel_after", 2))
     now = time.time()
     cutoff = _launch_ts(load_config())
     ranked, why = [], {}
@@ -506,6 +512,10 @@ def rank(cands: list[Candidate], manifest: dict, tf: TitleFilter, boost: list[st
             "youtube", "dailymotion", "x_account", "extra") else ("", 0.0)
         if ch_status == "fake":
             why["GTA V / mod channel"] = why.get("GTA V / mod channel", 0) + 1
+            continue
+        if (not talky_ok and talky_after > 0 and c.provider in AUTHENTICITY_PROVIDERS
+                and ai_cache.talky_count(c.uploader) >= talky_after):
+            why["channel talks over its footage"] = why.get("channel talks over its footage", 0) + 1
             continue
         uses = len(st.get("uses", []))
         max_uses = 1 if c.duration < 600 else (2 if c.duration < 1800 else 4)
@@ -622,8 +632,9 @@ def discover(cfg: dict, manifest: dict, kind: str | None = None, fmt: dict | Non
             log.info("[sources] %d videos skipped for this format's blocked words (%s)",
                      n_before - len(gameplay) - len(stream), ", ".join(bad[:4]))
     first, second = (stream, gameplay) if kind == "stream" else (gameplay, stream)
-    ranked = (rank(first, manifest, tf, boost, prefer_min)            # preferred type first
-              + rank(second, manifest, tf, boost, prefer_min))
+    talky_ok = bool((fmt or {}).get("allow_narrated"))
+    ranked = (rank(first, manifest, tf, boost, prefer_min, talky_ok)  # preferred type first
+              + rank(second, manifest, tf, boost, prefer_min, talky_ok))
     if "official_trailers" in providers:
         ranked += rank(discover_trailers(cfg), manifest, tf)
     return ranked
@@ -1129,14 +1140,14 @@ def iter_clips(target_sec: int, max_attempts: int = 6, skip_providers: set | Non
                     and not (fmt or {}).get("continuous")
                     and c.duration >= n_slices * slice_len * 2):
                 # feature-tour format: several slices from different parts -> one reel
-                ranges, files, fake = _download_slices(c, manifest, sec_file, n_slices, slice_len)
-                if fake or len(files) < 2:
+                ranges, files, problem = _download_slices(c, manifest, sec_file, n_slices, slice_len, fmt)
+                if problem or len(files) < 2:
                     for f in files:
                         f.unlink(missing_ok=True)
-                    if fake:
-                        log.info("[gate] ✋ rejected '%s' after its first slice: not GTA 6 (%s) - the other slices "
-                                 "are not downloaded", c.title[:60], fake)
-                        mark_rejected(c, "not GTA VI footage")
+                    if problem:
+                        log.info("[gate] ✋ rejected '%s' after its first slice: %s - the other slices are not "
+                                 "downloaded", c.title[:60], problem[1])
+                        mark_rejected(c, problem[0])
                     else:
                         _note_failure(c)
                     continue
@@ -1199,6 +1210,13 @@ def iter_clips(target_sec: int, max_attempts: int = 6, skip_providers: set | Non
             sec_file.unlink(missing_ok=True)
             _note_failure(c)
             continue
+        talk = _talks_over(c, sec_file, fmt) if len(ranges) <= 1 else None  # tour slice 1 was checked already
+        calm = None if talk else _nothing_happens(c, sec_file, fmt)
+        if talk or calm:
+            log.info("[gate] ✋ rejected '%s' before any AI watched it: %s", c.title[:60], talk or calm)
+            sec_file.unlink(missing_ok=True)
+            mark_rejected(c, TALKY_REASON if talk else CALM_REASON)
+            continue
         import authentic  # the GTA 6 check remembers its answer for this source + window
         authentic.remember(sec_file, c.key, c.uploader, c.provider,
                            [x for r in ranges for x in r] if ranges else (start, end))
@@ -1207,12 +1225,13 @@ def iter_clips(target_sec: int, max_attempts: int = 6, skip_providers: set | Non
                          sections=ranges, is_reel=bool(ranges))
 
 
-def _download_slices(c: Candidate, manifest: dict, sec_file: Path, n: int,
-                     length: int) -> tuple[list[tuple[int, int]], list[Path], str | None]:
-    """A tour reel's slices: the first one alone - it gets the GTA 6 check, a fake video stops there - then the
-    others at the same time (one after another they took 1-4 min each; sources.tour.parallel_slices). Returns the
-    windows and files of the slices that arrived, plus why the video is fake (None = not known to be). A download
-    error that rules the source out (bot check, no HD stream) is raised after every slice file is removed."""
+def _download_slices(c: Candidate, manifest: dict, sec_file: Path, n: int, length: int, fmt: dict | None = None
+                     ) -> tuple[list[tuple[int, int]], list[Path], tuple[str, str] | None]:
+    """A tour reel's slices: the first one alone - it is checked first (fake? talked over?), a bad video stops
+    there - then the others at the same time (one after another they took 1-4 min each;
+    sources.tour.parallel_slices). Returns the windows and files of the slices that arrived, plus the problem found
+    in slice 1 as (rejection reason, detail) or None. A download error that rules the source out (bot check, no HD
+    stream) is raised after every slice file is removed."""
     windows: list[tuple[int, int]] = []
     for _ in range(n):
         a, b = _pick_section(c, manifest, length, avoid=[(x - 20, y + 20) for x, y in windows])
@@ -1226,9 +1245,9 @@ def _download_slices(c: Candidate, manifest: dict, sec_file: Path, n: int,
 
     try:
         got = [0] if fetch(0) else []
-        fake = _first_slice_fake(c, paths[0], windows[0]) if got else None
+        problem = _first_slice_problem(c, paths[0], windows[0], fmt) if got else None
         rest = list(range(1, n))
-        if rest and not fake:
+        if rest and not problem:
             if load_config().get("sources", {}).get("tour", {}).get("parallel_slices", True):
                 from concurrent.futures import ThreadPoolExecutor
                 with ThreadPoolExecutor(max_workers=len(rest)) as pool:
@@ -1240,7 +1259,59 @@ def _download_slices(c: Candidate, manifest: dict, sec_file: Path, n: int,
         for f in paths:
             f.unlink(missing_ok=True)
         raise
-    return [windows[k] for k in got], [paths[k] for k in got], fake
+    return [windows[k] for k in got], [paths[k] for k in got], problem
+
+
+def _first_slice_problem(c: Candidate, path: Path, window: tuple[int, int],
+                         fmt: dict | None) -> tuple[str, str] | None:
+    """Why the first slice already rules the video out, as (rejection reason, detail) - or None."""
+    fake = _first_slice_fake(c, path, window)
+    if fake:
+        return "not GTA VI footage", f"not GTA 6 ({fake})"
+    talk = _talks_over(c, path, fmt)
+    return (TALKY_REASON, talk) if talk else None
+
+
+def _talks_over(c: Candidate, path: Path, fmt: dict | None) -> str | None:
+    """Someone talks over most of this footage (a YouTuber's commentary, nonstop cutscene dialogue) - our narrator
+    would have no room, and the AI gate rejects it anyway after a full download + a Gemini watch (a live run lost
+    3 videos that way). Whisper runs on the runner: free, no AI quota, ~15 s for the first minute. Only gameplay
+    from search-type sources, never when the format mutes the original voice (allow_narrated). '82% speech in the
+    first 60 s' if over sources.speech_precheck.max_share, else None (also when Whisper isn't available)."""
+    pc = load_config().get("sources", {}).get("speech_precheck", {})
+    if (not pc.get("enabled", True) or c.kind != "gameplay" or c.provider not in AUTHENTICITY_PROVIDERS
+            or (fmt or {}).get("allow_narrated")):
+        return None
+    import transcribe
+    seconds = float(pc.get("seconds", 60))
+    share = transcribe.speech_share(path, seconds)
+    if share is None or share <= float(pc.get("max_share", 0.75)):
+        return None
+    return f"{share:.0%} speech in the first {seconds:.0f} s"
+
+
+def _nothing_happens(c: Candidate, path: Path, fmt: dict | None) -> str | None:
+    """Walking, roaming, calm driving: nothing for a narrator to talk about (owner: "you can't do narration on a
+    walking clip"). Counts the sudden loud moments (crash, shot, explosion, landing) - free, local FFmpeg, before any
+    AI watches it. Formats whose footage is calm by nature (secrets, things to do: calm_ok) and streams are not
+    checked. 'nothing happens: ...' if under sources.action_check.min_per_min, else None (also without sound)."""
+    ac = load_config().get("sources", {}).get("action_check", {})
+    if (not ac.get("enabled", True) or c.kind != "gameplay" or c.provider not in AUTHENTICITY_PROVIDERS
+            or (fmt or {}).get("calm_ok")):
+        return None
+    from highlight import action_events
+    n = action_events(path)
+    dur = probe(path)["duration"] or 0
+    if n is None or dur <= 0 or n / (dur / 60) >= float(ac.get("min_per_min", 0.5)):
+        return None
+    return f"nothing happens: {n} sudden loud moment(s) (crash, shot, explosion...) in {dur:.0f} s"
+
+
+def note_talky(c: Candidate) -> None:
+    """Remember the uploader: after sources.talky_channel_after such videos, its videos aren't downloaded."""
+    if c.provider in AUTHENTICITY_PROVIDERS and c.uploader:
+        import ai_cache
+        ai_cache.talky_put(c.uploader, c.key)
 
 
 def _first_slice_fake(c: Candidate, path: Path, window: tuple[int, int]) -> str | None:
@@ -1271,6 +1342,8 @@ def _note_failure(c: Candidate) -> None:
 
 
 def mark_rejected(c: Candidate, reason: str) -> None:
+    if reason == TALKY_REASON:
+        note_talky(c)
     m = load_manifest()
     st = m["sources"].setdefault(c.key, {"title": c.title, "uses": []})
     if c.provider in ("official_trailers",):
