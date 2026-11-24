@@ -386,7 +386,8 @@
     "talky_channel_after": 2,
     "_talky_note": "An uploader with this many videos rejected because someone talks over the footage (speech check, the AI gate's narrator rejection, dialogue-heavy cuts) is skipped before download for channel_memory_days (authenticity). 0 = off.",
     "action_check": {
-      "enabled": true,
+      "enabled": false,
+      "_off_note": "OFF since 2026-11-24 (run 45501693717): on real footage it counted 0-2 loud moments in 5-minute police chases ('6 Star Wanted Level! INSANE Police Chase') - engine / siren noise is constant and compressed, so crashes don't stand out the way they did in synthetic tests - and it rejected every chase video. Needs a better signal before it goes back on.",
       "min_per_min": 0.5,
       "_note": "Owner 2026-11-24: 'you can't do narration on a walking clip or roaming around doing nothing'. Before any AI watches a section / reel, the sudden loud moments in its game sound are counted (crash, shot, explosion, landing - highlight.action_events, local FFmpeg, free). Fewer than min_per_min per minute = nothing happens -> rejected. Formats with calm_ok (secrets, things to do) and streams are not checked."
     },
