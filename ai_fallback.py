@@ -9,11 +9,11 @@ All of these speak the OpenAI-compatible chat API and have free tiers:
 Free model names change constantly, so models are auto-discovered from each
 provider's /models endpoint (pin your own in config.json -> ai_fallback.models).
 For the clip check, 6 frames are pulled from the video and sent as images.
+(GitHub Models was here too - GitHub retired it on 2026-07-30; its endpoint only answers "OK" now.)
 """
 from __future__ import annotations
 
 import base64
-import json
 import logging
 import re
 import time
@@ -26,10 +26,6 @@ from common import WORK_DIR, env, load_config, parse_json_loose, probe, run
 log = logging.getLogger("autopilot")
 
 PROVIDERS = {
-    # GitHub Models: free, built into GitHub Actions (the workflow's own token, permission models: read)
-    "github": {"key": "GITHUB_MODELS_TOKEN", "base": "https://models.github.ai/inference", "max_images": 8,
-               "detail": "low", "max_tokens": 3000, "json_mode": True, "list_models": False,
-               "default_models": ["openai/gpt-4.1", "openai/gpt-4.1-mini", "openai/gpt-4o-mini"]},
     # Gemma on the same free Gemini key (separate, much bigger free limits than Gemini Flash; sees images)
     "gemma": {"key": "GEMINI_API_KEY", "base": "https://generativelanguage.googleapis.com/v1beta/openai",
               "max_images": 8, "only": "gemma-4", "max_tokens": 8192, "default_models": []},  # gemma-3: 404 there
@@ -52,7 +48,12 @@ SKIP = ("lyria", "audio", "tts", "whisper", "guard", "embed", "moderation", "cod
         "cosmos", "bge", "e5-", "math", "nemoretriever")
 
 _model_cache: dict[str, list[tuple[str, bool]]] = {}
-_dead: set[str] = set()
+_dead: set[tuple[str, str]] = set()
+# (provider, model) -> answers without usable JSON this run. Thinking models that write prose (~45 s each) and
+# endpoints that answer with something else entirely are skipped after MAX_STRIKES - a failed chain used to spend
+# its whole 4-minute budget asking the same ones again on every call.
+_strikes: dict[tuple[str, str], int] = {}
+MAX_STRIKES = 2
 
 
 def _cfg() -> dict:
@@ -206,7 +207,7 @@ def _call(p: str, model: str, prompt: str, frames: list[str] | None, temperature
         return None, r.status_code
     try:
         msg = r.json()["choices"][0]["message"]
-    except (KeyError, IndexError, ValueError):
+    except (KeyError, IndexError, ValueError, TypeError):
         log.warning("[ai-fallback] %s/%s odd response (HTTP %s, %s): %.300s", p, model, r.status_code,
                     r.headers.get("content-type", "?"), r.text)
         return None, 200
@@ -225,7 +226,7 @@ def chat_json(prompt: str, frames: list[str] | None = None, temperature: float =
         return None
     deadline = time.time() + int(_cfg().get("max_total_sec", 240))
     order = _cfg().get("providers", list(PROVIDERS)) if frames else \
-        _cfg().get("text_providers", ["cerebras", "groq", "sambanova", "github", "nvidia", "mistral", "gemma", "openrouter"])
+        _cfg().get("text_providers", ["cerebras", "groq", "sambanova", "nvidia", "mistral", "gemma", "openrouter"])
     for p in order:
         if p not in PROVIDERS or not env(PROVIDERS[p]["key"]):
             continue
@@ -247,5 +248,11 @@ def chat_json(prompt: str, frames: list[str] | None = None, temperature: float =
                 return data
             if status in (400, 401, 402, 403, 404):
                 _dead.add((p, model))
+            elif status == 200:  # it answered, but nothing usable
+                _strikes[(p, model)] = _strikes.get((p, model), 0) + 1
+                if _strikes[(p, model)] >= MAX_STRIKES:
+                    log.info("[ai-fallback] %s/%s gave no usable answer %d times - skipping it this run", p, model,
+                             MAX_STRIKES)
+                    _dead.add((p, model))
     _down_until = time.time() + 1800  # everything busy: don't keep retrying this run
     return None

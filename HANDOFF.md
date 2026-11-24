@@ -56,7 +56,7 @@ No longer on a timer (owner's plan 2026-11-20): viral stream clips are posted as
 | `autopilot.py` | entry point; maps cron -> slot; Short pipeline (`run_video_slot`: sources -> AI copy -> gates -> cut -> voice -> render -> publish), `run_remake`, text slots, history, run summary, learning refresh |
 | `source_fetcher.py` | footage discovery (YouTube search, Dailymotion, Twitch, X accounts, local, trailers), ranking, downloads (yt-dlp sections, YouTube client fallbacks, direct mp4 / HLS for X/Kick), blocked news/official channels |
 | `gemini_writer.py` | Gemini: watches clips (video+audio upload), writes copy (prompts CLIP_PROMPT, TOUR_PROMPT), model discovery (Flash, Flash-Lite, Pro), retries, `polish_packaging` (critic) |
-| `ai_fallback.py` | free backup AIs (frames only, no audio): **GitHub Models** (gpt-4.1 via workflow token, `permissions: models: read`), **Gemma** on the Gemini key, OpenRouter, NVIDIA, Groq, Mistral |
+| `ai_fallback.py` | free backup AIs (frames only, no audio): **Gemma** on the Gemini key, OpenRouter, NVIDIA, Groq, Mistral |
 | `critic.py` | second AI rewrites titles/banners/captions/long-video title+thumbnail text for CTR; rejects invented numbers/names |
 | `formats.py` | Video A rotation (top5_funny, car_chases, top5_things_to_do, secrets, stunts_crashes, stream_reactions, trending) + **learning** + series numbers; slot formats (Video B = `money_tips`, `slot_only`), money topic rotation, `trending` filled from the trend radar, stream-health switch |
 | `trends.py` | **trend radar** (free): YouTube/Google autocomplete, this week's biggest GTA 6 YouTube videos, Reddit, Twitch viewers -> AI topics in `queue/trends.json` (6 h cache); `stream_health()`, `pick()`, `context_line()` for X posts |
@@ -79,7 +79,7 @@ State (not in git): Actions cache `queue/` (manifest of sources/posts, history, 
 GEMINI_API_KEY, ZERNIO_API_KEY, YT_CLIENT_ID, YT_CLIENT_SECRET, YT_REFRESH_TOKEN, X_COOKIES, YTDLP_COOKIES, TWITCH_CLIENT_ID,
 TWITCH_CLIENT_SECRET, OPENROUTER_API_KEY, GROQ_API_KEY, NVIDIA_API_KEY, MISTRAL_API_KEY, CEREBRAS_API_KEY, SAMBANOVA_API_KEY
 (+ optional X_API_*, UPLOAD_POST_*). Text-only AI jobs use `ai_fallback.text_providers` order (Cerebras, Groq first); vision jobs `providers`.
-GITHUB_MODELS_TOKEN = the workflow's own GITHUB_TOKEN (no secret needed).
+(GitHub Models / GITHUB_MODELS_TOKEN was removed: GitHub retired the service on 2026-07-30.)
 
 ---------------------------------------------------------------------------------------------------------
 ## 4. Limits & lessons learned (important)
@@ -297,7 +297,20 @@ stream clip never asked Gemini at all (see below) - nothing was posted.
   (`script_judge.max_closing_words` 14; countdowns exempt - their last slot is "Number one").
 - Tests: `python -m pytest -m "not slow"` is the quick loop (~1 min; the two real-time download tests are now `slow`);
   CI still runs everything.
-- Not done / open: GitHub Models backup answers "OK" (text/plain) for every model in every run - endpoint or token
-  scope changed? (needs the token to debug). A "hook" criterion in the script judge was considered but held back: it
+- Not done / open: (GitHub Models: solved in section 16 - the service was retired.) A "hook" criterion in the script judge was considered but held back: it
   changes a carefully calibrated judge and may lower the post rate - try it in a dry run first. Verify all of the
   above with an Actions dry run (`slot=vertical_clip`, `dry_run=true`) and read `[qa] ... TIMINGS` + `[gemini] reusing`.
+
+## 16. Surviving AI outages + parallel slice downloads (2026-11-24, owner: "merge then 1 2 then live test and publish")
+- **An approved clip waits for a busy Gemini** (`autopilot.patient`, `video.ai_busy_retries` 2 x `ai_busy_wait_sec`
+  60, within `sources.time_budget_min`): when no AI can watch the clip to write / repair its script, the run waits
+  and asks again instead of dropping a clip that passed every gate (run 45448945826 dropped a hype-9 clip after one
+  busy spell; the logs show Gemini's 503s come and go within minutes).
+- **GitHub Models removed**: GitHub retired it on 2026-07-30 (https://github.blog/changelog/2026-07-30-github-models-is-now-retired/);
+  its endpoint answers every request with HTTP 200 text/plain "OK". Gone from `ai_fallback.PROVIDERS`, config and
+  the workflows (`models: read`, `GITHUB_MODELS_TOKEN`).
+- **Backup AIs waste less time**: a model that answers twice without usable JSON (thinking models writing prose,
+  ~45 s each) is skipped for the rest of the run (`ai_fallback.MAX_STRIKES`); `ai_fallback.max_total_sec` 240 -> 180
+  (answers that came at all came within ~30 s; failing chains used the whole 240 s).
+- **Tour slices download together** (`sources.tour.parallel_slices`, `source_fetcher._download_slices`): slice 1
+  alone (it gets the GTA 6 check), then the others at the same time (long_video already downloads 4 at once).

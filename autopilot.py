@@ -57,6 +57,24 @@ def repair_note(issues: list[dict], placed: list[dict]) -> str:
     return "\n".join(out)
 
 
+def patient(write, vcfg: dict, deadline: float):
+    """Gemini's 503 "high demand" comes and goes within minutes (a run's log: busy at 18:13, answering at 18:14,
+    busy again at 18:15). A clip that already passed every gate is worth a short wait: a run that dropped a hype-9
+    clip after one busy spell found nothing better - the next clip needs Gemini too, plus a download.
+    write() -> the writer's answer or None; asked again after video.ai_busy_wait_sec, up to ai_busy_retries times,
+    while the run's time budget (deadline) allows."""
+    w = write()
+    for _ in range(int(vcfg.get("ai_busy_retries", 2))):
+        wait = float(vcfg.get("ai_busy_wait_sec", 60))
+        if w or not env("GEMINI_API_KEY") or time.time() + wait > deadline:
+            break
+        log.info("[script] no AI could watch the video right now (Gemini busy?) - this clip passed every check: "
+                 "waiting %.0fs and asking again", wait)
+        time.sleep(wait)
+        w = write()
+    return w
+
+
 # --------------------------------------------------------------------------- slot resolution
 
 def _slot_from_cron(cron: str, slots: list[dict]) -> dict | None:
@@ -175,9 +193,10 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         tries = max(1, int(vcfg.get("script_attempts", 3)))
         feedback, last_issues = "", []
         for attempt in range(1, tries + 1):
-            w = write_final_script(video, copy, fmt, lead=lead, spans=spans, feedback=feedback,
-                                   slots=[{"t": it["t"], "text": it["text"]} for it in items] if slots else None,
-                                   n=1 if slots else max(1, int(vcfg.get("script_candidates", 3))))
+            w = patient(lambda: write_final_script(
+                video, copy, fmt, lead=lead, spans=spans, feedback=feedback,
+                slots=[{"t": it["t"], "text": it["text"]} for it in items] if slots else None,
+                n=1 if slots else max(1, int(vcfg.get("script_candidates", 3)))), vcfg, budget_end)
             if not w:
                 log.warning("[script] no AI could watch the whole video and write the script")
                 return None
@@ -232,9 +251,10 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         times) with QA's reasons; judged again. None = can't fix it."""
         import script_judge
         from gemini_writer import write_final_script
-        w = write_final_script(video, copy, fmt, lead=lead, spans=spans, slots=[{"t": ln["t"], "text": ln["text"]}
-                                                                               for ln in lines],
-                               feedback=why + "\nRewrite the WHOLE script (one story) so every line matches its moment.")
+        feedback = why + "\nRewrite the WHOLE script (one story) so every line matches its moment."
+        w = patient(lambda: write_final_script(
+            video, copy, fmt, lead=lead, spans=spans, slots=[{"t": ln["t"], "text": ln["text"]} for ln in lines],
+            feedback=feedback), vcfg, budget_end)
         if not w:
             return None
         verdict = script_judge.judge(w["lines"], _script_ctx(copy, w.get("story", "")))

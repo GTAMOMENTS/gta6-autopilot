@@ -549,6 +549,82 @@ def test_tour_stops_after_a_fake_first_slice():
     assert not list(sf.RAW_DIR.glob("slice*")), "slice files are cleaned up"
 
 
+def _slice_world(raise_on: str = ""):
+    """One tour candidate; downloads take 0.4 s and are counted while they run (+ the GTA 6 check's moment)."""
+    d = _isolate()
+    tpl = _video(d / "tpl.mp4", sec=6) if HAVE_TOOLS else None
+    cand = sf.Candidate("dm:tour", "https://www.dailymotion.com/video/tour", "GTA 6 free roam", "u", "dailymotion",
+                        900)
+    lock, st = threading.Lock(), {"active": 0, "peak": 0, "events": []}
+
+    def fake_dl(c, a, b, out, timeout=300):
+        with lock:
+            st["active"] += 1
+            st["peak"] = max(st["peak"], st["active"])
+            st["events"].append(("start", a, st["active"]))
+        try:
+            time.sleep(0.4)
+            if raise_on and Path(out).name.startswith(raise_on):
+                raise sf.FormatsLimited("hls-380:360p video+audio")
+            shutil.copy(tpl, out)
+            return True
+        finally:
+            with lock:
+                st["active"] -= 1
+
+    def fake_check(paths, meta=None):
+        st["events"].append(("check", meta[0]["section"][0], 0))
+        return [authentic._result("GTA VI", 0.95, "Vice City beach", 0.65)]
+    orig = (sf.discover, sf._download, authentic.check)
+    sf.discover, sf._download, authentic.check = (lambda cfg, manifest, fmt=None: [cand]), fake_dl, fake_check
+    return st, orig
+
+
+def test_tour_slices_download_together_after_the_first():
+    if not HAVE_TOOLS:
+        return
+    st, orig = _slice_world()
+    try:
+        got = list(sf.iter_clips(0, max_attempts=1))
+    finally:
+        sf.discover, sf._download, authentic.check = orig
+    kinds = [e[0] for e in st["events"]]
+    assert kinds[:2] == ["start", "check"] and st["events"][0][2] == 1, "slice 1 alone, checked before the rest"
+    assert st["peak"] == 2, f"slices 2 and 3 download at the same time ({st['events']})"
+    assert len(got) == 1 and got[0].is_reel and len(got[0].sections) == 3
+    starts = [a for a, _ in got[0].sections]
+    assert starts == sorted(starts), "the reel is in the video's own order"
+    got[0].clip_path.unlink(missing_ok=True)
+
+
+def test_tour_slices_one_by_one_when_parallel_is_off():
+    if not HAVE_TOOLS:
+        return
+    tour = common.load_config()["sources"].setdefault("tour", {})
+    old = tour.get("parallel_slices")
+    tour["parallel_slices"] = False
+    st, orig = _slice_world()
+    try:
+        got = list(sf.iter_clips(0, max_attempts=1))
+    finally:
+        sf.discover, sf._download, authentic.check = orig
+        tour["parallel_slices"] = True if old is None else old
+    assert st["peak"] == 1 and len(got) == 1
+    got[0].clip_path.unlink(missing_ok=True)
+
+
+def test_a_failing_slice_leaves_no_files_behind():
+    if not HAVE_TOOLS:
+        return
+    st, orig = _slice_world(raise_on="slice2_")
+    try:
+        assert list(sf.iter_clips(0, max_attempts=1)) == []
+    finally:
+        sf.discover, sf._download, authentic.check = orig
+    assert not list(sf.RAW_DIR.glob("slice*")), "every slice file is removed when one download rules the source out"
+    assert sf.load_manifest()["sources"]["dm:tour"]["fail_count"] >= 2
+
+
 if __name__ == "__main__":
     common.setup_logging()
     fails = 0

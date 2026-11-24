@@ -36,7 +36,7 @@ import requests
 
 from common import (LOCAL_CLIPS_DIR, MANIFEST_FILE, RAW_DIR, WORK_DIR, cookies_to_netscape, env,
                     load_config, load_json, parse_cookies, probe, run, save_json)
-from highlight import concat_files, cut_highlight
+from highlight import concat_files
 
 log = logging.getLogger("autopilot")
 
@@ -1087,7 +1087,6 @@ def iter_clips(target_sec: int, max_attempts: int = 6, skip_providers: set | Non
     manifest = load_manifest()
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     section_len = int(s.get("section_length_sec", 180))
-    style = s.get("clip_style", "auto")
     youtube_blocked = False
     yt_limited = 0  # YouTube videos that came back without any 720p+ stream this run
     dm_limited = 0  # same for Dailymotion
@@ -1130,20 +1129,7 @@ def iter_clips(target_sec: int, max_attempts: int = 6, skip_providers: set | Non
                     and not (fmt or {}).get("continuous")
                     and c.duration >= n_slices * slice_len * 2):
                 # feature-tour format: several slices from different parts -> one reel
-                ranges, files, fake = [], [], None
-                for k in range(n_slices):
-                    a, b = _pick_section(c, manifest, slice_len, avoid=[(x - 20, y + 20) for x, y in ranges])
-                    b = min(b if b > a else a + slice_len, int(c.duration))
-                    f = RAW_DIR / f"slice{k}_{sec_file.name}"
-                    log.info("[sources] downloading slice %d/%d [%ds-%ds] %s", k + 1, n_slices, a, b, c.title[:70])
-                    if not _download(c, a, b, f):
-                        continue
-                    ranges.append((a, b))
-                    files.append(f)
-                    if len(files) == 1:
-                        fake = _first_slice_fake(c, f, (a, b))
-                        if fake:
-                            break
+                ranges, files, fake = _download_slices(c, manifest, sec_file, n_slices, slice_len)
                 if fake or len(files) < 2:
                     for f in files:
                         f.unlink(missing_ok=True)
@@ -1219,6 +1205,42 @@ def iter_clips(target_sec: int, max_attempts: int = 6, skip_providers: set | Non
         # the AI editor (autopilot.py) watches this whole section / reel and picks the best part(s)
         yield ClipSource(candidate=c, clip_path=sec_file, section=(start, end), segments=[],
                          sections=ranges, is_reel=bool(ranges))
+
+
+def _download_slices(c: Candidate, manifest: dict, sec_file: Path, n: int,
+                     length: int) -> tuple[list[tuple[int, int]], list[Path], str | None]:
+    """A tour reel's slices: the first one alone - it gets the GTA 6 check, a fake video stops there - then the
+    others at the same time (one after another they took 1-4 min each; sources.tour.parallel_slices). Returns the
+    windows and files of the slices that arrived, plus why the video is fake (None = not known to be). A download
+    error that rules the source out (bot check, no HD stream) is raised after every slice file is removed."""
+    windows: list[tuple[int, int]] = []
+    for _ in range(n):
+        a, b = _pick_section(c, manifest, length, avoid=[(x - 20, y + 20) for x, y in windows])
+        windows.append((a, min(b if b > a else a + length, int(c.duration))))
+    paths = [RAW_DIR / f"slice{k}_{sec_file.name}" for k in range(n)]
+
+    def fetch(k: int) -> bool:
+        a, b = windows[k]
+        log.info("[sources] downloading slice %d/%d [%ds-%ds] %s", k + 1, n, a, b, c.title[:70])
+        return _download(c, a, b, paths[k])
+
+    try:
+        got = [0] if fetch(0) else []
+        fake = _first_slice_fake(c, paths[0], windows[0]) if got else None
+        rest = list(range(1, n))
+        if rest and not fake:
+            if load_config().get("sources", {}).get("tour", {}).get("parallel_slices", True):
+                from concurrent.futures import ThreadPoolExecutor
+                with ThreadPoolExecutor(max_workers=len(rest)) as pool:
+                    oks = list(pool.map(fetch, rest))
+            else:
+                oks = [fetch(k) for k in rest]
+            got += [k for k, ok in zip(rest, oks) if ok]
+    except Exception:
+        for f in paths:
+            f.unlink(missing_ok=True)
+        raise
+    return [windows[k] for k in got], [paths[k] for k in got], fake
 
 
 def _first_slice_fake(c: Candidate, path: Path, window: tuple[int, int]) -> str | None:
