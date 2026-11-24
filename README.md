@@ -7,25 +7,28 @@ running free on GitHub Actions.
 
 ## Daily schedule (fully automatic)
 
-**4 Shorts + 1 long YouTube video a day**; the Shorts go to YouTube Shorts + Instagram + TikTok + X, at peak hours
-(times in Turkey time, TRT; each run starts ~20 min early so the post is live on the hour):
+**2 Shorts a day on every platform** (YouTube Shorts, Instagram, TikTok, X), **3 X text posts**, and **a long
+YouTube video every 3 days**. Times are Turkey time (TRT); GitHub often starts scheduled runs 30-60 min late.
 
-| Live at (TRT) | Audience peak |
+| Run at (TRT) | What |
 |---|---|
-| 14:00 | Europe lunch break |
-| 18:00 | US morning (11:00 New York) |
-| 21:00 | **Long YouTube video** (Europe prime time / US lunch) |
-| 00:00 | US afternoon (17:00 New York) |
-| 03:00 | US prime time (20:00 New York) |
+| 15:10 | Long YouTube video, every 3 days (counted from the last one that posted), published once it passes QA |
+| 16:50 | X text post (question / poll) |
+| 19:40 | **Video A**: next format in the rotation |
+| 22:10 | X text post (hot take / poll) |
+| 01:40 | **Video B**: the format after it |
+| 04:20 | X text post (daily recap) |
 
-Plus 3 text posts on X (09:50, 16:20, 22:20). Change times in `config.json → schedule` **and** the
-matching `cron` lines in `.github/workflows/main.yml`.
+Change times in `config.json → schedule` **and** the matching `cron` lines in `.github/workflows/main.yml`.
+If a Short slot posts nothing, the most viral famous-streamer clip goes out instead (not on Instagram).
 
 **Formats rotate automatically** - every video run makes the next one in `config.json → formats.rotation`:
 Top 5 funniest moments → Fast car chases → Top 5 things to do → Secrets & hidden details →
-Crazy stunts & crashes → Funniest streamer reactions → (repeat). Each format has its own search
-queries, and the AI is told to make exactly that video (countdowns say "Number five... number one").
-Footage that can't honestly fit the format is skipped (used only as a last-resort backup).
+Crazy stunts & crashes → Trending topic → (repeat). All of them are narrated, so every Short can go to
+Instagram (raw streamer clips stay off it). Each format has its own search queries, and the AI is told to make
+exactly that video (countdowns say "Number five... number one"). Footage that can't honestly fit the format is
+skipped (used only as a last-resort backup). Formats with `slot_only` (Money Tips, streamer reactions) are only
+made on request (`format` input of a manual run).
 
 **Editing for retention** (all automatic, no copyright):
 - **Cold open**: every single-moment video starts with a 1.2 s flash of its biggest moment, then plays the clip.
@@ -39,15 +42,15 @@ format has 2+ videos, mostly picks the best performing formats (25% of runs stil
 title, 3-5 targeted hashtags (YouTube ignores all hashtags if there are more than 15), and the ending question as
 the first YouTube comment (needs the comment permission: re-run `tools/youtube_auth.py` once).
 
-**Daily long YouTube video** (`long_video.py`, slot `long_video` at 20:10 TRT): a 5-10 min 16:9 countdown of the
+**Long YouTube video every 3 days** (`long_video.py`, slot `long_video` at 15:10 TRT): a 5-10 min 16:9 countdown of the
 day's best GTA 6 stream moments (top Twitch streams, English Kick, X clip accounts). The AI reviews the clips in
 batches (real GTA 6, no spoilers, nothing unsafe, hype), trims each to its best part and writes a label + one
 narration line per moment. Edit: cold open of #1, title card + Fenrir line per moment (weakest first, #1 last),
 whoosh between clips, subscribe outro, even loudness. YouTube gets a title with streamer names, chapters, credit links
-for every clip, an auto thumbnail (custom thumbnails need a phone-verified channel) and a first comment. It replaces one
-Short: **4 Shorts + 1 long video a day** fits YouTube's free upload quota (about 6/day).
+for every clip, an auto thumbnail (custom thumbnails need a phone-verified channel) and a first comment. 2 Shorts a
+day + a long video every 3 days stays well inside YouTube's free upload quota (about 6 uploads a day).
 
-**Viral stream clips** (`stream_clips.py`, workflow `streams.yml`, every 30 min, separate from the daily videos):
+**Viral stream clips** (`stream_clips.py`; workflow `streams.yml` by hand only; the fallback for a Short slot):
 finds the most-watched GTA 6 streams right now and posts their best clip with the streamer's **real voice**, big
 word-by-word subtitles and a hook banner - no AI voice-over. Sources: top live streams on **Twitch** (needs free
 `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET`) and **Kick** (English, no key), big streamers' **YouTube** stream

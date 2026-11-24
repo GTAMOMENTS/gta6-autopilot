@@ -31,10 +31,7 @@
         "tiktok",
         "youtube"
       ],
-      "platform_from": {
-        "youtube": "2026-11-27T00:00:00Z"
-      },
-      "_note": "Video A: normal rotation (11:40 New York) -> Instagram (paused), X, TikTok, YouTube Shorts from week 2. TikTok added 2026-11-20 once posts started getting views (owner's plan: 2/day on TikTok after the 0-views fix)."
+      "_note": "Video A: normal rotation (11:40 New York) -> Instagram, X, TikTok, YouTube Shorts. Owner 2026-11-24: two videos a day on every platform (Video A + Video B); the YouTube start date (platform_from) was removed."
     },
     {
       "time": "22:10",
@@ -71,7 +68,7 @@
       ],
       "every_days": 3,
       "not_before": "2026-11-23T11:00:00Z",
-      "_note": "Long video every 3 days, ready ~17:00 TRT for the owner to publish ~22:00 TRT (never auto-published). The money guide of 2026-11-20 is published by hand; the next automatic one is 2026-11-23."
+      "_note": "Long video every 3 days (counted from the last one that posted), published automatically once it passes QA (owner 2026-11-24; long_video.require_approval)."
     }
   ],
   "publishing": {
@@ -907,6 +904,8 @@
       },
       {
         "id": "stream_reactions",
+        "slot_only": true,
+        "_slot_only_note": "Owner 2026-11-24: narrated videos only in the rotation, so every scheduled video can go to Instagram (raw streamer clips stay off it - 'not original' flag of 2026-11-20). Still made by format=stream_reactions on a manual run, and streamer clips remain the fallback when a narrated video fails.",
         "name": "Funniest streamer reactions",
         "kind": "stream",
         "brief": "A streamer's funniest or wildest reaction to something that happens in GTA 6. Set up what's about to happen, then let the reaction land.",
@@ -1284,7 +1283,8 @@
     "preset": "veryfast",
     "crf": 21,
     "max_repeated_frames": 0.2,
-    "require_approval": true,
+    "require_approval": false,
+    "_approval_note": "Owner 2026-11-24: the long video (every 3 days) is published automatically once it passes QA. true = it waits in queue/pending_long for slot approve_long or a manual upload.",
     "jump_cuts": true,
     "punchline_inserts": true,
     "replays": 3,

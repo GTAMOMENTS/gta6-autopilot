@@ -100,11 +100,21 @@ def test_format_env_overrides_everything(cfg, slots, monkeypatch):
 
 # --------------------------------------------------------------------------- Video A rotation
 
-def test_rotation_never_makes_money_tip_and_has_trending(cfg):
+def test_rotation_is_narrated_only_and_has_trending(cfg):
+    """Owner 2026-11-24: two videos a day on every platform - raw streamer clips can't go to Instagram ('not
+    original' flag), so the rotation makes narrated videos only. The formats still exist for manual runs."""
     ids = [x["id"] for x in formats._rotation(cfg)]
-    assert "money_tips" not in ids
-    assert "trending" in ids and "stream_reactions" in ids
+    assert "money_tips" not in ids and "stream_reactions" not in ids
+    assert "trending" in ids
     assert formats.format_by_id("MONEY_TIPS", cfg)["id"] == "money_tips", "lookup ignores case"
+    assert formats.format_by_id("stream_reactions", cfg)["kind"] == "stream"
+
+
+def test_every_video_slot_posts_everywhere_and_long_publishes_itself(cfg, slots):
+    for kind in ("vertical_clip", "video_b"):
+        assert set(slots[kind]["platforms"]) == {"instagram", "x", "tiktok", "youtube"}
+        assert not slots[kind].get("platform_from"), f"{kind} posts on every platform from today"
+    assert slots["long_video"]["every_days"] == 3 and cfg["long_video"]["require_approval"] is False
 
 
 def test_rotation_advances_and_wraps(cfg, slots):
@@ -137,13 +147,20 @@ def test_specialize_returns_copy(cfg):
     assert made is not original and "topic" not in original
 
 
+def put_streams_back(cfg):
+    """The stream-health switch still works if the owner brings streamer clips back into the rotation."""
+    formats.format_by_id("stream_reactions", cfg)["slot_only"] = False
+
+
 def test_stream_reactions_stays_when_streams_strong(cfg, slots):
+    put_streams_back(cfg)
     save_trends(HOT_TOPICS, STRONG)
     set_next("stream_reactions", cfg)
     assert formats.current_format(cfg, slots["vertical_clip"])["id"] == "stream_reactions"
 
 
 def test_stream_reactions_becomes_trending_when_streams_quiet(cfg, slots):
+    put_streams_back(cfg)
     save_trends(HOT_TOPICS, STRONG + [(time.time(), 15000)])
     assert trends.stream_health()["weak"] is True
     set_next("stream_reactions", cfg)
