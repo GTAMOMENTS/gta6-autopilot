@@ -5,7 +5,7 @@ on:
     # UTC times = TRT (Europe/Istanbul, UTC+3) minus 3h. Must match config.json "schedule".
     # Owner's plan (2026-11-20): Video A + Video B every day, 3 X text posts, a long video every 3 days
     # (the cron fires daily; config.json "every_days" makes the bot skip the in-between days).
-    - cron: '10 12 * * *'   # 15:10 TRT  long_video     (ready ~17:00 TRT; the owner publishes ~22:00 TRT)
+    - cron: '10 12 * * *'   # 15:10 TRT  long_video     (every 3 days, published automatically after QA)
     - cron: '50 13 * * *'   # 16:50 TRT  x_text_morning (question / poll, 08:50 New York)
     - cron: '40 16 * * *'   # 19:40 TRT  vertical_clip  Video A: rotation (11:40 New York)
     - cron: '10 19 * * *'   # 22:10 TRT  x_question_nostalgia (hot take / poll)

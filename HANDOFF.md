@@ -23,7 +23,7 @@ Written 2026-11-19 by the previous assistant. Repo: https://github.com/GTAMOMENT
 | Brands | Naming cars/brands in scripts/titles is **OK** (`quality_gate.block_brand_names=false`). Brand **hashtags** (#RockstarGames, #PS5...) stay removed (Instagram flagged "branded content" once). |
 | Length | **No minimum length** for Shorts (a 1:15 minimum was tried and rejected - it dropped good short clips). |
 | Streamers | **Only famous English-speaking streamers** (no Turkish/Spanish/etc.). |
-| Schedule | **Owner's plan (2026-11-20), see section 8**: Video A (rotation) + Video B (GTA 6 Money Tip) every day, 3 X text posts, 1 long YouTube video every 3 days (owner publishes long videos himself). Viral stream clips are part of Video A. |
+| Schedule | **Owner's plan (2026-11-24), see section 17**: 2 narrated Shorts a day (Video A + Video B) on every platform (YouTube Shorts, Instagram, TikTok, X), 3 X text posts, 1 long YouTube video every 3 days, published automatically after QA. Streamer clips only as the fallback when a Short slot posts nothing. |
 | Quality | Must not post junk: script gate (>=4 lines/35 words, written by an AI that saw the clip), hype gate, choppy-clip filter. |
 | Merging | **Owner (2026-11-20): "merge automatically when you deem it necessary"** - test (local + Actions dry run where it matters), then merge the PR yourself (REST: `gh api -X PUT repos/GTAMOMENTS/gta6-autopilot/pulls/N/merge -f merge_method=merge`; GraphQL is blocked in the session). Tell the owner what was merged and why. |
 
@@ -33,11 +33,11 @@ Written 2026-11-19 by the previous assistant. Repo: https://github.com/GTAMOMENT
 ### Workflow `.github/workflows/main.yml` ("GTA6 Top Moments 24/7 Autopilot") - one queue for real runs
 | TRT | UTC cron | Slot | What |
 |---|---|---|---|
-| 15:10 | 10 12 | **long_video** (every 3 days) | 16:9 long video, rotation: stream-moments countdown <-> money guide (trend guide when streams are quiet). Never auto-published: QA pass -> waits for the owner (slot `approve_long` or upload by hand) |
+| 15:10 | 10 12 | **long_video** (every 3 days) | 16:9 long video: stream-moments countdown (trend guide when streams are quiet). Published automatically after QA (owner 2026-11-24; `long_video.require_approval` true = waits for the owner) |
 | 16:50 | 50 13 | x_text_morning | X text: question / poll (uses today's trends) |
-| 19:40 | 40 16 | vertical_clip = **Video A** | rotation format -> Instagram, X, YouTube Shorts (YouTube only from 2026-11-27, `platform_from`) |
+| 19:40 | 40 16 | vertical_clip = **Video A** | rotation format (narrated) -> Instagram, X, TikTok, YouTube Shorts |
 | 22:10 | 10 19 | x_question_nostalgia | X text: hot take / this-or-that |
-| 01:40 | 40 22 | video_b = **Video B** | second video from the normal rotation -> X, TikTok, YouTube Shorts (money content dropped 2026-11-21) |
+| 01:40 | 40 22 | video_b = **Video B** | second video from the normal rotation -> Instagram, X, TikTok, YouTube Shorts |
 | 04:20 | 20 1 | x_daily_recap | X text: recap |
 Manual runs: Actions -> Run workflow -> `slot` (check_setup, voice_samples, vertical_clip, money_clip, trends, test_all, remake,
 stream_clip, long_video, approve_long, text slots), `dry_run`, `format` (Shorts formats, or long kinds moments / money_guide /
@@ -139,8 +139,8 @@ charm pack, learning, stream clips, long video, English-only + choppy filter, Ge
 - Long videos: jump cuts (dead air removed), REPLAY (slow-mo) / REACTION (facecam close-up) inserts after the top 3
   moments, hook + COMING UP preview (see section 9), audio polish (noise reduction, compression, limiter), light colour grade +
   sharpening, optional `music/` bed, 3 thumbnails (Test & Compare), facecam cut-out on thumbnails.
-- **Long videos are never auto-published** (`long_video.require_approval`): after QA passes they wait in
-  `queue/pending_long/`; the owner uploads by hand or runs the workflow with slot `approve_long`.
+- Long videos were not auto-published until 2026-11-24 (`long_video.require_approval`, now false - section 17): with
+  it on, they wait in `queue/pending_long/` for a manual upload or the workflow's slot `approve_long`.
 - Stream-clip Shorts: facecam-on-top / gameplay-below layout when the AI finds a webcam (`stream_clips.facecam_layout`).
 - QA caught on real footage (dry run 1): the narrator said "Number four" while the card showed "#13" (the AI wrote the
   lines before the countdown order existed) -> numbers are now added AFTER ordering (`_strip_rank` / `_ranked`), and
@@ -314,3 +314,20 @@ stream clip never asked Gemini at all (see below) - nothing was posted.
   (answers that came at all came within ~30 s; failing chains used the whole 240 s).
 - **Tour slices download together** (`sources.tour.parallel_slices`, `source_fetcher._download_slices`): slice 1
   alone (it gets the GTA 6 check), then the others at the same time (long_video already downloads 4 at once).
+
+## 17. Two Shorts a day everywhere + auto-published long video (owner, 2026-11-24)
+- Owner: "push two vids a day on each platform and 1 long every 3 days". Video A's YouTube start date
+  (`platform_from` 2026-11-27) is removed: Video A + Video B both go to YouTube Shorts, Instagram, TikTok, X.
+- Instagram keeps refusing raw streamer clips (`publishing.no_raw_clips_on`, the "not original" flag of 2026-11-20),
+  so the owner chose **narrated videos only**: `stream_reactions` is `slot_only` (out of the rotation; still
+  available as `format=stream_reactions` on a manual run, and streamer clips stay the fallback when a Short slot posts
+  nothing - that fallback still skips Instagram).
+- The long video (every 3 days, counted from the last one that posted) **publishes itself after QA**
+  (`long_video.require_approval: false`). Videos already waiting for approval stay untouched (they need
+  `approve_long`) and expire after 6 days.
+- YouTube API quota: 2 Shorts + a long every 3 days = at most 3 uploads a day (~4,800 of 10,000 units).
+- Live test of the new code (run 45481334656, manual Video A, 2026-11-24 23:30 TRT): posted a streamer clip (the
+  rotation was on `stream_reactions`) to X + TikTok in ~8 min, QA 9/10 with the new TIMINGS line. The first
+  narrated Short on the new code is the next scheduled run.
+- Seen in that run, not fixed yet: Gemini Flash's daily quota was used up (429) by evening; `_generate_json` waited
+  40 s even though a model on cooldown answered right after (round 1 only tried the 404 Pro model).
