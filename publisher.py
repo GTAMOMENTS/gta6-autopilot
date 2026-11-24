@@ -280,7 +280,7 @@ def build_captions(copy: dict, credit: str) -> dict:
         "instagram": "\n.\n".join(x for x in ("\n".join(social), credit_line, tags_for("instagram", 5)) if x).strip(),
         "tiktok": "\n".join(x for x in ("\n".join(social), tags_for("tiktok", 5), credit_line) if x).strip()[:2200],
         "x": x_full[:280],
-        "tags": youtube_tags(["GTA 6", keywords, *critic.relevant_searches(about, 3), core_series,
+        "tags": youtube_tags(["GTA 6", *critic.keyword_list(keywords), *critic.relevant_searches(about, 3), core_series,
                               "Grand Theft Auto 6", "GTA VI", *[t.lstrip("#") for t in tags]], money),
         "first_comment": first_comment,
     }

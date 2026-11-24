@@ -12,9 +12,11 @@ Robustness:
 """
 from __future__ import annotations
 
+import atexit
 import logging
 import random
 import re
+import threading
 import time
 from datetime import date
 from pathlib import Path
@@ -216,9 +218,62 @@ def _try_model(types, model: str, contents, temperature: float) -> tuple[dict | 
     return None, False
 
 
+_uploads: dict[tuple, object] = {}  # (path, size, mtime) -> ACTIVE Gemini file of that exact file content
+_uploads_lock = threading.Lock()
+_cleanup_registered = False
+
+
+def _file_id(clip: Path) -> tuple | None:
+    try:
+        st = Path(clip).stat()
+    except OSError:
+        return None
+    return str(Path(clip).resolve()), st.st_size, st.st_mtime_ns
+
+
+def _delete_upload(f) -> None:
+    try:
+        _client().files.delete(name=f.name)
+    except Exception:  # noqa: BLE001 - the file expires on its own after 48 h
+        pass
+
+
+def release_uploads(clip: Path | None = None) -> None:
+    """Delete this run's Gemini uploads of `clip` (every version of that file), or all of them."""
+    path = str(Path(clip).resolve()) if clip else None
+    with _uploads_lock:
+        files = [_uploads.pop(k) for k in [k for k in _uploads if path is None or k[0] == path]]
+    for f in files:
+        _delete_upload(f)
+
+
 def _upload_video(clip: Path):
+    """The clip on the Gemini Files API, uploaded ONCE per file per run: the editor, every script attempt and a
+    repair watch the same upload (a 5-min tour reel took ~50 s to encode + upload - three times for one posted
+    Short). A changed file (a re-render) has a new size / modification time, so it is uploaded again. Uploads
+    are deleted by release_uploads() - all of them when the run ends."""
+    global _cleanup_registered
+    fid = _file_id(clip)
+    with _uploads_lock:
+        if fid in _uploads:
+            log.info("[gemini] reusing this run's upload of %s", Path(clip).name)
+            return _uploads[fid]
+    f = _upload_proxy(clip)
+    if f is None or fid is None:
+        return f
+    with _uploads_lock:
+        kept = _uploads.setdefault(fid, f)
+        register = not _cleanup_registered
+        _cleanup_registered = True
+    if register:
+        atexit.register(release_uploads)
+    if kept is not f:  # another thread uploaded the same file meanwhile
+        _delete_upload(f)
+    return kept
+
+
+def _upload_proxy(clip: Path):
     """Upload a light 480p proxy of the clip to the Gemini Files API."""
-    import threading
     WORK_DIR.mkdir(parents=True, exist_ok=True)
     proxy = WORK_DIR / f"gemini_proxy_{threading.get_ident()}.mp4"  # own file per thread (parallel checks)
     src_dur = probe(clip)["duration"] or 0
@@ -497,11 +552,7 @@ def write_clip_copy(clip: Path, title: str, credit: str, provider: str, kind: st
         prompt = build("The attached video is the raw footage" + (" (several slices of one gameplay video joined "
                        "together)" if tour else "") + ". Watch ALL of it carefully before choosing.")
         data = _generate_json([uploaded, prompt])
-        ai_source = "gemini-video"
-        try:
-            _client().files.delete(name=uploaded.name)
-        except Exception:  # noqa: BLE001
-            pass
+        ai_source = "gemini-video"  # the upload stays: a tour's script writer watches this same reel
 
     # 2) Gemini busy -> free vision model looks at frames sampled from the clip
     if data is None and ai_fallback.available():
@@ -853,8 +904,12 @@ def packaging_note(fmt: dict | None) -> str:
     if len(phrases) < 3:
         phrases += [p for p in critic.top_searches(8) if p not in phrases][: 6 - len(phrases)]
     bits = []
-    if fmt.get("keywords"):
-        bits.append(f'Main search phrase of this format: "{fmt["keywords"]}".')
+    main = critic.keyword_list(fmt.get("keywords", ""))
+    if len(main) == 1:
+        bits.append(f'Main search phrase of this format: "{main[0]}".')
+    elif main:  # stacking them reads like spam ("GTA 6 police chase car chase at the airport")
+        bits.append("Main search phrases of this format: " + " / ".join(f'"{k}"' for k in main)
+                    + " - use ONE of them where it reads naturally, never several in a row.")
     if phrases:
         bits.append("GTA 6 players search for these right now: " + "; ".join(f'"{p}"' for p in phrases)
                     + " - use one word for word in youtube_title / caption ONLY if it honestly fits what the clip shows.")
@@ -1068,7 +1123,8 @@ Write it like the best GTA Shorts creators:
 - {numbering}
 - vary the words (don't repeat the same noun in every line); say "GTA 6" at most once
 - {amount}
-- the last line, about 3-4 seconds before the end, is a short question to the viewer about THIS video
+- the last line, about 3-4 seconds before the end, is ONE short question to the viewer about THIS video (max 14
+  words, nothing else in that line - never tack the question onto a long sentence)
 - no story spoilers, no hashtags, no emojis
 {slots}{feedback}
 {hints}
@@ -1187,13 +1243,7 @@ def write_final_script(clip: Path, copy: dict, fmt: dict | None = None, lead: fl
         return None
     if up is None:
         return None
-    try:
-        data = _generate_json([up, prompt], temperature=0.8, prefer_pro=True)
-    finally:
-        try:
-            _client().files.delete(name=up.name)
-        except Exception:  # noqa: BLE001
-            pass
+    data = _generate_json([up, prompt], temperature=0.8, prefer_pro=True)  # the upload is reused by the next attempt
     if not isinstance(data, dict):
         return None
     many = data.get("scripts") if isinstance(data.get("scripts"), list) else [data]

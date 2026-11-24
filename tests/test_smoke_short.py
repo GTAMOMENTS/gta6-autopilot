@@ -191,11 +191,12 @@ def test_best_of_three_scripts_is_used(cfg, short_world, fake_tts, sandbox, monk
     """Each attempt writes 3 different scripts; the judge scores all of them and the best one that passes is voiced
     (no second attempt needed)."""
     import script_judge
-    alt_lines = ["He had one job today: land the jump and drive home quietly.",
-                 "He chose violence instead, and the ramp chose gravity.",
-                 "The cops behind him are still trying to work out what just happened.",
-                 "Honestly? Ten out of ten commitment, zero out of ten planning.",
-                 "Would you have tried that jump or taken the boring bridge?"]
+    # fits the 12 s clip (the first version of this test had 2 of its 5 lines silently cut by the renderer)
+    alt_lines = ["He had one job today: land the jump.",
+                 "He chose violence, and the ramp chose gravity.",
+                 "The cops are still working out what happened.",
+                 "Ten out of ten commitment, zero planning.",
+                 "Jump or the boring bridge, what's your call?"]
 
     def writer(clip, copy, fmt=None, lead=0.0, spans=None, feedback="", slots=None, n=1):
         short_world.setdefault("n", []).append(n)
@@ -213,3 +214,34 @@ def test_best_of_three_scripts_is_used(cfg, short_world, fake_tts, sandbox, monk
     assert ok, rec
     assert short_world["n"] == [3], "one attempt, three scripts"
     assert [ln["text"] for ln in rec["copy"]["commentary"]][:2] == alt_lines[:2]
+    assert [ln["text"] for ln in rec["voice_lines"]] == alt_lines, "the whole approved script is in the video"
+
+
+def test_script_too_long_for_the_clip_is_rewritten_shorter(cfg, short_world, fake_tts, sandbox, monkeypatch):
+    """The renderer drops lines the voice-over has no room for - the posted story would miss lines the judge
+    approved. QA catches it before any slow check, the writer rewrites the whole script shorter, QA passes."""
+    import lessons
+    long_lines = [f"{w} and honestly this whole ramp situation keeps getting more ridiculous every second."
+                  for w in ("He floors it", "Five stars chase him", "The cop car follows", "Everyone screams")] + [
+        "Would you have taken the bridge or tried that jump yourself today?"]
+    short_lines = ["He floors it.", "Five stars behind him.", "The cop car follows.", "Gravity wins.",
+                   "Bridge or ramp?"]
+
+    def writer(clip, copy, fmt=None, lead=0.0, spans=None, feedback="", slots=None, n=1):
+        if slots:
+            short_world.setdefault("repair", []).append(feedback)
+            return {"lines": [{"t": s["t"], "text": t} for s, t in zip(slots, short_lines)], "banner": "", "title": "",
+                    "story": "ramp jump"}
+        return {"lines": [{"t": round(lead + 0.1 + i * 2.5, 2), "text": t} for i, t in enumerate(long_lines)],
+                "banner": "", "title": "", "story": "ramp jump"}
+    monkeypatch.setattr(gemini_writer, "write_final_script", writer)
+    slot = {"type": "vertical_clip", "platforms": ["x"], "time": "19:40"}
+    ok, rec = autopilot.run_video_slot(slot, dry_run=True, fmt=formats.format_by_id("stunts_crashes", cfg))
+    assert ok, rec
+    assert len(short_world["repair"]) == 1 and "TOO LONG FOR THE VIDEO" in short_world["repair"][0]
+    assert [ln["text"] for ln in rec["voice_lines"]] == short_lines, "every approved line is in the posted video"
+    assert len(short_world["technical"]) == 1, "the too-long render never reached the slow checks"
+    first, last = lessons._load()["attempts"][-2:]
+    assert first["stage"] == "final" and not first["pass"] and last["stage"] == "repair" and last["pass"]
+    assert "script_lines_dropped" in first["types"]
+    assert "too long for their video" in lessons.prompt_hints("stunts_crashes"), "the writer learns from it"

@@ -152,3 +152,15 @@ def test_dead_air_is_caught():
     full = [{"t": 1.3 + i * 4.5, "text": "He keeps finding new ways to make this marina regret everything today."}
             for i in range(13)]
     assert sj.dead_air(full, 59.2, lead=1.2) == []
+
+
+def test_closing_question_must_be_short_and_on_its_own():
+    buried = ("Bro swaps for a delivery van and tears straight across the tarmac while dodging cruisers, but would "
+              "you survive this airport chase?")  # the last line of a posted Short (2026-11-23)
+    probs = sj.static_problems(GOOD[:-1] + [buried])
+    assert any("closing question is buried in a 22-word line" in p for p in probs)
+    assert not any("buried" in p for p in sj.static_problems(GOOD[:-1] + ["Would you survive this airport chase?"]))
+    # a countdown's last slot is "Number one: ..." - the question shares that line, it isn't buried
+    countdown = ["Number two: he parks the bike on a palm tree, which is honestly a talent.",
+                 "Number one: the cop car follows him off the pier and both of them go swimming, would you?"]
+    assert not any("buried" in p for p in sj.static_problems(countdown, numbered_ok=True, countdown=2))

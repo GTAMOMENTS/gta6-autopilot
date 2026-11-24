@@ -26,6 +26,35 @@ from common import (HISTORY_FILE, READY_DIR, env, load_config, load_json, now_lo
 log = logging.getLogger("autopilot")
 VIDEO_TYPES = ("vertical_clip", "video_b", "money_clip", "x_video_clip", "test_all")
 SEARCH_PROVIDERS = {"dailymotion", "youtube", "twitch_clip", "twitch_vod", "x_account"}  # need the AI check
+# QA problems a rewrite of the script fixes without new footage: lines the picture doesn't show, and approved
+# lines the voice-over had no room for
+REPAIRABLE = ("line_not_shown", "script_lines_dropped")
+
+
+def repairable(issues: list[dict]) -> list[dict]:
+    """The high QA issues a script rewrite can fix - [] if anything else blocks too (then the clip is skipped).
+    The AI editor's own verdict / score / narration remarks restate the line problems, so they don't prevent a
+    repair: the repaired video goes through the full QA again."""
+    high = [i for i in issues if str(i.get("severity")) == "high"]
+    fix = [i for i in high if i.get("type") in REPAIRABLE and isinstance(i.get("index"), int)]
+    other = [i for i in high if i.get("type") not in REPAIRABLE + ("ai_verdict", "ai_score")
+             and not any(w in str(i.get("type")) for w in ("narration", "mismatch"))]
+    return fix if fix and not other else []
+
+
+def repair_note(issues: list[dict], placed: list[dict]) -> str:
+    """What the writer is told when it rewrites the whole script after QA."""
+    wrong = [i for i in issues if i.get("type") == "line_not_shown" and 0 <= i["index"] < len(placed)]
+    dropped = [i for i in issues if i.get("type") == "script_lines_dropped"]
+    out = []
+    if wrong:
+        out.append("QA REJECTED these lines because the picture doesn't show them:\n" + "\n".join(
+            f'- "{placed[i["index"]]["text"]}": {i.get("reason", "")}' for i in wrong))
+    if dropped:
+        out.append("THE SCRIPT IS TOO LONG FOR THE VIDEO - the voice-over had no room, so these lines were cut:\n"
+                   + "\n".join(f'- "{i.get("text", "")}"' for i in dropped)
+                   + "\nMake every line about a third shorter so ALL of them fit, the closing question included.")
+    return "\n".join(out)
 
 
 # --------------------------------------------------------------------------- slot resolution
@@ -90,7 +119,8 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
     from gemini_writer import script_ok, write_clip_copy
     from highlight import best_window, cut_segments, energy_curve, energy_hints
     from publisher import _available, publish_video, routes_for
-    from source_fetcher import iter_clips, load_manifest, mark_rejected, mark_used, save_manifest
+    from source_fetcher import (AUTHENTICITY_PROVIDERS, iter_clips, load_manifest, mark_rejected, mark_used,
+                                save_manifest)
     from video_processor import HumanVoiceUnavailable, render, synthesize_lines
 
     cfg = load_config()
@@ -118,6 +148,12 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
     def _mute(copy) -> float | None:
         """Footage with another YouTuber talking (allowed for some formats): their voice is muted."""
         return 0.0 if (fmt or {}).get("allow_narrated") and copy.get("has_narrator") else None
+
+    def _approved(rendered: dict | None, texts: list[str]) -> dict | None:
+        """Remember which script the judge approved - QA checks the video says all of it."""
+        if rendered:
+            rendered["approved"] = list(texts)
+        return rendered
 
     def _script_ctx(copy, story="") -> dict:
         return {"fmt": f"{(fmt or {}).get('name', 'GTA 6 Short')}. {(fmt or {}).get('brief', '')}"[:500],
@@ -229,7 +265,8 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
                        "plays again at its real place in the clip - that repeat is NOT a montage error. "
                        if float(vcfg.get("fx", {}).get("teaser_sec", 0)) > 0 and not src.is_reel else "")
         def _qa(r):
-            return qa.check(Path(r["path"]), "short", lines=r.get("placed"), script_review=copy.get("script_review"),
+            return qa.check(Path(r["path"]), "short", lines=r.get("placed"), approved=r.get("approved"),
+                            script_review=copy.get("script_review"),
                             context=f"{teaser_note}Format: {(fmt or {}).get('name', '')}. Banner: {copy.get('banner')}. "
                                     f"Title: {copy.get('youtube_title', '')}. "
                                     f"Narration lines with start times (also burned in as captions): "
@@ -238,15 +275,12 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         verdict = _qa(rendered)
         repaired = False
         if not verdict["pass"] and repair is not None and vcfg.get("repair", True):
-            high = [i for i in verdict["issues"] if str(i.get("severity")) == "high"]
-            bad_lines = [i for i in high if i.get("type") == "line_not_shown" and isinstance(i.get("index"), int)]
-            other = [i for i in high if i.get("type") not in ("line_not_shown", "ai_verdict", "ai_score")
-                     and not any(w in str(i.get("type")) for w in ("narration", "mismatch"))]
-            if bad_lines and not other:
-                # repair instead of redo: only the wrong lines are rewritten + re-voiced, the video re-rendered once
+            bad_lines = repairable(verdict["issues"])
+            if bad_lines:
+                # repair instead of redo: the script is rewritten (same footage), re-voiced, re-rendered once
                 lessons.record("short", (fmt or {}).get("id", ""), False, verdict["issues"], source=src_info)
-                log.info("[repair] QA only found %d narration line(s) that don't match - fixing just those",
-                         len(bad_lines))
+                log.info("[repair] QA only found %d script problem(s) (%s) - rewriting the script", len(bad_lines),
+                         ", ".join(sorted({i["type"] for i in bad_lines})))
                 fixed = repair(rendered, bad_lines)
                 if fixed:
                     rendered, repaired = fixed, True
@@ -353,16 +387,15 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
             fx["shake"].append((cuts[-1] + 0.02, 0.4))
             fx["flash"].append((cuts[-1], 0.5))
             fx["action"].append((cuts[-1] - 0.3, cuts[-1] + 2.5))
-        rendered = render(clip, clip_id, copy["banner"], copy["commentary"], voiced=kept, fx=fx, game_volume=_mute(copy))
+        rendered = _approved(render(clip, clip_id, copy["banner"], copy["commentary"], voiced=kept, fx=fx,
+                                    game_volume=_mute(copy)), [sh["text"] for sh in shots])
         if not rendered:
             return None
 
         def repair_tour(r, bad):
-            """QA found lines that don't match the picture: the whole script is rewritten by an AI that watches the
-            whole cut (same shots, each line must still fit its shot), re-voiced, re-rendered once."""
-            why = ("QA REJECTED these lines because the picture doesn't show them:\n"
-                   + "\n".join(f'- "{kept[i["index"]]["text"]}": {i.get("reason", "")}' for i in bad
-                                if 0 <= i["index"] < len(kept)) + "\nKeep each line as short as before or shorter.")
+            """QA found script problems: the whole script is rewritten by an AI that watches the whole cut (same
+            shots - only the ones that fit - each line must still fit its shot), re-voiced, re-rendered once."""
+            why = repair_note(bad, r.get("placed", [])) + "\nKeep each line as short as before or shorter."
             lines = _revise(clip, copy, [{"t": v["t"], "text": v["text"]} for v in kept], why)
             if not lines:
                 return None
@@ -377,7 +410,8 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
             for k, v in enumerate(new_v):
                 kept[k] = {**v, "t": kept[k]["t"]}
             copy["commentary"] = [{"t": round(v["t"], 1), "text": v["text"]} for v in kept]
-            return render(clip, clip_id, copy["banner"], copy["commentary"], voiced=kept, fx=fx, game_volume=_mute(copy))
+            return _approved(render(clip, clip_id, copy["banner"], copy["commentary"], voiced=kept, fx=fx,
+                                    game_volume=_mute(copy)), [v["text"] for v in kept])
 
         return publish_and_record(src, copy, clip_id, rendered, segments, repair=repair_tour)
 
@@ -503,22 +537,21 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
             return None
 
         clip_id = "gta6_" + now_local().strftime("%Y%m%d_%H%M") + "_" + hashlib.md5(c.key.encode()).hexdigest()[:6]
-        rendered = render(clip, clip_id, copy["banner"], commentary, fx=fx, game_volume=_mute(copy))
+        rendered = _approved(render(clip, clip_id, copy["banner"], commentary, fx=fx, game_volume=_mute(copy)),
+                             [ln["text"] for ln in commentary])
         if not rendered:
             return None
 
         def repair_moment(r, bad):
-            """QA found lines that don't match the picture: the AI watches the whole cut again and rewrites the WHOLE
-            script (same times), judged again, re-rendered once."""
-            placed = r.get("placed", [])
-            why = ("QA REJECTED these lines because the picture doesn't show them:\n"
-                   + "\n".join(f'- "{placed[i["index"]]["text"]}": {i.get("reason", "")}' for i in bad
-                                if 0 <= i["index"] < len(placed)))
-            lines = _revise(clip, copy, copy["commentary"], why, lead=lead, spans=fx.get("dialogue"))
+            """QA found script problems (lines the picture doesn't show / lines with no room): the AI watches the
+            whole cut again and rewrites the WHOLE script (same times), judged again, re-rendered once."""
+            lines = _revise(clip, copy, copy["commentary"], repair_note(bad, r.get("placed", [])), lead=lead,
+                            spans=fx.get("dialogue"))
             if not lines:
                 return None
             copy["commentary"] = lines
-            return render(clip, clip_id, copy["banner"], lines, fx=fx, game_volume=_mute(copy))
+            return _approved(render(clip, clip_id, copy["banner"], lines, fx=fx, game_volume=_mute(copy)),
+                             [ln["text"] for ln in lines])
 
         return publish_and_record(src, copy, clip_id, rendered, [list(x) for x in segs], repair=repair_moment)
 
@@ -547,8 +580,7 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
             mark_rejected(c, "choppy")
             section.unlink(missing_ok=True)
             continue
-        if c.provider in ("youtube", "dailymotion", "x_account", "extra") and \
-                cfg.get("authenticity", {}).get("enabled", True):
+        if c.provider in AUTHENTICITY_PROVIDERS and cfg.get("authenticity", {}).get("enabled", True):
             # "GTA 6" uploads are often GTA V / mods: one focused check on sharp frames before anything else
             import authentic
             real = authentic.check([section])

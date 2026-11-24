@@ -41,6 +41,8 @@ from highlight import concat_files, cut_highlight
 log = logging.getLogger("autopilot")
 
 DM_API = "https://api.dailymotion.com/videos"
+# uploads titled "GTA 6" are often GTA V / mods: footage from these gets the focused GTA 6 check (authentic.py)
+AUTHENTICITY_PROVIDERS = ("youtube", "dailymotion", "x_account", "extra")
 
 
 def ytdlp_format(max_h: int = 1080) -> str:
@@ -1128,19 +1130,29 @@ def iter_clips(target_sec: int, max_attempts: int = 6, skip_providers: set | Non
                     and not (fmt or {}).get("continuous")
                     and c.duration >= n_slices * slice_len * 2):
                 # feature-tour format: several slices from different parts -> one reel
-                ranges, files = [], []
+                ranges, files, fake = [], [], None
                 for k in range(n_slices):
                     a, b = _pick_section(c, manifest, slice_len, avoid=[(x - 20, y + 20) for x, y in ranges])
                     b = min(b if b > a else a + slice_len, int(c.duration))
                     f = RAW_DIR / f"slice{k}_{sec_file.name}"
                     log.info("[sources] downloading slice %d/%d [%ds-%ds] %s", k + 1, n_slices, a, b, c.title[:70])
-                    if _download(c, a, b, f):
-                        ranges.append((a, b))
-                        files.append(f)
-                if len(files) < 2:
+                    if not _download(c, a, b, f):
+                        continue
+                    ranges.append((a, b))
+                    files.append(f)
+                    if len(files) == 1:
+                        fake = _first_slice_fake(c, f, (a, b))
+                        if fake:
+                            break
+                if fake or len(files) < 2:
                     for f in files:
                         f.unlink(missing_ok=True)
-                    _note_failure(c)
+                    if fake:
+                        log.info("[gate] ✋ rejected '%s' after its first slice: not GTA 6 (%s) - the other slices "
+                                 "are not downloaded", c.title[:60], fake)
+                        mark_rejected(c, "not GTA VI footage")
+                    else:
+                        _note_failure(c)
                     continue
                 order = sorted(range(len(ranges)), key=lambda i: ranges[i][0])
                 reel = concat_files([files[i] for i in order], sec_file)
@@ -1207,6 +1219,26 @@ def iter_clips(target_sec: int, max_attempts: int = 6, skip_providers: set | Non
         # the AI editor (autopilot.py) watches this whole section / reel and picks the best part(s)
         yield ClipSource(candidate=c, clip_path=sec_file, section=(start, end), segments=[],
                          sections=ranges, is_reel=bool(ranges))
+
+
+def _first_slice_fake(c: Candidate, path: Path, window: tuple[int, int]) -> str | None:
+    """A tour reel downloads its slices one after another (1-4 min each). The first slice gets the GTA 6 check
+    before the others are fetched: one confidently fake part (GTA V, a mod, another game) already rules the whole
+    video out (ai_cache keeps it as fake_src), so the rest of the download would be wasted - a run spent 9 min
+    on a video the check then called GTA V (99%). Returns 'GTA V 99%: <evidence>' if confidently fake, else None
+    (unsure / no AI answer: download on - the whole reel is checked later as before)."""
+    cfg = load_config()
+    if (not cfg.get("sources", {}).get("tour", {}).get("check_first_slice", True)
+            or not cfg.get("authenticity", {}).get("enabled", True) or c.provider not in AUTHENTICITY_PROVIDERS):
+        return None
+    import ai_cache
+    import authentic
+    res = authentic.check([path], [{"key": c.key, "channel": c.uploader, "provider": c.provider,
+                                    "section": list(window)}])
+    r = res[0] if res else None
+    if not r or r.get("error") or ai_cache.classify(r["game"], r["confidence"]) != "fake":
+        return None
+    return f"{r['game']} {r['confidence'] * 100:.0f}%: {r['evidence'][:80]}"
 
 
 def _note_failure(c: Candidate) -> None:
