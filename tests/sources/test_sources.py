@@ -779,7 +779,13 @@ def test_nothing_happens_is_rejected_before_any_ai_watches_it():
     walk = sf.Candidate("yt:w", "https://youtube.com/watch?v=w", "GTA 6 free roam", "Chan", "youtube", 300)
     orig = (highlight.action_events, sf.probe)
     sf.probe = lambda path: {"duration": 120.0, "width": 1920, "height": 1080, "has_audio": True}
+    ac = common.load_config()["sources"]["action_check"]
+    was_on = ac.get("enabled")
     try:
+        ac["enabled"] = False  # off in config.json (it rejected every real chase video): never checks
+        highlight.action_events = lambda path, min_gap=2.0: 0
+        assert sf._nothing_happens(walk, TMP / "x.mp4", None) is None
+        ac["enabled"] = True
         highlight.action_events = lambda path, min_gap=2.0: 0
         assert sf._nothing_happens(walk, TMP / "x.mp4", None).startswith("nothing happens: 0 sudden loud moment")
         assert sf._nothing_happens(walk, TMP / "x.mp4", {"calm_ok": True}) is None, "secrets / things to do"
@@ -791,3 +797,4 @@ def test_nothing_happens_is_rejected_before_any_ai_watches_it():
         assert sf._nothing_happens(walk, TMP / "x.mp4", None) is None, "no sound: not rejected for it"
     finally:
         highlight.action_events, sf.probe = orig
+        ac["enabled"] = was_on
