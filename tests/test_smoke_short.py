@@ -341,3 +341,26 @@ def test_a_quiet_end_is_cut_off_and_the_script_written_again(cfg, short_world, f
     assert lengths[:3] == [round(12 + teaser, 1)] * 3 and lengths[3] == pytest.approx(keep, abs=0.15)
     assert rec["duration"] == pytest.approx(keep, abs=0.3)
     assert rec["source"]["segments"][-1][1] == pytest.approx(keep - teaser, abs=0.05), "the record shows the new end"
+
+
+def test_a_talking_guide_is_muted_not_dropped(cfg, short_world, fake_tts, sandbox, monkeypatch):
+    """Live 2026-11-25: 3 accepted weapon guides were dropped as "the characters talk for 45-50 of 50 s" - it was
+    the guide's YouTuber. In a guide format (allow_narrated) their voice is muted and our narrator talks."""
+    import transcribe
+    words = [{"text": "word", "start": 0.2 + 0.4 * i, "end": 0.5 + 0.4 * i, "prob": 0.9} for i in range(40)]
+    real_words = transcribe.words
+    monkeypatch.setattr(transcribe, "words", lambda path, start=0.0, end=None: (
+        (words, {"language": "en"}) if "section" in str(path) else real_words(path, start, end)))  # the source only
+    monkeypatch.setattr(transcribe, "smart_cut", lambda path, a, b, found=None, offset=0.0, max_len=50.0: (a, b))
+    seen = {}
+
+    def writer(clip, copy, fmt=None, lead=0.0, spans=None, feedback="", slots=None, n=1):
+        seen["spans"] = spans
+        return {"lines": [{"t": round(lead + 0.1 + i * 3, 2), "text": ln} for i, ln in enumerate(LINES)],
+                "banner": "", "title": "", "story": "a guide"}
+    monkeypatch.setattr(gemini_writer, "write_final_script", writer)
+    ok, rec = autopilot.run_video_slot({"type": "vertical_clip", "platforms": ["x"], "time": "19:40"}, dry_run=True,
+                                       fmt=formats.format_by_id("hidden_weapons", cfg))
+    assert ok, rec
+    assert not seen["spans"], "the guide's voice is not 'dialogue' to talk around - it is muted"
+    assert rec["copy"]["has_narrator"] is True
