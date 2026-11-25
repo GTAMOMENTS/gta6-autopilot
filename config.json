@@ -717,14 +717,15 @@
   ],
   "ai_fallback": {
     "providers": [
-      "gemma",
       "openrouter",
+      "gemma",
+      "mistral",
       "nvidia",
       "sambanova",
-      "cerebras",
       "groq",
-      "mistral"
+      "cerebras"
     ],
+    "_providers_note": "Order when frames are sent (vision), from the run logs of 2026-11-22..25: openrouter's nemotron-vl answered 30 times, gemma-4 17 times; nvidia's gemma-4 timed out 7 times (90 s each) and ran the chain out of time before the others; sambanova has no free credits left (402); groq and cerebras have no models that see images.",
     "models": {
       "openrouter": [],
       "nvidia": [],
@@ -743,7 +744,9 @@
     },
     "max_models_per_provider": 4,
     "max_total_sec": 180,
-    "_note": "Free backup AIs. 'providers' = order when frames are sent (vision); 'text_providers' = order for text-only jobs (critic, packaging). Cerebras / SambaNova need free keys (CEREBRAS_API_KEY, SAMBANOVA_API_KEY). max_total_sec: one backup call gives up after this (the logs: answers that came at all came within ~30 s; failing chains used the whole 240 s). A model that answers twice without usable JSON is skipped for the rest of the run. GitHub Models was removed: GitHub retired it on 2026-07-30.",
+    "call_timeout_sec": 60,
+    "rest_after_fail_sec": 600,
+    "_note": "Free backup AIs. 'providers' = order when frames are sent (vision); 'text_providers' = order for text-only jobs (critic, packaging). Cerebras / SambaNova need free keys (CEREBRAS_API_KEY, SAMBANOVA_API_KEY). max_total_sec: one backup call gives up after this (the logs: answers that came at all came within ~30 s; failing chains used the whole 240 s). A model that fails twice (no usable JSON, or a timeout) is skipped for the rest of the run. call_timeout_sec caps one model's answer. rest_after_fail_sec: after every backup failed, frames jobs and text jobs rest separately (it was 30 min for both). GitHub Models was removed: GitHub retired it on 2026-07-30.",
     "text_providers": [
       "cerebras",
       "groq",
