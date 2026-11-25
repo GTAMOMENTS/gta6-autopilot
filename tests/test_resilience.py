@@ -281,3 +281,21 @@ def test_informative_formats_search_only_gameplay_videos(cfg, monkeypatch):
     calls.clear()
     sf.discover(cfg, {"sources": {}, "items": []}, fmt=formats.format_by_id("easter_eggs", cfg))
     assert not seen["tf"].check("GTA 6 easter eggs explained")[0], "other formats keep 'explained' blocked"
+
+
+def test_a_copied_answer_form_is_no_answer_and_never_crashes(providers, monkeypatch):
+    """Live 2026-11-25 (Video A): a backup AI returned the form itself ("hype_score": "int") - the run crashed,
+    and "is_gta6_footage": "bool" would have read as yes."""
+    import gemini_writer
+    echo = '{"hype_score": "int", "is_gta6_footage": "bool", "scene_summary": "str"}'
+    orig = ai_fallback.requests.post
+
+    def post(url, headers=None, timeout=None, json=None):
+        if json["model"] == "prose":
+            return SimpleNamespace(status_code=200, text=echo, headers={"content-type": "application/json"},
+                                   json=lambda: {"choices": [{"message": {"content": echo}}]})
+        return orig(url, headers=headers, timeout=timeout, json=json)
+    monkeypatch.setattr(ai_fallback.requests, "post", post)
+    assert ai_fallback.chat_json("rate it")["score"] == 8, "the copied form is skipped, the next model answers"
+    out = gemini_writer._clean_copy({"hype_score": "int", "is_gta6_footage": "bool", "has_facecam": "true"}, 30)
+    assert out["hype_score"] == 6 and out["is_gta6_footage"] is False and out["has_facecam"] is True
