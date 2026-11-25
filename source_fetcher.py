@@ -1245,7 +1245,11 @@ def _download_slices(c: Candidate, manifest: dict, sec_file: Path, n: int, lengt
 
     try:
         got = [0] if fetch(0) else []
-        problem = _first_slice_problem(c, paths[0], windows[0], fmt) if got else None
+        if not got:
+            # a live run: slice 1 stalled after 4.7 min, slices 2 and 3 of the same video then stalled too (4 min)
+            log.info("[sources] slice 1 didn't arrive - not downloading the rest of '%s'", c.title[:60])
+            return [], [], None
+        problem = _first_slice_problem(c, paths[0], windows[0], fmt)
         rest = list(range(1, n))
         if rest and not problem:
             if load_config().get("sources", {}).get("tour", {}).get("parallel_slices", True):

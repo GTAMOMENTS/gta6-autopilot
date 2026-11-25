@@ -64,13 +64,24 @@ def _backup(groups, prompt, key, num, temperature, max_images: int = 8):
     return {key: merged, "_backup": True}
 
 
+def _listed(data, key: str, num: str, n: int) -> dict | None:
+    """The answer as {key: [items]}. With one group, Gemini sometimes answers with the item itself
+    ({"clip": 1, "game": "GTA V", ...}) - a live run threw that away, a weaker backup AI then called a GTA V video
+    GTA 6, and 2 more slices of it were downloaded."""
+    if isinstance(data, dict) and isinstance(data.get(key), list):
+        return data
+    if n == 1 and isinstance(data, dict) and num in data:
+        return {key: [data]}
+    return None
+
+
 def ask(groups: list[tuple[str, list[bytes]]], prompt: str, key: str, num: str, temperature: float = 0.1,
         prefer_pro: bool = True) -> dict | None:
     groups = [(lbl, imgs) for lbl, imgs in groups if imgs]
     if not groups:
         return None
-    data = _gemini(groups, prompt, temperature, prefer_pro)
-    if isinstance(data, dict) and isinstance(data.get(key), list):
+    data = _listed(_gemini(groups, prompt, temperature, prefer_pro), key, num, len(groups))
+    if data:
         return data
     try:
         return _backup(groups, prompt, key, num, temperature)
