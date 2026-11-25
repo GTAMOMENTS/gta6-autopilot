@@ -618,6 +618,22 @@ REAL_BRANDS = (
 _BRAND_RE = re.compile(r"(?<![a-z0-9])(" + "|".join(re.escape(b) for b in REAL_BRANDS) + r")(?![a-z0-9])", re.I)
 
 
+def _yes(v) -> bool:
+    """A yes/no from an AI: only a real true (or "true" / "yes") - any other text ("bool", "maybe") is no. A copied
+    answer form said "is_gta6_footage": "bool", which bool() read as yes."""
+    if isinstance(v, str):
+        return v.strip().lower() in ("true", "yes")
+    return bool(v)
+
+
+def _int(v, default: int) -> int:
+    """A number from an AI, or the default ("hype_score": "int" crashed a live run)."""
+    try:
+        return int(float(v))
+    except (TypeError, ValueError):
+        return default
+
+
 def _has_brand(text: str) -> bool:
     return bool(_BRAND_RE.search(text or ""))
 
@@ -938,17 +954,17 @@ def _clean_copy(d: dict, clip_dur: float = 48) -> dict:
     except (TypeError, ValueError):
         payoff_t = None
     return {
-        "is_gta6_footage": bool(d.get("is_gta6_footage", True)),
-        "has_facecam": bool(d.get("has_facecam", False)),
-        "has_narrator": bool(d.get("has_narrator", False)),
-        "is_spoiler": bool(d.get("is_spoiler", False)),
+        "is_gta6_footage": _yes(d.get("is_gta6_footage", True)),
+        "has_facecam": _yes(d.get("has_facecam", False)),
+        "has_narrator": _yes(d.get("has_narrator", False)),
+        "is_spoiler": _yes(d.get("is_spoiler", False)),
         "unsafe": d.get("unsafe") is True,
-        "fits_format": bool(d.get("fits_format", True)),
+        "fits_format": _yes(d.get("fits_format", True)),
         "shows_required": d.get("shows_required") is True,
         "required_t": d.get("required_t") if isinstance(d.get("required_t"), (int, float)) else None,
         "required_evidence": re.sub(r"\s+", " ", str(d.get("required_evidence") or "")).strip()[:200],
         "content_type": str(d.get("content_type", "action")).lower(),
-        "hype_score": int(d.get("hype_score") or 6),
+        "hype_score": _int(d.get("hype_score"), 6),
         "scene_summary": s("scene_summary"),
         "verified_by_video": bool(d.get("verified_by_video", False)),
         "banner": re.sub(r"[^A-Z0-9 !?'.,-]", "", _strip_brands(s("banner", "INSANE GTA 6 MOMENT"), "INSANE GTA 6 MOMENT").upper())[:48].strip() or "INSANE GTA 6 MOMENT",

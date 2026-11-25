@@ -221,9 +221,23 @@ def _call(p: str, model: str, prompt: str, frames: list[str] | None, temperature
         return None, 200
     text = _message_text(msg)
     data = _parse(text)
-    if not data:
+    if data and schema_echo(data):
+        # live run 2026-11-25: openrouter/free answered {"hype_score": "int", "is_gta6_footage": "bool", ...} - the
+        # form copied back, not filled in. It crashed the run (and "bool" reads as yes)
+        log.warning("[ai-fallback] %s/%s copied the answer form instead of filling it in - no answer", p, model)
+        data = None
+    elif not data:
         log.warning("[ai-fallback] %s/%s returned no JSON: %.160s", p, model, text.replace("\n", " "))
     return data, 200
+
+
+_TYPE_WORDS = {"int", "integer", "str", "string", "bool", "boolean", "number", "float", "list", "array", "object",
+               "null"}
+
+
+def schema_echo(data: dict) -> bool:
+    """The AI returned the answer form itself: two or more top-level values are just type names ("int", "bool")."""
+    return sum(1 for v in data.values() if isinstance(v, str) and v.strip().lower() in _TYPE_WORDS) >= 2
 
 
 def chat_json(prompt: str, frames: list[str] | None = None, temperature: float = 0.9,
