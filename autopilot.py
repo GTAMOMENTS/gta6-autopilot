@@ -191,20 +191,21 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
                 "banner": copy.get("banner", ""), "title": copy.get("youtube_title", ""),
                 "story": story or copy.get("scene_summary", "")}
 
-    def _write_checked(video, copy, items, lead=0.0, spans=None, slots=False) -> list[dict] | None:
+    def _write_checked(video, copy, items, lead=0.0, spans=None, slots=False, feedback="") -> list[dict] | None:
         """Owner: "the writing shall occur after the AI watched the whole video, then write a good script for the
         whole video - not frame by frame". 1) the AI watches the WHOLE video and writes ONE script; 2) a different AI
         judges the script like a viewer (makes sense? promise kept? entertaining?); 3) the lines are checked against
         the picture. A failure goes back to the writer (whole video + the reasons) for a NEW script. None = no
         script good enough -> next clip, before any voice / render is spent.
-        items: the current lines [{"t", "text"}]; slots=True keeps their times (tours: the edit is fixed)."""
+        items: the current lines [{"t", "text"}]; slots=True keeps their times (tours: the edit is fixed).
+        feedback: what the first attempt must fix already (e.g. a countdown that skips a number)."""
         import lessons
         import qa
         import script_judge
         from gemini_writer import write_final_script
         countdown = int(fmt["countdown"]) if slots and (fmt or {}).get("countdown") else None
         tries = max(1, int(vcfg.get("script_attempts", 3)))
-        feedback, last_issues = "", []
+        last_issues = []
         for attempt in range(1, tries + 1):
             w = patient(lambda: write_final_script(
                 video, copy, fmt, lead=lead, spans=spans, feedback=feedback,
@@ -368,16 +369,27 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
             reel.unlink(missing_ok=True)
             script_problems.append("no AI could write the script")
             return None
+        fix = ""
         if (fmt or {}).get("countdown"):
-            from formats import countdown_missing
-            missing = countdown_missing([sh["text"] for sh in shots], int(fmt["countdown"]))
-            if missing:  # a Top 5 that skips a number looks broken - never post one (no voice spent on it)
-                log.warning("[tour] ✋ countdown script skips number(s) %s - trying the next clip", missing)
+            from formats import countdown_missing, countdown_note
+            n = int(fmt["countdown"])
+            missing = countdown_missing([sh["text"] for sh in shots], n)
+            if missing and len(shots) < n + 1:  # no slot for every number: a Top 5 that skips one looks broken
+                log.warning("[tour] ✋ countdown script skips number(s) %s and the edit has only %d shots - trying "
+                            "the next clip", missing, len(shots))
                 reel.unlink(missing_ok=True)
                 script_problems.append(f"countdown skipped {missing}")
                 return None
+            if missing:
+                # live run 2026-11-25: the editor's Top 5 left out number one over good footage (hype 9) and the
+                # clip was dropped.
+                # The script writer renumbers the same shots instead; the judge rejects any script that still
+                # skips a number (static check), so a broken countdown is never voiced.
+                log.info("[tour] countdown script skips number(s) %s - the script writer renumbers the %d shots",
+                         missing, len(shots))
+                fix = countdown_note(missing, n)
         written = _write_checked(reel, copy, [{"t": max(0.0, sh["start"] - 0.3), "text": sh["text"]} for sh in shots],
-                                 slots=True)
+                                 slots=True, feedback=fix)
         if written is None:
             log.warning("[script] ✋ no script good enough for this footage - next clip (no voice / render spent)")
             reel.unlink(missing_ok=True)

@@ -245,3 +245,68 @@ def test_script_too_long_for_the_clip_is_rewritten_shorter(cfg, short_world, fak
     assert first["stage"] == "final" and not first["pass"] and last["stage"] == "repair" and last["pass"]
     assert "script_lines_dropped" in first["types"]
     assert "too long for their video" in lessons.prompt_hints("stunts_crashes"), "the writer learns from it"
+
+
+# --------------------------------------------------------------------------- a Top 5 tour that skips a number
+
+TOUR = ["Five things you have to try in GTA 6 right now.",
+        "Number five: you can dive off any pier you like.",
+        "Number four: the cops follow you out on jet skis.",
+        "Number three: the seaplane lands right on the beach.",
+        "Number two: a bar fight spills into the street.",
+        "And this outfit swap takes one second flat - which one would you try first?"]
+
+
+@pytest.fixture
+def top5_tour(monkeypatch, short_world, make_clip, sandbox):
+    """A 3-slice reel whose editor script counts 5..2 and never says number one (live run 2026-11-25)."""
+    def world(lines):
+        reel = make_clip("reel.mp4", dur=30, size="1280x720", out=sandbox.raw / "reel.mp4")
+        cand = sf.Candidate(key="yt:top5", url="https://youtube.com/watch?v=top5", title="GTA 6 free roam no commentary",
+                            uploader="RoamChannel", provider="youtube", duration=3600)
+        monkeypatch.setattr(sf, "iter_clips", lambda **kw: iter([sf.ClipSource(
+            candidate=cand, clip_path=reel, section=(100, 110), sections=[(100, 110), (900, 910), (1700, 1710)],
+            is_reel=True)]))
+
+        def write_copy(section, title, credit, provider, kind="gameplay", hints=None, tour=False, fmt=None):
+            d = {"banner": "5 THINGS TO TRY", "content_type": "action", "hype_score": 9, "is_gta6_footage": True,
+                 "scene_summary": "combat, a seaplane, an outfit swap", "youtube_title": "GTA 6: 5 things to try",
+                 "caption": "Which one first?", "hashtags": ["#GTA6"],
+                 "shots": [{"start": 1 + 4.5 * i, "line": ln} for i, ln in enumerate(lines)]}
+            out = gemini_writer._clean_copy(d, 30)
+            out.update(verified_by_video=True, ai_source="gemini-video")
+            return out
+        monkeypatch.setattr(gemini_writer, "write_clip_copy", write_copy)
+
+        def renumber(clip, copy, fmt=None, lead=0.0, spans=None, feedback="", slots=None, n=1):
+            short_world.setdefault("writer", []).append({"feedback": feedback, "slots": slots})
+            texts = [s["text"] for s in slots]
+            if "SKIP NUMBER 1" in feedback:
+                texts[-1] = texts[-1].replace("And this", "Number one: this", 1)
+            return {"lines": [{"t": s["t"], "text": t} for s, t in zip(slots, texts)], "banner": "", "title": "",
+                    "story": "five things to try"}
+        monkeypatch.setattr(gemini_writer, "write_final_script", renumber)
+        import script_judge  # the real numbering rule: a countdown that skips a number never passes
+        monkeypatch.setattr(script_judge, "judge", lambda lines, ctx, numbered_ok=False, countdown=None, timing=None: (
+            lambda st: {"ok": not st, "score": 8.0, "problems": st, "by": "test/judge", "static": st})(
+            script_judge.static_problems([ln["text"] for ln in lines], numbered_ok, countdown)))
+    return world
+
+
+def test_countdown_that_skips_a_number_is_renumbered_not_dropped(cfg, top5_tour, short_world, fake_tts):
+    top5_tour(TOUR)
+    slot = {"type": "video_b", "platforms": ["x"], "time": "01:40"}
+    ok, rec = autopilot.run_video_slot(slot, dry_run=True, fmt=formats.format_by_id("top5_things_to_do", cfg))
+    assert ok, rec
+    first = short_world["writer"][0]
+    assert "SKIP NUMBER 1" in first["feedback"] and len(first["slots"]) == len(TOUR), "the writer is told at once"
+    said = [ln["text"] for ln in rec["voice_lines"]]
+    assert said[-1].startswith("Number one:") and formats.countdown_missing(said, 5) == []
+
+
+def test_countdown_with_no_slot_for_every_number_is_still_dropped(cfg, top5_tour, short_world, fake_tts):
+    top5_tour(TOUR[:5])  # hook + 5..2: no shot left for number one
+    slot = {"type": "video_b", "platforms": ["x"], "time": "01:40"}
+    ok, rec = autopilot.run_video_slot(slot, dry_run=True, fmt=formats.format_by_id("top5_things_to_do", cfg))
+    assert not ok and "countdown skipped [1]" in rec["error"]
+    assert "writer" not in short_world, "no script / voice spent on it"
