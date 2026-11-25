@@ -493,10 +493,12 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
         c, section = src.candidate, src.clip_path
         raw = sorted([ln for ln in copy.get("commentary_raw", []) if ln.get("t") is not None and ln.get("text")],
                      key=lambda ln: ln["t"])
-        if _mute(copy) == 0.0 and len(raw) >= 4:
+        if _mute(copy) == 0.0 and len(raw) >= 4 and not (fmt or {}).get("continuous"):
             # muted footage (another creator's voice removed): the narrator talks only ~1/3 of the time, the
             # rest would be dead silence (QA rejected 7-12 s gaps) -> the edit follows the voice: each line
-            # gets its own piece of the same scene (section times from the AI), in order
+            # gets its own piece of the same scene (section times from the AI), in order. Not for guides
+            # (continuous): a weapon guide became a 29 s montage of the route that never showed the weapon (owner
+            # 2026-11-25) - a guide stays one continuous part that ends on the item
             copy["shots"] = [{"start": float(ln["t"]), "text": ln["text"]} for ln in raw]
             log.info("[editor] muted footage - the edit follows the voice (%d lines)", len(copy["shots"]))
             return produce_tour(src, copy, sec_dur, energy)
@@ -517,6 +519,12 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
             start = max(0.0, min(need_t - length * 0.6, sec_dur - length))
             end = min(sec_dur, start + length)
             log.info("[editor] moved the part to %.0f-%.0fs so it shows %s", start, end, fmt.get("must_show_short", ""))
+        hold = float(vcfg.get("payoff_hold_sec", 4.0))
+        if need_t is not None and start <= need_t <= end and end < min(sec_dur, need_t + hold):
+            # the item / payoff gets a few seconds on screen, not a last-frame flash
+            end = min(sec_dur, need_t + hold, start + max_len + hold)
+            log.info("[editor] the part now ends at %.0fs: %s stays on screen for %.0f s", end,
+                     fmt.get("must_show_short", "the payoff"), end - need_t)
         heard, heard_off = [], max(0.0, start - 3)
         if vcfg.get("fx", {}).get("smart_cut", True):
             # Whisper hears the footage's own speech (in-game dialogue): start / end on a pause, never mid-sentence
@@ -611,6 +619,8 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
             # can't do narration on a walking clip") - end the video where the talking stopped, write it again
             total = probe(clip)["duration"] or 0
             keep = round(max(tails) + float(vcfg.get("quiet_tail_room_sec", 3.5)), 2)
+            if need_t is not None and start <= need_t <= end:  # never cut off the item the video is about
+                keep = max(keep, round(lead + need_t - start + float(vcfg.get("payoff_hold_sec", 4.0)), 2))
             if float(vcfg.get("min_short_sec", 20)) <= keep < total - 2:
                 log.info("[editor] the scripts went quiet after %.0fs (nothing happens there) - the video ends at "
                          "%.0fs instead of %.0fs, script written again", max(tails), keep, total)

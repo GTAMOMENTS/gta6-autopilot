@@ -359,8 +359,36 @@ def test_a_talking_guide_is_muted_not_dropped(cfg, short_world, fake_tts, sandbo
         return {"lines": [{"t": round(lead + 0.1 + i * 3, 2), "text": ln} for i, ln in enumerate(LINES)],
                 "banner": "", "title": "", "story": "a guide"}
     monkeypatch.setattr(gemini_writer, "write_final_script", writer)
+    fmt = formats.format_by_id("hidden_weapons", cfg)
+    fmt.pop("must_show")  # this test is about the muting; "ends on the weapon" has its own test
     ok, rec = autopilot.run_video_slot({"type": "vertical_clip", "platforms": ["x"], "time": "19:40"}, dry_run=True,
-                                       fmt=formats.format_by_id("hidden_weapons", cfg))
+                                       fmt=fmt)
     assert ok, rec
     assert not seen["spans"], "the guide's voice is not 'dialogue' to talk around - it is muted"
     assert rec["copy"]["has_narrator"] is True
+
+
+def test_a_muted_guide_stays_one_continuous_part_and_ends_on_the_item(cfg, short_world, fake_tts, sandbox,
+                                                                       monkeypatch):
+    """Owner 2026-11-25: a weapon guide became a 29 s montage of the route (one 5 s piece per line) and never showed
+    the weapon. Guides stay one continuous part, and the item stays on screen for payoff_hold_sec."""
+    fmt = formats.format_by_id("hidden_weapons", cfg)
+    assert fmt["continuous"] and fmt["must_show"]
+
+    def write_copy(section, title, credit, provider, kind="gameplay", hints=None, tour=False, fmt=None):
+        d = {"banner": "FREE WEAPON", "content_type": "explainer", "hype_score": 8, "is_gta6_footage": True,
+             "has_narrator": True, "shows_required": True, "required_t": 8.5, "fits_format": True,
+             "required_evidence": "the rifle is picked up", "clip_start": 0, "clip_end": 9,
+             "scene_summary": "a rifle in a shack", "youtube_title": "GTA 6 hidden rifle", "caption": "Got it?",
+             "commentary": [{"t": i * 2.5, "line": ln} for i, ln in enumerate(LINES)], "hashtags": ["#GTA6"]}
+        out = gemini_writer._clean_copy(d, 12)
+        out.update(verified_by_video=True, ai_source="gemini-video")
+        return out
+    monkeypatch.setattr(gemini_writer, "write_clip_copy", write_copy)
+    cfg["video"]["min_clip_sec"] = 5
+    ok, rec = autopilot.run_video_slot({"type": "vertical_clip", "platforms": ["x"], "time": "19:40"}, dry_run=True,
+                                       fmt=fmt)
+    assert ok, rec
+    story = rec["source"]["segments"][-1]
+    assert len(rec["source"]["segments"]) <= 2, "cold open + one continuous part - not a montage of pieces"
+    assert story[1] >= min(12.0, 8.5 + cfg["video"]["payoff_hold_sec"]) - 0.3, "the rifle stays on screen"
