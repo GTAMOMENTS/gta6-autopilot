@@ -1111,6 +1111,8 @@ def _fill_metadata(c: Candidate, cfg: dict) -> bool:
     if not meta:
         return False
     c.duration = float(meta.get("duration") or c.duration or 0)
+    if c.title == "GTA 6 gameplay" and meta.get("title"):  # a manual re-edit (forced_source): the real title + channel
+        c.title, c.uploader = meta["title"], meta.get("channel") or meta.get("uploader") or c.uploader
     c.heatmap = meta.get("heatmap") or None
     c.uploader = c.uploader or meta.get("channel") or meta.get("uploader") or ""
     if meta.get("timestamp"):
