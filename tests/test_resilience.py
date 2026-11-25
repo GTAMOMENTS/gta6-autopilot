@@ -299,3 +299,25 @@ def test_a_copied_answer_form_is_no_answer_and_never_crashes(providers, monkeypa
     assert ai_fallback.chat_json("rate it")["score"] == 8, "the copied form is skipped, the next model answers"
     out = gemini_writer._clean_copy({"hype_score": "int", "is_gta6_footage": "bool", "has_facecam": "true"}, 30)
     assert out["hype_score"] == 6 and out["is_gta6_footage"] is False and out["has_facecam"] is True
+
+
+def test_a_manual_re_edit_uses_exactly_that_video_and_part(cfg, monkeypatch, tmp_path):
+    """Owner 2026-11-25: "re-edit the same clip and post it again" - workflow input `source` = URL@start-end."""
+    import source_fetcher as sf
+    monkeypatch.setenv("SOURCE_VIDEO", "https://www.youtube.com/watch?v=NsJ4RIdL0x8@1093-1273")
+    monkeypatch.setattr(sf, "discover", lambda *a, **k: pytest.fail("a re-edit never searches"))
+
+    def meta(c, cfg):
+        c.duration, c.title = 1414.0, "GTA 6 - 9 Secret & GOLD Weapons"
+        return True
+    got = {}
+
+    def dl(c, a, b, out, timeout=300):
+        got.update(key=c.key, part=(a, b))
+        return False  # stop there: only the choice of video + part is tested
+    monkeypatch.setattr(sf, "_fill_metadata", meta)
+    monkeypatch.setattr(sf, "_download", dl)
+    assert list(sf.iter_clips(0, max_attempts=1)) == []
+    assert got == {"key": "yt:NsJ4RIdL0x8", "part": (1093, 1273)}
+    monkeypatch.setenv("SOURCE_VIDEO", "")
+    assert sf.forced_source() is None
