@@ -115,7 +115,8 @@ def test_writer_returns_three_different_scripts(monkeypatch, make_clip):
     monkeypatch.setattr(gemini_writer, "_generate_json", gen)
     out = gemini_writer.write_final_script(clip, {"banner": "OLD"}, fmt={"name": "Top 5 funniest moments"}, n=3)
     assert "3 DIFFERENT complete scripts" in seen["prompt"] and "NOT A LIST" in seen["prompt"]
-    assert "set-up -> punchline" in seen["prompt"]
+    assert "step-by-step guide" in seen["prompt"] and "ONE concrete fact or tip" in seen["prompt"]
+    assert "roast /" not in seen["prompt"] and "set-up -> punchline" not in seen["prompt"], "owner: no bro / roasts"
     assert out["angle"] == "roast" and [a["angle"] for a in out["alternatives"]] == ["hype"], "too-short scripts dropped"
     assert out["story"] == out["alternatives"][0]["story"] == "a cop car theft goes wrong"
 
@@ -182,3 +183,11 @@ def test_quiet_tail_is_where_the_talking_stops():
     full = lines[:3] + [{"t": 16.0, "text": "Now he walks it off like nothing happened at all, legend."},
                         {"t": 21.0, "text": "And the car is still spinning back there on the bridge."}, lines[3]]
     assert sj.quiet_tail(full, 34.0, lead=1.2) is None, "no long silence: nothing to cut"
+
+
+def test_bro_is_rejected_without_an_ai():
+    """Owner 2026-11-25: "quality is bad, video is nonsense, just bro"."""
+    lines = ["This is the fastest way to lose the cops in GTA 6.", "Bro really thought he could outrun them.",
+             "Ditch the car where no camera can see you.", "What's the highest wanted level you've escaped?"]
+    assert any("slang" in p for p in sj.static_problems(lines))
+    assert not any("slang" in p for p in sj.static_problems([lines[0], lines[2], lines[3]]))
