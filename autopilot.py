@@ -409,7 +409,12 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
             reel.unlink(missing_ok=True)
             script_problems.append("no script good enough (judge / picture check)")
             return None
-        shots = [{**sh, "text": ln["text"]} for sh, ln in zip(shots, written)]
+        if len(written) < len(shots):  # fewer lines than shots: keep the shots the lines were placed on
+            at = {round(ln["t"], 2): ln["text"] for ln in written}
+            shots = [{**sh, "text": at[round(max(0.0, sh["start"] - 0.3), 2)]} for sh in shots
+                     if round(max(0.0, sh["start"] - 0.3), 2) in at]
+        else:
+            shots = [{**sh, "text": ln["text"]} for sh, ln in zip(shots, written)]
         copy["shots"] = shots
         clip_id = "gta6_" + now_local().strftime("%Y%m%d_%H%M") + "_" + hashlib.md5(c.key.encode()).hexdigest()[:6]
         voiced = synthesize_lines([{"t": 0.0, "text": sh["text"]} for sh in shots], clip_id)
@@ -580,6 +585,15 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
             fx["dialogue"] = [tuple(x) for x in spans]
             log.info("[cut] the footage talks for %.0fs of %.0fs", sum(b - a for a, b in spans), end - start)
         talk = sum(b - a for a, b in fx.get("dialogue", []))
+        if talk > float(vcfg.get("max_dialogue_share", 0.6)) * (end - start) and (fmt or {}).get("allow_narrated"):
+            # a guide format: the nonstop voice is the guide's YouTuber, not the game's characters (live 2026-11-25:
+            # 3 accepted weapon guides were dropped as "the characters talk for 45-50 of 50 s"). Their voice is
+            # muted like any narrated source and our narrator gets the whole video
+            log.info("[cut] someone talks for %.0f of %.0f s - a narrated guide: their voice is muted, our narrator "
+                     "talks instead", talk, end - start)
+            copy["has_narrator"] = True
+            fx["dialogue"] = []
+            talk = 0.0
         if talk > float(vcfg.get("max_dialogue_share", 0.6)) * (end - start):
             # a cutscene / mission where the characters talk all the time: the narrator has no room (a posted Short
             # squeezed 7 lines between 57 s of dialogue) and story dialogue risks spoilers

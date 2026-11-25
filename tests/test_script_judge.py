@@ -191,3 +191,15 @@ def test_bro_is_rejected_without_an_ai():
              "Ditch the car where no camera can see you.", "What's the highest wanted level you've escaped?"]
     assert any("slang" in p for p in sj.static_problems(lines))
     assert not any("slang" in p for p in sj.static_problems([lines[0], lines[2], lines[3]]))
+
+
+def test_fewer_lines_than_slots_go_to_their_nearest_slots():
+    """Live 2026-11-25: a backup wrote 5 lines for an 8-shot edit and the whole clip was dropped."""
+    slots = [{"t": float(t), "text": "x"} for t in (0, 5, 10, 15, 20, 25, 30, 35)]
+    lines = [{"t": 0.5, "text": "a"}, {"t": 9.0, "text": "b"}, {"t": 21.0, "text": "c"}, {"t": 26.0, "text": "d"},
+             {"t": 36.0, "text": "e"}]
+    out = gemini_writer._fewer_slots(lines, slots)
+    assert [ln["t"] for ln in out] == [0, 10, 20, 25, 35] and [ln["text"] for ln in out] == list("abcde")
+    crowded = [{"t": 34.0, "text": t} for t in "abc"]  # all near the end: still in order, one slot each
+    assert [ln["t"] for ln in gemini_writer._fewer_slots(crowded, slots)] == [25, 30, 35]
+    assert gemini_writer._fewer_slots(lines[:2], slots) is None, "under 3 lines is no script"

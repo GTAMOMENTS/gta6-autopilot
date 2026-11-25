@@ -1197,6 +1197,23 @@ def _fit_lines(lines: list[dict], length: float, lead: float, wps: float = 2.7) 
     return out
 
 
+def _fewer_slots(lines: list[dict], slots: list[dict]) -> list[dict] | None:
+    """The writer gave fewer lines than the fixed edit has slots (a backup wrote 5 lines for 8 shots and the clip was
+    dropped, live 2026-11-25): each line takes the nearest free slot after the previous one (by its own time), the
+    unused slots are left out - the caller drops their shots. None when there are too few lines (< 3) or more lines
+    than slots."""
+    if not 3 <= len(lines) < len(slots):
+        return None
+    out, nxt = [], 0
+    for k, ln in enumerate(lines):
+        last_ok = len(slots) - (len(lines) - k)  # leave a slot for every line still to come
+        cands = range(nxt, last_ok + 1)
+        i = min(cands, key=lambda j: abs(float(slots[j]["t"]) - ln["t"]))
+        out.append({"t": slots[i]["t"], "text": ln["text"]})
+        nxt = i + 1
+    return out
+
+
 def _parse_script(d: dict, length: float, lead: float, slots: list[dict] | None) -> dict | None:
     raw = d.get("lines") or d.get("commentary") or []
     lines = []
@@ -1211,9 +1228,14 @@ def _parse_script(d: dict, length: float, lead: float, slots: list[dict] | None)
             lines.append({"t": max(0.0, t), "text": text})
     if slots:
         if len(lines) != len(slots):
-            log.warning("[script] the writer returned %d lines for %d fixed slots", len(lines), len(slots))
-            return None
-        lines = [{"t": s["t"], "text": ln["text"]} for s, ln in zip(slots, lines)]
+            fitted = _fewer_slots(lines, slots)
+            log.warning("[script] the writer returned %d lines for %d fixed slots%s", len(lines), len(slots),
+                        " - each line goes to its nearest slot, the others are dropped" if fitted else "")
+            if not fitted:
+                return None
+            lines = fitted
+        else:
+            lines = [{"t": s["t"], "text": ln["text"]} for s, ln in zip(slots, lines)]
     else:
         if len(lines) < 3:
             return None
