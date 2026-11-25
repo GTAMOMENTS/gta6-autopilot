@@ -658,7 +658,29 @@ def discover(cfg: dict, manifest: dict, kind: str | None = None, fmt: dict | Non
 
 # --------------------------------------------------------------------------- download
 
+def forced_source() -> tuple[Candidate, tuple[int, int] | None] | None:
+    """Manual re-edit (workflow input `source`, env SOURCE_VIDEO): "https://youtube.com/watch?v=ID" or "...@1093-1273"
+    = use exactly this video (and this part of it) instead of searching. Owner 2026-11-25: "re-edit the same clip
+    and post it again" - the published weapon Short never showed the weapon."""
+    raw = env("SOURCE_VIDEO").strip()
+    if not raw:
+        return None
+    url, _, part = raw.partition("@")
+    m = re.search(r"(?:v=|youtu\.be/|shorts/)([A-Za-z0-9_-]{11})", url)
+    key = f"yt:{m.group(1)}" if m else "url:" + hashlib.md5(url.encode()).hexdigest()[:12]
+    c = Candidate(key=key, url=f"https://www.youtube.com/watch?v={m.group(1)}" if m else url.strip(),
+                  title="GTA 6 gameplay", uploader="", provider="youtube" if m else "extra", kind="gameplay")
+    sec = None
+    pm = re.fullmatch(r"\s*(\d+)\s*-\s*(\d+)\s*", part)
+    if pm and int(pm.group(2)) > int(pm.group(1)):
+        sec = (int(pm.group(1)), int(pm.group(2)))
+    return c, sec
+
+
 def _pick_section(c: Candidate, manifest: dict, length: int, avoid: list | None = None) -> tuple[int, int]:
+    forced = forced_source()
+    if forced and forced[1] and forced[0].key == c.key and not avoid:
+        return forced[1]
     dur = int(c.duration or 0)
     if dur <= 0 or dur <= length + 10:
         return 0, dur or length
@@ -1118,7 +1140,16 @@ def iter_clips(target_sec: int, max_attempts: int = 6, skip_providers: set | Non
     yt_limited = 0  # YouTube videos that came back without any 720p+ stream this run
     dm_limited = 0  # same for Dailymotion
 
-    cands = discover(cfg, manifest, fmt=fmt)
+    forced = forced_source()
+    if forced:
+        cands = [forced[0]]
+        log.info("[sources] manual re-edit: only %s%s", forced[0].url,
+                 f" [{forced[1][0]}s-{forced[1][1]}s]" if forced[1] else "")
+        if forced[1]:  # the asked part as one continuous section (never split into tour slices)
+            section_len = forced[1][1] - forced[1][0]
+            fmt = dict(fmt or {}, continuous=True)
+    else:
+        cands = discover(cfg, manifest, fmt=fmt)
     log.info("[sources] %d ranked candidates; top: %s", len(cands),
              [f"{c.provider}:{c.title[:40]}" for c in cands[:5]])
     attempts = 0

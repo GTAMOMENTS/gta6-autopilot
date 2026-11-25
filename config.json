@@ -681,7 +681,9 @@
     "_ai_busy_note": "Gemini's 'high demand' 503s come and go within minutes: when no AI can watch an approved clip to write (or repair) its script, the run waits ai_busy_wait_sec and asks again, up to ai_busy_retries times, within sources.time_budget_min - instead of dropping a clip that passed every gate.",
     "_script_note": "Owner 2026-11-22: the AI watches the WHOLE final video and writes ONE script (gemini_writer.write_final_script); a different AI judges it (script_judge.py); lines are checked against the picture; failures go back to the writer for a NEW script. No more frame-by-frame line rewriting (ground_lines is no longer used).",
     "max_dialogue_share": 0.6,
-    "repair": true
+    "repair": true,
+    "payoff_hold_sec": 4.0,
+    "_payoff_hold_note": "Owner 2026-11-25: a weapon guide ended before the weapon was shown. Guides stay one continuous part (no voice-driven montage), the AI marks when the item is on screen (required_t, must_show) and the video keeps it on screen for payoff_hold_sec; cutting a quiet end never cuts it off."
   },
   "blocked_keywords": [
     "nsfw",
@@ -1003,7 +1005,7 @@
           "youtube",
           "dailymotion"
         ],
-        "brief": "One or more real GTA 6 easter eggs / hidden references in the world (old GTA characters, jokes on signs, secret scenes), shown in the footage: what it is, where it is, and why it's a reference. Never story spoilers. Our narrator replaces any voice in the footage: if someone in the video explains something, you can use what they say (their voice is muted), but only facts the picture backs up. Never invent numbers, prices, locations or names - say them only if they are on screen or said in the footage.",
+        "brief": "One or more real GTA 6 easter eggs / hidden references in the world (old GTA characters, jokes on signs, secret scenes), shown in the footage: what it is, where it is, and why it's a reference. Never story spoilers. The video ends ON the payoff (show it for a few seconds), never on the way there. Our narrator replaces any voice in the footage: if someone in the video explains something, you can use what they say (their voice is muted), but only facts the picture backs up. Never invent numbers, prices, locations or names - say them only if they are on screen or said in the footage.",
         "banner_example": "GTA 6 EASTER EGG YOU MISSED",
         "title_example": "GTA 6 Easter Egg Most Players Missed",
         "queries": [
@@ -1046,7 +1048,9 @@
         "hashtags": [
           "#GTA6EasterEggs",
           "#GTA6Secrets"
-        ]
+        ],
+        "must_show": "the easter egg ITSELF clearly on screen (the sign, object, character or scene), not just the way to it",
+        "must_show_short": "the easter egg itself"
       },
       {
         "id": "beginner_tips",
@@ -1122,7 +1126,7 @@
           "youtube",
           "dailymotion"
         ],
-        "brief": "The best car(s) shown in this footage: its name (only if the game shows it or someone says it), class, what makes it good (speed, handling, off-road) and where or how you get it if the footage shows that. Not a crash video - show the car itself. Our narrator replaces any voice in the footage: if someone in the video explains something, you can use what they say (their voice is muted), but only facts the picture backs up. Never invent numbers, prices, locations or names - say them only if they are on screen or said in the footage.",
+        "brief": "The best car(s) shown in this footage: its name (only if the game shows it or someone says it), class, what makes it good (speed, handling, off-road) and where or how you get it if the footage shows that. Not a crash video - show the car itself. The video ends ON the payoff (show it for a few seconds), never on the way there. Our narrator replaces any voice in the footage: if someone in the video explains something, you can use what they say (their voice is muted), but only facts the picture backs up. Never invent numbers, prices, locations or names - say them only if they are on screen or said in the footage.",
         "banner_example": "THE FASTEST CAR IN GTA 6",
         "title_example": "GTA 6 Fastest Car: Where To Find It",
         "queries": [
@@ -1166,7 +1170,9 @@
         "hashtags": [
           "#GTA6Cars",
           "#GTA6"
-        ]
+        ],
+        "must_show": "the CAR itself clearly on screen (driven or shown close up), long enough to see it",
+        "must_show_short": "the car itself"
       },
       {
         "id": "robberies",
@@ -1299,7 +1305,7 @@
           "youtube",
           "dailymotion"
         ],
-        "brief": "Where to find a weapon in GTA 6 that this footage shows (a hidden pickup, weapon case, unique weapon): the place, how to get there, and what the weapon is good for. Only places the footage really shows. Our narrator replaces any voice in the footage: if someone in the video explains something, you can use what they say (their voice is muted), but only facts the picture backs up. Never invent numbers, prices, locations or names - say them only if they are on screen or said in the footage.",
+        "brief": "Where to find a weapon in GTA 6 that this footage shows (a hidden pickup, weapon case, unique weapon): the place, how to get there, and what the weapon is good for. Only places the footage really shows. The video ends ON the payoff (show it for a few seconds), never on the way there. Our narrator replaces any voice in the footage: if someone in the video explains something, you can use what they say (their voice is muted), but only facts the picture backs up. Never invent numbers, prices, locations or names - say them only if they are on screen or said in the footage.",
         "banner_example": "FREE WEAPON MOST PLAYERS MISS",
         "title_example": "GTA 6 Hidden Weapon Location You Don't Want To Miss",
         "queries": [
@@ -1344,7 +1350,9 @@
         "hashtags": [
           "#GTA6Weapons",
           "#GTA6Tips"
-        ]
+        ],
+        "must_show": "the WEAPON itself clearly on screen: picked up, held, shown close up or in the weapon wheel / pickup prompt. Only the route to it does NOT count",
+        "must_show_short": "the weapon itself"
       },
       {
         "id": "fastest_money",
@@ -1498,7 +1506,7 @@
           "youtube",
           "dailymotion"
         ],
-        "brief": "A secret or hidden place on the GTA 6 map that this footage shows (hidden areas, interiors, viewpoints, unusual spots in Leonida): what it is, where it is and what you can do there. Never story spoilers. Our narrator replaces any voice in the footage: if someone in the video explains something, you can use what they say (their voice is muted), but only facts the picture backs up. Never invent numbers, prices, locations or names - say them only if they are on screen or said in the footage.",
+        "brief": "A secret or hidden place on the GTA 6 map that this footage shows (hidden areas, interiors, viewpoints, unusual spots in Leonida): what it is, where it is and what you can do there. Never story spoilers. The video ends ON the payoff (show it for a few seconds), never on the way there. Our narrator replaces any voice in the footage: if someone in the video explains something, you can use what they say (their voice is muted), but only facts the picture backs up. Never invent numbers, prices, locations or names - say them only if they are on screen or said in the footage.",
         "banner_example": "SECRET PLACE ON THE GTA 6 MAP",
         "title_example": "GTA 6 Secret Location Most Players Never Find",
         "queries": [
@@ -1543,7 +1551,9 @@
         "hashtags": [
           "#GTA6Secrets",
           "#GTA6Map"
-        ]
+        ],
+        "must_show": "the secret place ITSELF clearly on screen once you are there, not just the way to it",
+        "must_show_short": "the secret place itself"
       },
       {
         "id": "top5_funny",

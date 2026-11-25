@@ -45,6 +45,10 @@ on:
         description: 'Test runs only: limit footage sources, e.g. x_accounts (empty = all)'
         type: string
         default: ''
+      source:
+        description: 'Manual re-edit: use only this video, e.g. https://youtube.com/watch?v=ID@1093-1273 (part in seconds, optional)'
+        type: string
+        default: ''
       format:
         description: 'Manual runs only. Shorts: a format. Long video: moments / money_guide / trend_guide'
         type: choice
@@ -210,6 +214,7 @@ jobs:
           FORMAT: ${{ github.event_name == 'workflow_dispatch' && inputs.format || 'auto' }}
           REMAKE_CLIP: ${{ github.event_name == 'workflow_dispatch' && inputs.remake_clip || '' }}
           SOURCE_PROVIDERS: ${{ github.event_name == 'workflow_dispatch' && inputs.providers || '' }}
+          SOURCE_VIDEO: ${{ github.event_name == 'workflow_dispatch' && inputs.source || '' }}
         run: python autopilot.py
 
       - name: Upload rendered video
