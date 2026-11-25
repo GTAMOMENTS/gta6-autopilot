@@ -68,7 +68,8 @@ def providers(monkeypatch):
     monkeypatch.setattr(ai_fallback, "_model_cache", {"fake": [("prose", True), ("broken", True), ("good", True)]})
     monkeypatch.setattr(ai_fallback, "_dead", set())
     monkeypatch.setattr(ai_fallback, "_strikes", {})
-    monkeypatch.setattr(ai_fallback, "_down_until", 0.0)
+    monkeypatch.setattr(ai_fallback, "_down_until", {"vision": 0.0, "text": 0.0})
+    monkeypatch.setattr(ai_fallback, "_dead_vision", set())
     monkeypatch.setenv("FAKE_KEY", "x")
     common.load_config()["ai_fallback"].update(text_providers=["fake"], providers=["fake"])
     asked = []
@@ -90,6 +91,118 @@ def test_models_without_a_usable_answer_are_skipped_after_two_strikes(providers)
     for _ in range(3):
         assert ai_fallback.chat_json("rate it")["score"] == 8
     assert providers == ["prose", "broken", "good", "prose", "broken", "good", "good"]
+
+
+@pytest.fixture
+def backups(monkeypatch):
+    """Two fake providers: "slow" (its model times out) and "fast" (a text-only model that refuses images and a
+    vision model). behave[model] = "timeout" / "no_images" / "ok" / "busy"; every request is recorded."""
+    monkeypatch.setattr(ai_fallback, "PROVIDERS", {
+        "slow": {"key": "SLOW_KEY", "base": "https://slow.invalid/v1", "max_images": 4},
+        "fast": {"key": "FAST_KEY", "base": "https://fast.invalid/v1", "max_images": 8}})
+    monkeypatch.setattr(ai_fallback, "_model_cache", {"slow": [("hangs", True)],
+                                                      "fast": [("text-only", True), ("sees", True)]})
+    for name, val in (("_dead", set()), ("_dead_vision", set()), ("_strikes", {}),
+                      ("_down_until", {"vision": 0.0, "text": 0.0})):
+        monkeypatch.setattr(ai_fallback, name, val)
+    monkeypatch.setenv("SLOW_KEY", "x")
+    monkeypatch.setenv("FAST_KEY", "x")
+    common.load_config()["ai_fallback"].update(text_providers=["slow", "fast"], providers=["slow", "fast"])
+    behave = {"hangs": "timeout", "text-only": "no_images", "sees": "ok"}
+    asked = []
+
+    def post(url, headers=None, timeout=None, json=None):
+        model, content = json["model"], json["messages"][0]["content"]
+        with_images = isinstance(content, list)
+        asked.append((model, with_images, timeout))
+        mode = behave[model]
+        if mode == "timeout":
+            raise ai_fallback.requests.Timeout("Read timed out. (read timeout=60)")
+        if mode == "busy" or (mode == "no_images" and with_images):
+            code = 429 if mode == "busy" else 400
+            return SimpleNamespace(status_code=code, text="nope", headers={}, json=lambda: {})
+        return SimpleNamespace(status_code=200, text="{}", headers={"content-type": "application/json"},
+                               json=lambda: {"choices": [{"message": {"content": '{"score": 8}'}}]})
+    monkeypatch.setattr(ai_fallback.requests, "post", post)
+    return SimpleNamespace(asked=asked, behave=behave)
+
+
+def test_a_model_that_times_out_twice_is_skipped(backups):
+    """nvidia's gemma-4 timed out after 90 s seven times and the chain ran out of time before models that answer."""
+    for _ in range(3):
+        assert ai_fallback.chat_json("rate it")["score"] == 8
+    assert [m for m, _, _ in backups.asked].count("hangs") == 2
+    assert all(t <= common.load_config()["ai_fallback"]["call_timeout_sec"] for _, _, t in backups.asked)
+
+
+def test_a_text_model_that_refuses_images_still_answers_text(backups):
+    """cerebras/gpt-oss-120b (pinned = assumed to see images) got frames, answered 400 and was out for the run -
+    including for the script judge, its main job."""
+    assert ai_fallback.chat_json("look", frames=["aW1n"])["_ai_model"] == "fast/sees"
+    assert ai_fallback.chat_json("judge it")["_ai_model"] == "fast/text-only"
+    assert ai_fallback.chat_json("look again", frames=["aW1n"])["_ai_model"] == "fast/sees"
+    assert ("text-only", True) not in [(m, i) for m, i, _ in backups.asked[3:]], "not sent images again"
+
+
+def test_a_failed_frames_chain_does_not_switch_off_text_jobs(backups):
+    backups.behave.update(sees="busy")
+    assert ai_fallback.chat_json("look", frames=["aW1n"]) is None
+    assert ai_fallback.chat_json("look", frames=["aW1n"]) is None and len(backups.asked) == 3, "frames jobs rest"
+    assert ai_fallback.chat_json("judge it")["_ai_model"] == "fast/text-only", "the judge still has its AIs"
+
+
+def test_all_frames_skips_providers_that_take_fewer_images(backups):
+    """The script backup numbers every frame - a provider that keeps only the first 4 would see the wrong ones."""
+    backups.behave.update(hangs="ok")
+    out = ai_fallback.chat_json("write", frames=["aW1n"] * 6, all_frames=True)
+    assert out["_ai_model"] == "fast/sees" and "hangs" not in [m for m, _, _ in backups.asked]
+
+
+def test_pinned_models_see_images_only_if_the_name_says_so(monkeypatch):
+    monkeypatch.setattr(ai_fallback, "_model_cache", {})
+    monkeypatch.setitem(common.load_config()["ai_fallback"]["models"], "sambanova", ["gpt-oss-120b", "gemma-4-31B-it"])
+    monkeypatch.setattr(ai_fallback.requests, "get", lambda *a, **k: (_ for _ in ()).throw(ValueError("offline")))
+    monkeypatch.setenv("SAMBANOVA_API_KEY", "x")
+    assert dict(ai_fallback._models("sambanova")) == {"gpt-oss-120b": False, "gemma-4-31B-it": True}
+
+
+# --------------------------------------------------------------------------- the script writer without Gemini
+
+def test_gemini_busy_a_backup_writes_the_script_from_frames(monkeypatch, make_clip):
+    """Every narrated Short goes through write_final_script, which had no backup: with Gemini out of quota the
+    clip was dropped even when the backup AIs were up."""
+    import gemini_writer
+    clip = make_clip("tour.mp4", dur=40)
+    monkeypatch.setenv("GEMINI_API_KEY", "x")
+    monkeypatch.setattr(gemini_writer, "_upload_video", lambda p: object())
+    monkeypatch.setattr(gemini_writer, "_generate_json", lambda *a, **k: None)  # busy / out of quota
+    monkeypatch.setattr(ai_fallback, "available", lambda: True)
+    seen = {}
+    slots = [{"t": 1.0 + 3.5 * i, "text": f"old line {i}"} for i in range(10)]
+
+    def backup(prompt, frames=None, temperature=0.9, all_frames=False):
+        seen.update(prompt=prompt, frames=frames, all_frames=all_frames)
+        return {"story": "a chase", "lines": [{"t": s["t"], "text": f"New line number {i} about the chase."}
+                                              for i, s in enumerate(slots)], "_ai_model": "fake/vision"}
+    monkeypatch.setattr(ai_fallback, "chat_json", backup)
+    out = gemini_writer.write_final_script(clip, {"banner": "CHASE"}, slots=slots)
+    assert out and out["model"] == "fake/vision" and len(out["lines"]) == 10
+    assert [ln["t"] for ln in out["lines"]] == [s["t"] for s in slots], "a fixed edit keeps its times"
+    assert seen["prompt"].startswith("YOU CANNOT WATCH OR HEAR THIS VIDEO") and seen["all_frames"]
+    assert len(seen["frames"]) == 8 and "image 1 = slot 1 (2.0s)" in seen["prompt"]
+    assert "image 8 = slot 10" in seen["prompt"], "10 slots -> 8 frames spread over them, first and last kept"
+
+
+def test_gemini_answers_no_backup_is_asked(monkeypatch, make_clip):
+    import gemini_writer
+    clip = make_clip("cut.mp4", dur=20)
+    monkeypatch.setenv("GEMINI_API_KEY", "x")
+    monkeypatch.setattr(gemini_writer, "_upload_video", lambda p: object())
+    monkeypatch.setattr(gemini_writer, "_generate_json", lambda *a, **k: {"story": "s", "lines": [
+        {"t": 0.5 + 4 * i, "text": f"A line about the chase number {i}."} for i in range(4)]})
+    monkeypatch.setattr(ai_fallback, "chat_json", lambda *a, **k: pytest.fail("Gemini answered"))
+    out = gemini_writer.write_final_script(clip, {"banner": "CHASE"})
+    assert out and out["model"] == "gemini-video"
 
 
 def test_github_models_is_gone():

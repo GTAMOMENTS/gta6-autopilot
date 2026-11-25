@@ -54,6 +54,9 @@ _dead: set[tuple[str, str]] = set()
 # its whole 4-minute budget asking the same ones again on every call.
 _strikes: dict[tuple[str, str], int] = {}
 MAX_STRIKES = 2
+# (provider, model) that refused IMAGES (text-only models): still asked for text jobs (judge, critic) - a vision
+# 400 used to put the best text model (cerebras/gpt-oss-120b, pinned = assumed to see images) out for the run.
+_dead_vision: set[tuple[str, str]] = set()
 
 
 def _cfg() -> dict:
@@ -82,7 +85,8 @@ def _models(p: str) -> list[tuple[str, bool]]:
     if p in _model_cache:
         return _model_cache[p]
     pinned = _cfg().get("models", {}).get(p, []) or PROVIDERS[p].get("default_models", [])
-    found: list[tuple[str, bool]] = [(m, True) for m in pinned]
+    # pinned models see images only if the name says so (gpt-oss / qwen text models were sent frames)
+    found: list[tuple[str, bool]] = [(m, any(k in m.lower() for k in VISION_HINTS)) for m in pinned]
     try:
         if PROVIDERS[p].get("list_models", True) is False:
             raise LookupError("pinned models only")
@@ -125,19 +129,21 @@ def _models(p: str) -> list[tuple[str, bool]]:
     return _model_cache[p]
 
 
-def extract_frames(clip: Path, count: int = 6) -> list[str]:
-    """Return base64 JPEGs sampled evenly across the clip."""
-    dur = probe(clip)["duration"] or 30
+def extract_frames(clip: Path, count: int = 6, times: list[float] | None = None) -> list[str]:
+    """Return base64 JPEGs sampled evenly across the clip (or at these seconds)."""
+    if times is None:
+        dur = probe(clip)["duration"] or 30
+        times = [dur * (i + 0.5) / count for i in range(count)]
     out_dir = WORK_DIR / "frames"
     out_dir.mkdir(parents=True, exist_ok=True)
     frames = []
-    for i in range(count):
-        t = dur * (i + 0.5) / count
+    for i, t in enumerate(times):
         f = out_dir / f"f{i}.jpg"
         run(["ffmpeg", "-y", "-ss", f"{t:.2f}", "-i", str(clip), "-frames:v", "1",
              "-vf", "scale=640:-2", "-q:v", "5", str(f)], timeout=60)
         if f.exists():
             frames.append(base64.b64encode(f.read_bytes()).decode())
+            f.unlink(missing_ok=True)  # the next request reuses the names
     return frames
 
 
@@ -168,7 +174,9 @@ def _parse(text: str) -> dict | None:
     return None
 
 
-_down_until = 0.0
+# when every backup failed: "vision" (frames) and "text" rest separately - a failed frames chain (no model that sees
+# images answered) used to switch off the text-only judge and critic too, for 30 minutes
+_down_until: dict[str, float] = {"vision": 0.0, "text": 0.0}
 
 
 def _message_text(msg: dict) -> str:
@@ -218,41 +226,55 @@ def _call(p: str, model: str, prompt: str, frames: list[str] | None, temperature
     return data, 200
 
 
-def chat_json(prompt: str, frames: list[str] | None = None, temperature: float = 0.9) -> dict | None:
+def chat_json(prompt: str, frames: list[str] | None = None, temperature: float = 0.9,
+              all_frames: bool = False) -> dict | None:
     """Try every configured free provider/model ONCE until one returns valid JSON.
-    Rate-limited / busy / broken model -> next model immediately, no waiting."""
-    global _down_until
-    if time.time() < _down_until:
+    Rate-limited / busy / broken model -> next model immediately, no waiting.
+    all_frames: skip providers that would get only some of the frames (the prompt numbers every one)."""
+    kind = "vision" if frames else "text"
+    if time.time() < _down_until.get(kind, 0.0):
         return None
     deadline = time.time() + int(_cfg().get("max_total_sec", 240))
+    per_call = float(_cfg().get("call_timeout_sec", 60))
     order = _cfg().get("providers", list(PROVIDERS)) if frames else \
         _cfg().get("text_providers", ["cerebras", "groq", "sambanova", "nvidia", "mistral", "gemma", "openrouter"])
     for p in order:
         if p not in PROVIDERS or not env(PROVIDERS[p]["key"]):
             continue
+        if frames and all_frames and len(frames) > PROVIDERS[p]["max_images"]:
+            continue
         for model, vision in _models(p):
-            if (p, model) in _dead or (frames and not vision):
+            if (p, model) in _dead or (frames and (not vision or (p, model) in _dead_vision)):
                 continue
             left = deadline - time.time()
             if left < 15:
                 log.warning("[ai-fallback] time cap reached")
                 break
             try:
-                data, status = _call(p, model, prompt, frames, temperature, timeout=min(90, left))
+                data, status = _call(p, model, prompt, frames, temperature, timeout=min(per_call, left))
             except Exception as exc:  # noqa: BLE001
+                # a timeout is a strike too: nvidia's gemma-4 timed out after 90 s seven times in a row, and the
+                # chain ran out of time before the models that answer
                 log.warning("[ai-fallback] %s/%s failed: %.150s - next model", p, model, exc)
+                _strike(p, model)
                 continue
             if data:
                 log.info("[ai-fallback] response from %s/%s%s", p, model, " (with frames)" if frames else "")
                 data["_ai_model"] = f"{p}/{model}"
                 return data
-            if status in (400, 401, 402, 403, 404):
+            if frames and status in (400, 413, 415, 422):  # can't take these images - text jobs still can
+                _dead_vision.add((p, model))
+            elif status in (400, 401, 402, 403, 404):
                 _dead.add((p, model))
             elif status == 200:  # it answered, but nothing usable
-                _strikes[(p, model)] = _strikes.get((p, model), 0) + 1
-                if _strikes[(p, model)] >= MAX_STRIKES:
-                    log.info("[ai-fallback] %s/%s gave no usable answer %d times - skipping it this run", p, model,
-                             MAX_STRIKES)
-                    _dead.add((p, model))
-    _down_until = time.time() + 1800  # everything busy: don't keep retrying this run
+                _strike(p, model)
+    _down_until[kind] = time.time() + float(_cfg().get("rest_after_fail_sec", 600))  # all busy: rest a while
     return None
+
+
+def _strike(p: str, model: str) -> None:
+    _strikes[(p, model)] = _strikes.get((p, model), 0) + 1
+    if _strikes[(p, model)] >= MAX_STRIKES:
+        log.info("[ai-fallback] %s/%s failed / gave no usable answer %d times - skipping it this run", p, model,
+                 MAX_STRIKES)
+        _dead.add((p, model))

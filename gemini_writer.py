@@ -1210,9 +1210,10 @@ def write_final_script(clip: Path, copy: dict, fmt: dict | None = None, lead: fl
                        feedback: str = "", slots: list[dict] | None = None, n: int = 1) -> dict | None:
     """The AI watches the WHOLE final video (with sound) and writes ONE script for it.
     slots=[{"t", "text"}]: the edit is fixed (tours / repairs) - one line per slot, same times.
-    Returns {"lines": [{"t", "text"}], "banner", "story", "model"} or None (no AI could watch the video)."""
+    Gemini busy / out of quota: a backup AI that sees images writes it from frames (_script_from_frames).
+    Returns {"lines": [{"t", "text"}], "banner", "story", "model"} or None (no AI could look at the video)."""
     global _unavailable_until
-    if not env("GEMINI_API_KEY"):
+    if not env("GEMINI_API_KEY") and not ai_fallback.available():
         return None
     length = probe(clip)["duration"] or 0
     if length <= 3:
@@ -1238,15 +1239,19 @@ def write_final_script(clip: Path, copy: dict, fmt: dict | None = None, lead: fl
                    "format's name says Top 5 - tell it as one story"),
         shape=MANY_SHAPE.format(n=n) if n > 1 and not slots else ONE_SHAPE,
         feedback=("\n" + feedback.strip() + "\n") if feedback else "")
-    _unavailable_until = 0.0
-    try:
-        up = _upload_video(clip)
-    except Exception as exc:  # noqa: BLE001
-        log.warning("[script] video upload failed: %.150s", exc)
-        return None
-    if up is None:
-        return None
-    data = _generate_json([up, prompt], temperature=0.8, prefer_pro=True)  # the upload is reused by the next attempt
+    data, model = None, "gemini-video"
+    if env("GEMINI_API_KEY"):
+        _unavailable_until = 0.0
+        try:
+            up = _upload_video(clip)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[script] video upload failed: %.150s", exc)
+            up = None
+        if up is not None:  # the upload is reused by the next attempt
+            data = _generate_json([up, prompt], temperature=0.8, prefer_pro=True)
+    if not isinstance(data, dict):
+        data = _script_from_frames(clip, prompt, length, slots)
+        model = (data or {}).get("_ai_model", "")
     if not isinstance(data, dict):
         return None
     many = data.get("scripts") if isinstance(data.get("scripts"), list) else [data]
@@ -1255,8 +1260,42 @@ def write_final_script(clip: Path, copy: dict, fmt: dict | None = None, lead: fl
         return None
     story = str(data.get("story") or many[0].get("story") or "")[:300]
     for x in found:
-        x["story"] = story
+        x.update(story=story, model=model)
     return {**found[0], "alternatives": found[1:]}
+
+
+FRAMES_SCRIPT_NOTE = """YOU CANNOT WATCH OR HEAR THIS VIDEO: you get {n} still frames from it instead, in order - {legend}.
+Wherever the brief below says watch / listen, study these frames: write only about what they show (and what the
+notes say), and never invent a sound, a line of dialogue or an event you can't see.
+
+"""
+
+
+def _script_from_frames(clip: Path, prompt: str, length: float, slots: list[dict] | None) -> dict | None:
+    """Gemini busy / out of quota (runs of 2026-11-24 posted nothing): a backup AI that sees images writes the script
+    from frames - one inside each narration slot for a fixed edit, else spread across the video. Every check after
+    it (judge, picture check of each line, final QA) is the same as for a Gemini script."""
+    gcfg = load_config().get("gemini", {})
+    if not gcfg.get("script_backup", True) or not ai_fallback.available() or length <= 3:
+        return None
+    n = int(gcfg.get("script_backup_frames", 8))  # 8: what most image-capable backups take in one request
+    if slots:
+        pick = sorted({round(i * (len(slots) - 1) / max(1, n - 1)) for i in range(n)}) if len(slots) > n \
+            else list(range(len(slots)))
+        times = [min(length - 0.2, float(slots[i]["t"]) + 1.0) for i in pick]
+        legend = ", ".join(f"image {k + 1} = slot {i + 1} ({t:.1f}s)" for k, (i, t) in enumerate(zip(pick, times)))
+    else:
+        times = [length * (k + 0.5) / n for k in range(n)]
+        legend = ", ".join(f"image {k + 1} = {t:.1f}s" for k, t in enumerate(times))
+    frames = ai_fallback.extract_frames(clip, times=times)
+    if len(frames) != len(times):
+        return None
+    data = ai_fallback.chat_json(FRAMES_SCRIPT_NOTE.format(n=len(frames), legend=legend) + prompt, frames=frames,
+                                 temperature=0.8, all_frames=True)
+    if isinstance(data, dict):
+        log.info("[script] Gemini unavailable - %s wrote the script from %d frames", data.get("_ai_model", "?"),
+                 len(frames))
+    return data
 
 
 def _writer_hints(fmt: dict | None) -> str:
