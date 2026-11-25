@@ -549,7 +549,7 @@ def test_tour_stops_after_a_fake_first_slice():
     assert not list(sf.RAW_DIR.glob("slice*")), "slice files are cleaned up"
 
 
-def _slice_world(raise_on: str = ""):
+def _slice_world(raise_on: str = "", fail_on: str = ""):
     """One tour candidate; downloads take 0.4 s and are counted while they run (+ the GTA 6 check's moment)."""
     d = _isolate()
     # gameplay with something happening: a bang every 3 s (calm footage is rejected - see _nothing_happens)
@@ -568,6 +568,8 @@ def _slice_world(raise_on: str = ""):
             time.sleep(0.4)
             if raise_on and Path(out).name.startswith(raise_on):
                 raise sf.FormatsLimited("hls-380:360p video+audio")
+            if fail_on and Path(out).name.startswith(fail_on):
+                return False  # stalled / too slow
             shutil.copy(tpl, out)
             return True
         finally:
@@ -613,6 +615,18 @@ def test_tour_slices_one_by_one_when_parallel_is_off():
         tour["parallel_slices"] = True if old is None else old
     assert st["peak"] == 1 and len(got) == 1
     got[0].clip_path.unlink(missing_ok=True)
+
+
+def test_a_video_whose_first_slice_stalls_is_not_downloaded_further():
+    """Live 2026-11-25: slice 1 stalled after 4.7 min, then slices 2 and 3 of the same video stalled too (4 min)."""
+    if not HAVE_TOOLS:
+        return
+    st, orig = _slice_world(fail_on="slice0_")
+    try:
+        assert list(sf.iter_clips(0, max_attempts=1)) == []
+    finally:
+        sf.discover, sf._download, authentic.check = orig
+    assert [e[0] for e in st["events"]] == ["start"], f"only slice 1 was tried, nothing checked ({st['events']})"
 
 
 def test_a_failing_slice_leaves_no_files_behind():

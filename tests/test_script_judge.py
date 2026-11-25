@@ -1,4 +1,6 @@
 """The script judge and the whole-video writer - built from the two posted Shorts the owner rated 0/10."""
+import pytest
+
 import ai_fallback
 import gemini_writer
 import script_judge as sj
@@ -164,3 +166,19 @@ def test_closing_question_must_be_short_and_on_its_own():
     countdown = ["Number two: he parks the bike on a palm tree, which is honestly a talent.",
                  "Number one: the cop car follows him off the pier and both of them go swimming, would you?"]
     assert not any("buried" in p for p in sj.static_problems(countdown, numbered_ok=True, countdown=2))
+
+
+def test_quiet_tail_is_where_the_talking_stops():
+    """Live 2026-11-25: a 34 s crash clip, the rider walks around from ~15 s - every script went quiet there."""
+    lines = [{"t": 1.0, "text": "Bro really decided to play chicken with a luxury sedan on a dirt bike."},
+             {"t": 7.0, "text": "That is a ten out of ten superhero launch right into orbit."},
+             {"t": 11.0, "text": "He just bounced off the asphalt like a dropped sandwich."},
+             {"t": 28.0, "text": "Would you try this stunt?"}]
+    t = sj.quiet_tail(lines, 34.0, lead=1.2)
+    assert t == pytest.approx(11.0 + 10 / 2.7, abs=0.05)
+    middle = [lines[0], {"t": 16.0, "text": "Look at the car roll over after that."},
+              {"t": 20.0, "text": "And the rider just gets up and walks away."}, lines[3]]  # quiet 7-16 s
+    assert sj.quiet_tail(middle, 34.0, lead=1.2) is None, "a gap in the middle is a real script problem"
+    full = lines[:3] + [{"t": 16.0, "text": "Now he walks it off like nothing happened at all, legend."},
+                        {"t": 21.0, "text": "And the car is still spinning back there on the bridge."}, lines[3]]
+    assert sj.quiet_tail(full, 34.0, lead=1.2) is None, "no long silence: nothing to cut"

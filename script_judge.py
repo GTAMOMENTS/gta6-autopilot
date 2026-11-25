@@ -95,6 +95,25 @@ def dead_air(lines: list[dict], length: float, lead: float = 0.0, spans=None, wp
     return out[:3]
 
 
+def quiet_tail(lines: list[dict], length: float, lead: float = 0.0, spans=None, wps: float = 2.7) -> float | None:
+    """When the script's only long silence comes right before its closing line: the second the talking stops. The
+    writer watched the video and had nothing to say there because nothing happens (a 34 s crash clip: the rider
+    walks around from 15 s on - 9 scripts in a row left 10-17 s of silence there). The cut can end there instead
+    (autopilot.produce). None = no such tail (a gap in the middle is a real script problem)."""
+    if len(lines) < 3:
+        return None
+    max_gap = float(_cfg().get("max_silence_sec", 6.0))
+    busy = sorted([(float(ln["t"]), float(ln["t"]) + len(str(ln["text"]).split()) / wps) for ln in lines[:-1]] +
+                  [(float(a), float(b)) for a, b in (spans or [])])
+    cursor = lead
+    for a, b in busy:
+        if a - cursor > max_gap:
+            return None
+        cursor = max(cursor, b)
+    closing = min(float(lines[-1]["t"]), length)
+    return cursor if closing - cursor > max_gap else None
+
+
 def static_problems(lines: list[str], numbered_ok: bool = False, countdown: int | None = None) -> list[str]:
     """Certain problems, no AI needed."""
     out = []

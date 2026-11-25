@@ -310,3 +310,34 @@ def test_countdown_with_no_slot_for_every_number_is_still_dropped(cfg, top5_tour
     ok, rec = autopilot.run_video_slot(slot, dry_run=True, fmt=formats.format_by_id("top5_things_to_do", cfg))
     assert not ok and "countdown skipped [1]" in rec["error"]
     assert "writer" not in short_world, "no script / voice spent on it"
+
+
+def test_a_quiet_end_is_cut_off_and_the_script_written_again(cfg, short_world, fake_tts, sandbox, monkeypatch):
+    """Every script went quiet before the closing question (nothing happens at the end): the video ends where the
+    talking stopped and the writer gets the shorter video - instead of the clip being dropped."""
+    import script_judge
+    cfg["video"]["min_short_sec"] = 5  # the smoke footage is 12 s: a tiny script is enough here
+    cfg["quality_gate"].update(min_script_lines=3, min_script_words=10)
+    monkeypatch.setattr(script_judge, "judge", lambda lines, ctx, numbered_ok=False, countdown=None, timing=None: (
+        lambda st: {"ok": not st, "score": 8.0, "problems": st, "by": "test/judge", "static": st})(
+        script_judge.dead_air(lines, timing["length"], timing["lead"], timing["spans"]) if timing else []))
+    lengths = []
+
+    def writer(clip, copy, fmt=None, lead=0.0, spans=None, feedback="", slots=None, n=1):
+        length = common.probe(clip)["duration"]
+        lengths.append(round(length, 1))
+        hook = [{"t": lead + 0.1, "text": LINES[0]}, {"t": lead + 3.6, "text": "Look at that."}]
+        if length > 10:  # quiet from ~4.7 s after the cold open to the closing question
+            lines = hook + [{"t": lead + 11.0, "text": "Would you try it?"}]
+        else:
+            lines = hook + [{"t": lead + 4.9, "text": "Would you try it?"}]
+        return {"lines": lines, "banner": "", "title": "", "story": "a ramp jump"}
+    monkeypatch.setattr(gemini_writer, "write_final_script", writer)
+    slot = {"type": "vertical_clip", "platforms": ["x"], "time": "19:40"}
+    ok, rec = autopilot.run_video_slot(slot, dry_run=True, fmt=formats.format_by_id("stunts_crashes", cfg))
+    assert ok, rec
+    teaser = cfg["video"]["fx"]["teaser_sec"]
+    keep = teaser + 3.6 + 3 / 2.7 + cfg["video"]["quiet_tail_room_sec"]  # "Look at that." ends, + room
+    assert lengths[:3] == [round(12 + teaser, 1)] * 3 and lengths[3] == pytest.approx(keep, abs=0.15)
+    assert rec["duration"] == pytest.approx(keep, abs=0.3)
+    assert rec["source"]["segments"][-1][1] == pytest.approx(keep - teaser, abs=0.05), "the record shows the new end"

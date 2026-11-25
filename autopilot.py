@@ -57,6 +57,13 @@ def repair_note(issues: list[dict], placed: list[dict]) -> str:
     return "\n".join(out)
 
 
+def _fx_at(item) -> float:
+    """When an effect starts: {"t"} / {"a"} dicts or (start, ...) tuples."""
+    if isinstance(item, dict):
+        return float(item.get("t", item.get("a", 0.0)) or 0.0)
+    return float(item[0])
+
+
 def drop_calm_shots(shots: list[dict], energy: list[float], calm: float, keep_min: int) -> list[dict]:
     """A tour's shots that start in the calmest stretches of the footage (walking, roaming, calm driving: the energy
     of motion + game sound over the shot's first 4 s is under `calm`) - owner: "you can't do narration on a walking
@@ -191,20 +198,24 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
                 "banner": copy.get("banner", ""), "title": copy.get("youtube_title", ""),
                 "story": story or copy.get("scene_summary", "")}
 
-    def _write_checked(video, copy, items, lead=0.0, spans=None, slots=False, feedback="") -> list[dict] | None:
+    def _write_checked(video, copy, items, lead=0.0, spans=None, slots=False, feedback="",
+                       tails: list | None = None) -> list[dict] | None:
         """Owner: "the writing shall occur after the AI watched the whole video, then write a good script for the
         whole video - not frame by frame". 1) the AI watches the WHOLE video and writes ONE script; 2) a different AI
         judges the script like a viewer (makes sense? promise kept? entertaining?); 3) the lines are checked against
         the picture. A failure goes back to the writer (whole video + the reasons) for a NEW script. None = no
         script good enough -> next clip, before any voice / render is spent.
         items: the current lines [{"t", "text"}]; slots=True keeps their times (tours: the edit is fixed).
-        feedback: what the first attempt must fix already (e.g. a countdown that skips a number)."""
+        feedback: what the first attempt must fix already (e.g. a countdown that skips a number).
+        tails: collects, from rejected scripts, the second the talking stopped when only the end was left silent
+        (script_judge.quiet_tail) - the caller can end the video there and ask again."""
         import lessons
         import qa
         import script_judge
         from gemini_writer import write_final_script
         countdown = int(fmt["countdown"]) if slots and (fmt or {}).get("countdown") else None
         tries = max(1, int(vcfg.get("script_attempts", 3)))
+        length = None if slots else probe(video)["duration"]
         last_issues = []
         for attempt in range(1, tries + 1):
             w = patient(lambda: write_final_script(
@@ -224,8 +235,11 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
                          "youtube_title": cand.get("title") or copy.get("youtube_title", "")}
                 v = script_judge.judge(cand["lines"], _script_ctx(trial, cand.get("story", "")),
                                        numbered_ok=bool(countdown), countdown=countdown,
-                                       timing=None if slots else {"length": probe(video)["duration"], "lead": lead,
-                                                                  "spans": spans})
+                                       timing=None if slots else {"length": length, "lead": lead, "spans": spans})
+                if not v["ok"] and tails is not None and length:
+                    t_quiet = script_judge.quiet_tail(cand["lines"], length, lead, spans)
+                    if t_quiet is not None:
+                        tails.append(t_quiet)
                 if best_v is None or (v["ok"], v["score"] or 0) > (best_v["ok"], best_v["score"] or 0):
                     best, best_v = cand, v
             w, verdict, lines = best, best_v, best["lines"]
@@ -576,7 +590,23 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
             note_talky(c)  # an uploader whose videos keep doing this is skipped before download
             return None
         # the AI watches the WHOLE final video (cold open + story, with sound) and writes ONE script for it
-        commentary = _write_checked(clip, copy, [], lead=lead, spans=fx.get("dialogue"))
+        tails: list[float] = []
+        commentary = _write_checked(clip, copy, [], lead=lead, spans=fx.get("dialogue"), tails=tails)
+        if commentary is None and tails and vcfg.get("cut_quiet_tail", True):
+            # every rejected script went quiet before the closing line: nothing happens at the end (owner: "you
+            # can't do narration on a walking clip") - end the video where the talking stopped, write it again
+            total = probe(clip)["duration"] or 0
+            keep = round(max(tails) + float(vcfg.get("quiet_tail_room_sec", 3.5)), 2)
+            if float(vcfg.get("min_short_sec", 20)) <= keep < total - 2:
+                log.info("[editor] the scripts went quiet after %.0fs (nothing happens there) - the video ends at "
+                         "%.0fs instead of %.0fs, script written again", max(tails), keep, total)
+                short = cut_segments(clip, RAW_DIR / f"clip_{int(time.time())}_end.mp4", [(0.0, keep)])
+                if short:
+                    clip.unlink(missing_ok=True)
+                    clip = short
+                    segs[-1] = (segs[-1][0], segs[-1][0] + keep - lead)
+                    fx = {k: [x for x in v if _fx_at(x) < keep - 0.3] for k, v in fx.items()}
+                    commentary = _write_checked(clip, copy, [], lead=lead, spans=fx.get("dialogue"))
         if commentary is None:
             log.warning("[script] ✋ no script good enough for this footage - next clip (no voice / render spent)")
             clip.unlink(missing_ok=True)

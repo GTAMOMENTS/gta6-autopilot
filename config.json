@@ -420,8 +420,16 @@
       "secrets": 2.0,
       "hidden": 1.5,
       "things to do": 2.0,
-      "funniest": 3.0
+      "funniest": 3.0,
+      "i wish i knew": -5.0,
+      "tips": -3.0,
+      "tricks": -3.0,
+      "you need to know": -3.0,
+      "you didn't know": -3.0,
+      "heist": -3.0,
+      "mission": -3.0
     },
+    "_preferred_penalties_note": "Negative weights (2026-11-25): titles that promise someone talking ('20+ GTA 6 Hidden Tricks & Secrets I Wish I Knew' - 99% speech) or story missions ('Full Military Base Heist' - cutscenes, a spoiler) were downloaded, then rejected; they now rank below plain gameplay.",
     "official_trailers": [
       {
         "title": "Grand Theft Auto VI: An Extended Look",
@@ -649,6 +657,10 @@
     "tour_max_sec": 90,
     "tour_min_shots": 4,
     "tour_calm_energy": 0.25,
+    "cut_quiet_tail": true,
+    "quiet_tail_room_sec": 3.5,
+    "min_short_sec": 20,
+    "_quiet_tail_note": "A single-moment Short whose rejected scripts all went quiet before the closing line (the writer found nothing to say: a 34 s crash clip whose rider walks around from 15 s on failed 9 scripts for dead air, twice) ends where the talking stopped + quiet_tail_room_sec, and the script is written again - only if the video stays min_short_sec long.",
     "_tour_calm_note": "Tour shots whose first 4 s are this calm (motion + game sound energy, 0-1 within the footage: walking, roaming, calm driving) are dropped while tour_min_shots remain - not for countdowns or formats with calm_ok.",
     "game_audio_volume_tour": 0.4,
     "fx": {

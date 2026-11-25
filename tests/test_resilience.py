@@ -205,6 +205,28 @@ def test_gemini_answers_no_backup_is_asked(monkeypatch, make_clip):
     assert out and out["model"] == "gemini-video"
 
 
+def test_a_single_item_answer_from_gemini_is_used(monkeypatch):
+    """Gemini answered one clip with the item itself, not {"clips": [...]}: it was thrown away and a weaker backup
+    called a GTA V video GTA 6 - 2 more slices of it were downloaded before the full check said GTA V."""
+    import vision
+    monkeypatch.setattr(vision, "_gemini", lambda *a, **k: {"clip": 1, "game": "GTA V", "confidence": 0.95})
+    monkeypatch.setattr(vision, "_backup", lambda *a, **k: pytest.fail("Gemini's answer must be used"))
+    out = vision.ask([("Clip 1", [b"jpg"])], "is it GTA 6?", key="clips", num="clip")
+    assert out == {"clips": [{"clip": 1, "game": "GTA V", "confidence": 0.95}]}
+    seen = []
+    monkeypatch.setattr(vision, "_backup", lambda *a, **k: seen.append(1) or {"clips": []})
+    vision.ask([("Clip 1", [b"a"]), ("Clip 2", [b"b"])], "is it GTA 6?", key="clips", num="clip")
+    assert seen == [1], "with two clips one item can't be the whole answer - the backups are asked"
+
+
+def test_titles_that_promise_talking_or_missions_rank_last():
+    import source_fetcher as sf
+    f = sf.TitleFilter(common.load_config())
+    plain = f.bonus("GTA 6 free roam gameplay no commentary")
+    assert f.bonus("20+ GTA 6 Hidden Tricks & Secrets I Wish I Knew Earlier") < 0 < plain
+    assert f.bonus("GTA 6: Full Military Base Heist (No Commentary)") < plain
+
+
 def test_github_models_is_gone():
     """GitHub retired GitHub Models on 2026-07-30 - its endpoint answers every request with a plain "OK"."""
     cfg = common.load_config()["ai_fallback"]
