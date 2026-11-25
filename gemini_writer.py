@@ -1128,7 +1128,9 @@ Write it like the best GTA guide creators:
 - the first line is a hook that THIS video really pays off. Never promise anything the video doesn't show (no "how
   to steal a car" if no car gets stolen). If the video doesn't show the format's topic, write about what it DOES
   show (honesty beats the topic) and give a new banner and title that this video delivers
-- every line talks about what is happening at ITS moment in the video (you watched it - use the real timeline)
+- every line talks about what is happening at ITS moment in the video (you watched it - use the real timeline).
+  NEVER talk about anything the video does not SHOW: no item, place, number, menu or result that is not on screen
+  (owner: "you can't talk about something without it being shown"). If the video doesn't show it, don't say it
 - USEFUL like the top guide creators - this is what makes people watch to the end, save and share:
   * every line gives ONE concrete fact or tip about what is on screen at its moment: how it works, where it is,
     what you get, what it costs, what to avoid, how it differs from GTA 5

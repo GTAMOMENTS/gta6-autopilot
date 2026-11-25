@@ -225,3 +225,9 @@ def test_countdown_missing_numbers():
     assert formats.countdown_missing(["Top five. Number 5 a", "number four", "#3 lol", "Number two b",
                                       "And number one, the best"], 5) == []
     assert formats.countdown_missing(["Here are five fails", "Number three: c"], 5) == [5, 4, 2, 1]
+
+
+def test_every_rotation_format_must_show_what_it_talks_about(cfg):
+    """Owner 2026-11-25: "you can't just talk about something in a video without it being shown"."""
+    for f in formats._rotation(cfg):
+        assert f.get("must_show") and f.get("must_show_short"), f"{f['id']} has no must_show"

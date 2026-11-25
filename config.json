@@ -941,7 +941,7 @@
           "youtube",
           "dailymotion"
         ],
-        "brief": "How the police and the wanted level work in GTA 6, shown in this footage: what raises the stars, what the icons under the stars mean (what the police know: weapon, clothes, car, camera footage), and how to lose them. Each line explains one thing the viewer can see happening, in 'you' form. Our narrator replaces any voice in the footage: if someone in the video explains something, you can use what they say (their voice is muted), but only facts the picture backs up. Never invent numbers, prices, locations or names - say them only if they are on screen or said in the footage.",
+        "brief": "How the police and the wanted level work in GTA 6, shown in this footage: what raises the stars, what the icons under the stars mean (what the police know: weapon, clothes, car, camera footage), and how to lose them. Each line explains one thing the viewer can see happening, in 'you' form. The video ends ON the payoff (show it for a few seconds), never on the way there. Our narrator replaces any voice in the footage: if someone in the video explains something, you can use what they say (their voice is muted), but only facts the picture backs up. Never invent numbers, prices, locations or names - say them only if they are on screen or said in the footage.",
         "banner_example": "HOW TO LOSE 5 STARS IN GTA 6",
         "title_example": "GTA 6 Wanted Level Explained: How To Escape The Police",
         "queries": [
@@ -989,7 +989,9 @@
         ],
         "allowed_title_terms": [
           "explained"
-        ]
+        ],
+        "must_show": "the wanted level itself on screen: the wanted stars on the HUD and the police reacting (chasing, searching, or the stars going down). A plain drive with no stars does NOT count",
+        "must_show_short": "the wanted stars and the police"
       },
       {
         "id": "easter_eggs",
@@ -1066,7 +1068,7 @@
           "youtube",
           "dailymotion"
         ],
-        "brief": "Practical GTA 6 tips for new players that this footage shows being used (banking cash, Focus Mode, phone apps, auto drive, avoiding witnesses, saving money): one tip per line, what to do and why it helps. Our narrator replaces any voice in the footage: if someone in the video explains something, you can use what they say (their voice is muted), but only facts the picture backs up. Never invent numbers, prices, locations or names - say them only if they are on screen or said in the footage.",
+        "brief": "Practical GTA 6 tips for new players that this footage shows being used (banking cash, Focus Mode, phone apps, auto drive, avoiding witnesses, saving money): one tip per line, what to do and why it helps. The video ends ON the payoff (show it for a few seconds), never on the way there. Our narrator replaces any voice in the footage: if someone in the video explains something, you can use what they say (their voice is muted), but only facts the picture backs up. Never invent numbers, prices, locations or names - say them only if they are on screen or said in the footage.",
         "banner_example": "GTA 6 TIP NOBODY TELLS YOU",
         "title_example": "GTA 6 Beginner Tips You Need To Know",
         "queries": [
@@ -1110,7 +1112,9 @@
         "hashtags": [
           "#GTA6Tips",
           "#GTA6Guide"
-        ]
+        ],
+        "must_show": "each tip actually being DONE on screen (the menu, app, action or result the tip is about) - not only someone walking or driving while the tip is described",
+        "must_show_short": "the tip being done on screen"
       },
       {
         "id": "best_cars",
@@ -1188,7 +1192,7 @@
           "youtube",
           "dailymotion"
         ],
-        "brief": "How a GTA 6 robbery works, shown in this footage (store, gas station, jewelry store, armored truck or bank - never a story heist or mission): how to start it, what to watch for (alarms, cameras, guards), what you get and how to get away. Step by step, in 'you' form. Our narrator replaces any voice in the footage: if someone in the video explains something, you can use what they say (their voice is muted), but only facts the picture backs up. Never invent numbers, prices, locations or names - say them only if they are on screen or said in the footage.",
+        "brief": "How a GTA 6 robbery works, shown in this footage (store, gas station, jewelry store, armored truck or bank - never a story heist or mission): how to start it, what to watch for (alarms, cameras, guards), what you get and how to get away. Step by step, in 'you' form. The video ends ON the payoff (show it for a few seconds), never on the way there. Our narrator replaces any voice in the footage: if someone in the video explains something, you can use what they say (their voice is muted), but only facts the picture backs up. Never invent numbers, prices, locations or names - say them only if they are on screen or said in the footage.",
         "banner_example": "HOW TO ROB A STORE IN GTA 6",
         "title_example": "GTA 6 Robbery Guide: How To Rob A Store And Get Away",
         "queries": [
@@ -1233,7 +1237,9 @@
         "hashtags": [
           "#GTA6Tips",
           "#GTA6Money"
-        ]
+        ],
+        "must_show": "the robbery itself on screen: the register / safe / vault / ATM being opened or emptied and the loot or cash being taken. Only the drive there does NOT count",
+        "must_show_short": "the robbery itself"
       },
       {
         "id": "what_happens_if",
@@ -1249,7 +1255,7 @@
           "youtube",
           "dailymotion"
         ],
-        "brief": "'What happens if you ... in GTA 6?': line 1 asks the question, the footage shows the answer (the action and its result - the police reaction, what you lose, how NPCs react). Explain the result clearly. Only questions this footage really answers. Our narrator replaces any voice in the footage: if someone in the video explains something, you can use what they say (their voice is muted), but only facts the picture backs up. Never invent numbers, prices, locations or names - say them only if they are on screen or said in the footage.",
+        "brief": "'What happens if you ... in GTA 6?': line 1 asks the question, the footage shows the answer (the action and its result - the police reaction, what you lose, how NPCs react). Explain the result clearly. Only questions this footage really answers. The video ends ON the payoff (show it for a few seconds), never on the way there. Our narrator replaces any voice in the footage: if someone in the video explains something, you can use what they say (their voice is muted), but only facts the picture backs up. Never invent numbers, prices, locations or names - say them only if they are on screen or said in the footage.",
         "banner_example": "WHAT HAPPENS IF YOU DIE IN GTA 6?",
         "title_example": "GTA 6: What Happens If You Get Wasted?",
         "queries": [
@@ -1289,7 +1295,9 @@
         "hashtags": [
           "#GTA6",
           "#GTA6Tips"
-        ]
+        ],
+        "must_show": "BOTH the action and its result on screen (e.g. the player gets wasted AND the screen after it). A question the footage doesn't answer does NOT count",
+        "must_show_short": "the action and its result"
       },
       {
         "id": "hidden_weapons",
@@ -1447,7 +1455,7 @@
           "youtube",
           "dailymotion"
         ],
-        "brief": "A GTA 6 mechanic or detail most players don't know, shown in this footage (e.g. disarming instead of killing, police using camera footage, cars with electronic locks, calling your partner): what it is, how to use it, why it matters. Our narrator replaces any voice in the footage: if someone in the video explains something, you can use what they say (their voice is muted), but only facts the picture backs up. Never invent numbers, prices, locations or names - say them only if they are on screen or said in the footage.",
+        "brief": "A GTA 6 mechanic or detail most players don't know, shown in this footage (e.g. disarming instead of killing, police using camera footage, cars with electronic locks, calling your partner): what it is, how to use it, why it matters. The video ends ON the payoff (show it for a few seconds), never on the way there. Our narrator replaces any voice in the footage: if someone in the video explains something, you can use what they say (their voice is muted), but only facts the picture backs up. Never invent numbers, prices, locations or names - say them only if they are on screen or said in the footage.",
         "banner_example": "YOU DIDN'T KNOW GTA 6 DOES THIS",
         "title_example": "GTA 6: Things You Didn't Know You Could Do",
         "queries": [
@@ -1490,7 +1498,9 @@
         "hashtags": [
           "#GTA6Tips",
           "#GTA6"
-        ]
+        ],
+        "must_show": "the mechanic or detail itself clearly happening on screen, not just described",
+        "must_show_short": "the mechanic itself"
       },
       {
         "id": "map_secrets",
@@ -1777,7 +1787,8 @@
         "slot_only": true,
         "_retired_note": "Out of the rotation (owner 2026-11-25): the channel makes informative videos - money, cars, easter eggs, tips, robberies, weapons, police, map secrets. Crash / funny / compilation formats made 'bro' narration over footage with nothing to explain."
       }
-    ]
+    ],
+    "_show_rule_note": "Owner 2026-11-25: 'you can't talk about something in a video without it being shown'. Every rotation format has must_show (the AI must see it and mark its second - required_t - or the footage is rejected; the cut moves over it and holds it payoff_hold_sec), and every narration line is checked against the frames at its moment (qa.line_check: pre-check before the voice, again in the final QA)."
   },
   "learning": {
     "enabled": true,
