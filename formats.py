@@ -249,6 +249,16 @@ def prompt_note(fmt: dict | None, tour: bool) -> str:
 
 
 _NUMWORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+_NUMBER_WORD = {v: k for k, v in _NUMWORDS.items()}
+
+
+def countdown_note(missing: list[int], n: int) -> str:
+    """What the script writer is told when the editor's countdown skips numbers (it renumbers the same shots)."""
+    return (f"THE CURRENT LINES SKIP {', '.join(f'NUMBER {k}' for k in missing)}. This is a Top {n}: the first line is "
+            f"the hook, then the lines count down \"Number {_NUMBER_WORD.get(n, n)}...\" to \"Number one...\" - every "
+            "number once, in order, each at the START of its line, the best item last. Give each number to the "
+            "slot that shows that item; if an item has two slots, its second slot becomes the next number. The last "
+            "line still ends with the question to the viewer.")
 
 
 def countdown_missing(texts: list[str], n: int) -> list[int]:
