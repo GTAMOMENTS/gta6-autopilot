@@ -399,37 +399,28 @@
       "4k": 1.0,
       "chase": 2.0,
       "shootout": 2.5,
-      "stunt": 2.0,
       "60fps": 0.5,
       "police": 1.5,
-      "funny": 3.0,
-      "crazy": 2.0,
       "insane": 1.0,
-      "best moments": 3.0,
-      "rampage": 2.0,
-      "explosion": 2.0,
-      "crash": 1.5,
       "wanted": 1.5,
       "top 5": 3.0,
       "top 10": 3.0,
-      "craziest": 2.5,
-      "fails": 2.5,
       "free roam": 1.0,
-      "physics": 1.5,
-      "ragdoll": 1.5,
       "secrets": 2.0,
       "hidden": 1.5,
       "things to do": 2.0,
-      "funniest": 3.0,
-      "i wish i knew": -5.0,
-      "tips": -3.0,
-      "tricks": -3.0,
-      "you need to know": -3.0,
-      "you didn't know": -3.0,
+      "tips": 2.0,
+      "tricks": 1.0,
+      "you need to know": 1.5,
+      "you didn't know": 1.5,
       "heist": -3.0,
-      "mission": -3.0
+      "mission": -3.0,
+      "guide": 2.5,
+      "how to": 2.0,
+      "location": 1.5,
+      "explained": 1.5
     },
-    "_preferred_penalties_note": "Negative weights (2026-11-25): titles that promise someone talking ('20+ GTA 6 Hidden Tricks & Secrets I Wish I Knew' - 99% speech) or story missions ('Full Military Base Heist' - cutscenes, a spoiler) were downloaded, then rejected; they now rank below plain gameplay.",
+    "_preferred_penalties_note": "2026-11-25 (owner): informative channel - guide / tips / location / explained titles rank up; crash, funny, ragdoll and compilation words no longer add points. 'heist' / 'mission' rank down (story missions = spoilers). Guide videos with a YouTuber talking are fine: those formats mute the voice (allow_narrated).",
     "official_trailers": [
       {
         "title": "Grand Theft Auto VI: An Extended Look",
@@ -775,205 +766,13 @@
   ],
   "formats": {
     "enabled": true,
-    "_note": "Video A makes the NEXT format in this list (+ learning + trends); formats with slot_only (the Money Tip) are made only by their own slot (Video B). 'trending' follows the trend radar (trends.py). Position in queue/format_rotation.json.",
+    "_note": "Owner 2026-11-25: the channel makes informative Shorts. Video A and Video B both take the NEXT format of this list in order (money, police, easter eggs, tips, cars, robberies, what happens if, weapons, fastest money, things you didn't know, map secrets). Formats with slot_only are out of the rotation (crash / funny / streamer / generic) but can still be made by a manual run. streams=false / providers: these formats search only YouTube + Dailymotion gameplay (no streamer or X clips). allowed_title_terms lifts a global blocked word for one format. Position in queue/format_rotation.json.",
     "rotation": [
-      {
-        "id": "top5_funny",
-        "name": "Top 5 funniest moments",
-        "kind": "gameplay",
-        "countdown": 5,
-        "brief": "The 5 funniest moments in the footage: fails, ragdolls, NPC reactions, chaos, dumb luck. Funny and a bit of roasting, every item ends on a punchline.",
-        "banner_example": "TOP 5 FUNNIEST GTA 6 MOMENTS",
-        "title_example": "Top 5 FUNNIEST Moments In GTA 6",
-        "queries": [
-          "GTA 6 funny moments",
-          "GTA 6 funniest moments",
-          "GTA 6 fails",
-          "GTA 6 funny fails",
-          "GTA 6 NPC reactions",
-          "GTA 6 ragdoll physics",
-          "GTA 6 best moments"
-        ],
-        "title_terms": [
-          "funny",
-          "funniest",
-          "fail",
-          "fails",
-          "ragdoll",
-          "npc",
-          "moments"
-        ],
-        "series": "GTA 6 Funniest Moments",
-        "keywords": "GTA 6 funny moments, fails",
-        "hashtags": [
-          "#GTA6Funny",
-          "#GTA6Fails"
-        ]
-      },
-      {
-        "id": "car_chases",
-        "name": "Fast car chases",
-        "kind": "gameplay",
-        "brief": "High-speed car and police chases: near misses, crashes, cops boxing you in, wanted stars, the escape. Fast and tense, react like you're in the passenger seat and point out what the cops do and how the driver gets away.",
-        "banner_example": "THIS GTA 6 CHASE IS INSANE",
-        "title_example": "This GTA 6 Police Chase Went CRAZY",
-        "queries": [
-          "GTA 6 police chase",
-          "GTA 6 car chase",
-          "GTA 6 high speed chase",
-          "GTA 6 cop chase",
-          "GTA 6 wanted level chase",
-          "GTA 6 5 star wanted level",
-          "GTA 6 getaway"
-        ],
-        "title_terms": [
-          "chase",
-          "pursuit",
-          "police",
-          "cops",
-          "wanted",
-          "getaway",
-          "escape"
-        ],
-        "series": "GTA 6 Car Chases",
-        "keywords": "GTA 6 police chase, car chase",
-        "hashtags": [
-          "#GTA6PoliceChase",
-          "#GTA6Cars"
-        ]
-      },
-      {
-        "id": "top5_things_to_do",
-        "calm_ok": true,
-        "name": "Top 5 things to do in GTA 6",
-        "kind": "gameplay",
-        "countdown": 5,
-        "brief": "5 fun things a player can actually do in the open world (activities, vehicles, side stuff, shops, wildlife, mechanics), told in 'you' form so viewers want to try them. Compare with GTA 5 when the difference is obvious on screen.",
-        "banner_example": "5 THINGS TO DO IN GTA 6",
-        "title_example": "5 Things You NEED To Try In GTA 6",
-        "queries": [
-          "GTA 6 things to do",
-          "GTA 6 things you can do",
-          "GTA 6 crazy things you can do",
-          "GTA 6 free roam gameplay",
-          "GTA 6 open world gameplay",
-          "GTA 6 activities",
-          "GTA 6 side activities"
-        ],
-        "title_terms": [
-          "things to do",
-          "things you can do",
-          "free roam",
-          "open world",
-          "activities"
-        ],
-        "series": "GTA 6 Things To Do",
-        "keywords": "GTA 6 things to do, free roam",
-        "hashtags": [
-          "#GTA6Tips",
-          "#GTA6Gameplay"
-        ]
-      },
-      {
-        "id": "secrets",
-        "calm_ok": true,
-        "name": "Secrets and hidden details",
-        "kind": "gameplay",
-        "brief": "Hidden details, easter eggs and secret mechanics in the WORLD that most players miss ('you probably walked past this'). Never story secrets or plot. Only claim what you can actually see.",
-        "banner_example": "GTA 6 SECRETS YOU MISSED",
-        "title_example": "GTA 6 Secrets You Probably MISSED",
-        "queries": [
-          "GTA 6 secrets no commentary",
-          "GTA 6 hidden details no commentary",
-          "GTA 6 easter eggs no commentary",
-          "GTA 6 small details gameplay no commentary",
-          "GTA 6 free roam details 4K no commentary",
-          "GTA 6 easter egg gameplay"
-        ],
-        "title_terms": [
-          "secret",
-          "secrets",
-          "hidden",
-          "easter egg",
-          "easter eggs",
-          "details",
-          "missed",
-          "no commentary"
-        ],
-        "series": "GTA 6 Secrets",
-        "keywords": "GTA 6 secrets, hidden details, easter eggs",
-        "hashtags": [
-          "#GTA6Secrets",
-          "#GTA6EasterEggs"
-        ]
-      },
-      {
-        "id": "stunts_crashes",
-        "name": "Crazy stunts and crashes",
-        "kind": "gameplay",
-        "brief": "The wildest stunts, jumps and crashes: big air, bikes, flips, brutal physics. Hype the build-up, then react to the landing or the crash.",
-        "banner_example": "GTA 6 CRASH PHYSICS ARE BRUTAL",
-        "title_example": "GTA 6 Crash Physics Are INSANE",
-        "queries": [
-          "GTA 6 stunts",
-          "GTA 6 crazy stunts",
-          "GTA 6 car crashes",
-          "GTA 6 crash physics",
-          "GTA 6 jumps",
-          "GTA 6 bike stunts"
-        ],
-        "title_terms": [
-          "stunt",
-          "stunts",
-          "crash",
-          "crashes",
-          "jump",
-          "jumps",
-          "physics"
-        ],
-        "series": "GTA 6 Stunts",
-        "keywords": "GTA 6 stunts, crashes, physics",
-        "hashtags": [
-          "#GTA6Stunts",
-          "#GTA6Physics"
-        ]
-      },
-      {
-        "id": "stream_reactions",
-        "slot_only": true,
-        "_slot_only_note": "Owner 2026-11-24: narrated videos only in the rotation, so every scheduled video can go to Instagram (raw streamer clips stay off it - 'not original' flag of 2026-11-20). Still made by format=stream_reactions on a manual run, and streamer clips remain the fallback when a narrated video fails.",
-        "name": "Funniest streamer reactions",
-        "kind": "stream",
-        "brief": "A streamer's funniest or wildest reaction to something that happens in GTA 6. Set up what's about to happen, then let the reaction land.",
-        "banner_example": "HE WAS NOT READY FOR THIS",
-        "title_example": "Streamer Was NOT Ready For This GTA 6 Moment",
-        "queries": [
-          "GTA 6 stream highlights",
-          "GTA 6 funniest stream moments",
-          "GTA 6 streamer funny moments",
-          "GTA 6 stream rage",
-          "GTA 6 twitch clips",
-          "GTA 6 stream fails"
-        ],
-        "title_terms": [
-          "funny",
-          "funniest",
-          "rage",
-          "fails",
-          "highlights"
-        ],
-        "series": "GTA 6 Streamer Moments",
-        "keywords": "GTA 6 streamer funny reactions",
-        "hashtags": [
-          "#GTA6Stream",
-          "#GTA6Funny"
-        ]
-      },
       {
         "id": "money_tips",
         "name": "GTA 6 Money Tip",
         "kind": "gameplay",
-        "slot_only": true,
+        "slot_only": false,
         "use_trends": true,
         "trend_min_demand": 7,
         "brief": "A GTA 6 MONEY TIP: explain the ONE way to make money that this footage actually shows - what the player does and where, step by step, in 'you' form, so viewers can copy it. Amounts ONLY if the cash / HUD number is visible on screen or said in the footage - never invent numbers, prices or payouts. Never story missions, story heists or spoilers; no glitches or exploits. Only call it a money method if the footage shows the money arriving (cash counter / payout screen) - that moment is the payoff. Line 1 is the hook that names the payoff ('This is the easiest money in GTA 6 right now'). End with a question ('How much did you make?').",
@@ -1076,13 +875,29 @@
         "continuous": true,
         "_continuous_note": "A how-to must stay in ONE continuous part of the source video: the multi-slice 'tour' edit jumped to unrelated driving footage while the narration was still explaining the method (owner, 2026-11-20).",
         "blocked_title_terms": [
-          "glitch",
-          "exploit",
-          "infinite money",
-          "unlimited money",
-          "mod menu",
+          "best moments",
+          "cheat",
+          "compilation",
+          "dlc",
+          "double money",
           "duplicat",
-          "money cheat"
+          "exploit",
+          "fails",
+          "funniest",
+          "funny moments",
+          "glitch",
+          "infinite money",
+          "menyoo",
+          "mod menu",
+          "money cheat",
+          "montage",
+          "podium",
+          "ragdoll",
+          "script hook",
+          "trainer",
+          "unlimited money",
+          "weekly update",
+          "wtf"
         ],
         "tutorial": true,
         "evidence_terms": [
@@ -1100,7 +915,838 @@
           "wallet",
           "bank"
         ],
-        "_evidence_note": "The AI must describe the concrete proof on screen (e.g. 'HUD cash goes from $1,200 to $3,600 after opening the safe'). A posted Money Tip (2026-11-21) was mostly a bike chase with vague cash lines."
+        "_evidence_note": "The AI must describe the concrete proof on screen (e.g. 'HUD cash goes from $1,200 to $3,600 after opening the safe'). A posted Money Tip (2026-11-21) was mostly a bike chase with vague cash lines.",
+        "streams": false,
+        "providers": [
+          "local",
+          "extra_urls",
+          "youtube",
+          "dailymotion"
+        ],
+        "_rotation_note": "Back in the rotation (owner 2026-11-25)."
+      },
+      {
+        "id": "police_wanted",
+        "name": "GTA 6 police & wanted levels explained",
+        "kind": "gameplay",
+        "calm_ok": true,
+        "allow_narrated": true,
+        "continuous": true,
+        "streams": false,
+        "providers": [
+          "local",
+          "extra_urls",
+          "youtube",
+          "dailymotion"
+        ],
+        "brief": "How the police and the wanted level work in GTA 6, shown in this footage: what raises the stars, what the icons under the stars mean (what the police know: weapon, clothes, car, camera footage), and how to lose them. Each line explains one thing the viewer can see happening, in 'you' form. Our narrator replaces any voice in the footage: if someone in the video explains something, you can use what they say (their voice is muted), but only facts the picture backs up. Never invent numbers, prices, locations or names - say them only if they are on screen or said in the footage.",
+        "banner_example": "HOW TO LOSE 5 STARS IN GTA 6",
+        "title_example": "GTA 6 Wanted Level Explained: How To Escape The Police",
+        "queries": [
+          "GTA 6 wanted level explained",
+          "GTA 6 how to lose the cops",
+          "GTA 6 police system gameplay",
+          "GTA 6 wanted level no commentary",
+          "GTA 6 escape police guide"
+        ],
+        "title_terms": [
+          "wanted",
+          "police",
+          "cops",
+          "stars",
+          "escape",
+          "lose the cops",
+          "explained"
+        ],
+        "blocked_title_terms": [
+          "ragdoll",
+          "trainer",
+          "menyoo",
+          "script hook",
+          "cheat",
+          "mod menu",
+          "compilation",
+          "funny moments",
+          "funniest",
+          "fails",
+          "montage",
+          "best moments",
+          "wtf",
+          "glitch",
+          "exploit",
+          "dlc",
+          "double money",
+          "weekly update",
+          "podium"
+        ],
+        "series": "GTA 6 Police Guide",
+        "keywords": "GTA 6 wanted level, how to lose the police",
+        "hashtags": [
+          "#GTA6Tips",
+          "#GTA6Police"
+        ],
+        "allowed_title_terms": [
+          "explained"
+        ]
+      },
+      {
+        "id": "easter_eggs",
+        "name": "GTA 6 easter eggs",
+        "kind": "gameplay",
+        "calm_ok": true,
+        "allow_narrated": true,
+        "continuous": true,
+        "streams": false,
+        "providers": [
+          "local",
+          "extra_urls",
+          "youtube",
+          "dailymotion"
+        ],
+        "brief": "One or more real GTA 6 easter eggs / hidden references in the world (old GTA characters, jokes on signs, secret scenes), shown in the footage: what it is, where it is, and why it's a reference. Never story spoilers. Our narrator replaces any voice in the footage: if someone in the video explains something, you can use what they say (their voice is muted), but only facts the picture backs up. Never invent numbers, prices, locations or names - say them only if they are on screen or said in the footage.",
+        "banner_example": "GTA 6 EASTER EGG YOU MISSED",
+        "title_example": "GTA 6 Easter Egg Most Players Missed",
+        "queries": [
+          "GTA 6 easter eggs",
+          "GTA 6 easter egg location",
+          "GTA 6 hidden easter eggs gameplay",
+          "GTA 6 secret easter egg"
+        ],
+        "title_terms": [
+          "easter egg",
+          "easter eggs",
+          "hidden",
+          "secret",
+          "reference",
+          "location"
+        ],
+        "blocked_title_terms": [
+          "ragdoll",
+          "trainer",
+          "menyoo",
+          "script hook",
+          "cheat",
+          "mod menu",
+          "compilation",
+          "funny moments",
+          "funniest",
+          "fails",
+          "montage",
+          "best moments",
+          "wtf",
+          "glitch",
+          "exploit",
+          "dlc",
+          "double money",
+          "weekly update",
+          "podium"
+        ],
+        "series": "GTA 6 Easter Eggs",
+        "keywords": "GTA 6 easter eggs, hidden details",
+        "hashtags": [
+          "#GTA6EasterEggs",
+          "#GTA6Secrets"
+        ]
+      },
+      {
+        "id": "beginner_tips",
+        "name": "GTA 6 beginner tips",
+        "kind": "gameplay",
+        "calm_ok": true,
+        "allow_narrated": true,
+        "continuous": true,
+        "streams": false,
+        "providers": [
+          "local",
+          "extra_urls",
+          "youtube",
+          "dailymotion"
+        ],
+        "brief": "Practical GTA 6 tips for new players that this footage shows being used (banking cash, Focus Mode, phone apps, auto drive, avoiding witnesses, saving money): one tip per line, what to do and why it helps. Our narrator replaces any voice in the footage: if someone in the video explains something, you can use what they say (their voice is muted), but only facts the picture backs up. Never invent numbers, prices, locations or names - say them only if they are on screen or said in the footage.",
+        "banner_example": "GTA 6 TIP NOBODY TELLS YOU",
+        "title_example": "GTA 6 Beginner Tips You Need To Know",
+        "queries": [
+          "GTA 6 beginner tips",
+          "GTA 6 tips and tricks",
+          "GTA 6 things to do first",
+          "GTA 6 beginners guide",
+          "GTA 6 tips you need to know"
+        ],
+        "title_terms": [
+          "tips",
+          "tricks",
+          "beginner",
+          "guide",
+          "first",
+          "need to know"
+        ],
+        "blocked_title_terms": [
+          "ragdoll",
+          "trainer",
+          "menyoo",
+          "script hook",
+          "cheat",
+          "mod menu",
+          "compilation",
+          "funny moments",
+          "funniest",
+          "fails",
+          "montage",
+          "best moments",
+          "wtf",
+          "glitch",
+          "exploit",
+          "dlc",
+          "double money",
+          "weekly update",
+          "podium"
+        ],
+        "series": "GTA 6 Tips",
+        "keywords": "GTA 6 beginner tips, tips and tricks",
+        "hashtags": [
+          "#GTA6Tips",
+          "#GTA6Guide"
+        ]
+      },
+      {
+        "id": "best_cars",
+        "name": "GTA 6 best cars",
+        "kind": "gameplay",
+        "calm_ok": true,
+        "allow_narrated": true,
+        "continuous": true,
+        "streams": false,
+        "providers": [
+          "local",
+          "extra_urls",
+          "youtube",
+          "dailymotion"
+        ],
+        "brief": "The best car(s) shown in this footage: its name (only if the game shows it or someone says it), class, what makes it good (speed, handling, off-road) and where or how you get it if the footage shows that. Not a crash video - show the car itself. Our narrator replaces any voice in the footage: if someone in the video explains something, you can use what they say (their voice is muted), but only facts the picture backs up. Never invent numbers, prices, locations or names - say them only if they are on screen or said in the footage.",
+        "banner_example": "THE FASTEST CAR IN GTA 6",
+        "title_example": "GTA 6 Fastest Car: Where To Find It",
+        "queries": [
+          "GTA 6 best cars",
+          "GTA 6 fastest car",
+          "GTA 6 best car location",
+          "GTA 6 supercar gameplay",
+          "GTA 6 car showcase"
+        ],
+        "title_terms": [
+          "best car",
+          "fastest car",
+          "fastest",
+          "supercar",
+          "car location",
+          "cars"
+        ],
+        "blocked_title_terms": [
+          "ragdoll",
+          "trainer",
+          "menyoo",
+          "script hook",
+          "cheat",
+          "mod menu",
+          "compilation",
+          "funny moments",
+          "funniest",
+          "fails",
+          "montage",
+          "best moments",
+          "wtf",
+          "glitch",
+          "exploit",
+          "dlc",
+          "double money",
+          "weekly update",
+          "podium"
+        ],
+        "series": "GTA 6 Cars",
+        "keywords": "GTA 6 best cars, fastest car",
+        "hashtags": [
+          "#GTA6Cars",
+          "#GTA6"
+        ]
+      },
+      {
+        "id": "robberies",
+        "name": "GTA 6 robbery guide",
+        "kind": "gameplay",
+        "calm_ok": true,
+        "allow_narrated": true,
+        "continuous": true,
+        "streams": false,
+        "providers": [
+          "local",
+          "extra_urls",
+          "youtube",
+          "dailymotion"
+        ],
+        "brief": "How a GTA 6 robbery works, shown in this footage (store, gas station, jewelry store, armored truck or bank - never a story heist or mission): how to start it, what to watch for (alarms, cameras, guards), what you get and how to get away. Step by step, in 'you' form. Our narrator replaces any voice in the footage: if someone in the video explains something, you can use what they say (their voice is muted), but only facts the picture backs up. Never invent numbers, prices, locations or names - say them only if they are on screen or said in the footage.",
+        "banner_example": "HOW TO ROB A STORE IN GTA 6",
+        "title_example": "GTA 6 Robbery Guide: How To Rob A Store And Get Away",
+        "queries": [
+          "GTA 6 robbery guide",
+          "GTA 6 how to rob a store",
+          "GTA 6 store robbery gameplay",
+          "GTA 6 bank robbery",
+          "GTA 6 jewelry store robbery"
+        ],
+        "title_terms": [
+          "robbery",
+          "rob",
+          "robbing",
+          "bank",
+          "store",
+          "jewelry",
+          "armored"
+        ],
+        "blocked_title_terms": [
+          "ragdoll",
+          "trainer",
+          "menyoo",
+          "script hook",
+          "cheat",
+          "mod menu",
+          "compilation",
+          "funny moments",
+          "funniest",
+          "fails",
+          "montage",
+          "best moments",
+          "wtf",
+          "glitch",
+          "exploit",
+          "dlc",
+          "double money",
+          "weekly update",
+          "podium"
+        ],
+        "series": "GTA 6 Robbery Guide",
+        "keywords": "GTA 6 robbery guide, how to rob a store",
+        "hashtags": [
+          "#GTA6Tips",
+          "#GTA6Money"
+        ]
+      },
+      {
+        "id": "what_happens_if",
+        "name": "What happens if... in GTA 6",
+        "kind": "gameplay",
+        "calm_ok": true,
+        "allow_narrated": true,
+        "continuous": true,
+        "streams": false,
+        "providers": [
+          "local",
+          "extra_urls",
+          "youtube",
+          "dailymotion"
+        ],
+        "brief": "'What happens if you ... in GTA 6?': line 1 asks the question, the footage shows the answer (the action and its result - the police reaction, what you lose, how NPCs react). Explain the result clearly. Only questions this footage really answers. Our narrator replaces any voice in the footage: if someone in the video explains something, you can use what they say (their voice is muted), but only facts the picture backs up. Never invent numbers, prices, locations or names - say them only if they are on screen or said in the footage.",
+        "banner_example": "WHAT HAPPENS IF YOU DIE IN GTA 6?",
+        "title_example": "GTA 6: What Happens If You Get Wasted?",
+        "queries": [
+          "GTA 6 what happens if",
+          "GTA 6 what happens when you",
+          "GTA 6 what happens if you die",
+          "GTA 6 what happens if you get arrested"
+        ],
+        "title_terms": [
+          "what happens if",
+          "what happens when",
+          "happens"
+        ],
+        "blocked_title_terms": [
+          "ragdoll",
+          "trainer",
+          "menyoo",
+          "script hook",
+          "cheat",
+          "mod menu",
+          "compilation",
+          "funny moments",
+          "funniest",
+          "fails",
+          "montage",
+          "best moments",
+          "wtf",
+          "glitch",
+          "exploit",
+          "dlc",
+          "double money",
+          "weekly update",
+          "podium"
+        ],
+        "series": "GTA 6 What Happens If",
+        "keywords": "GTA 6 what happens if",
+        "hashtags": [
+          "#GTA6",
+          "#GTA6Tips"
+        ]
+      },
+      {
+        "id": "hidden_weapons",
+        "name": "GTA 6 hidden weapons",
+        "kind": "gameplay",
+        "calm_ok": true,
+        "allow_narrated": true,
+        "continuous": true,
+        "streams": false,
+        "providers": [
+          "local",
+          "extra_urls",
+          "youtube",
+          "dailymotion"
+        ],
+        "brief": "Where to find a weapon in GTA 6 that this footage shows (a hidden pickup, weapon case, unique weapon): the place, how to get there, and what the weapon is good for. Only places the footage really shows. Our narrator replaces any voice in the footage: if someone in the video explains something, you can use what they say (their voice is muted), but only facts the picture backs up. Never invent numbers, prices, locations or names - say them only if they are on screen or said in the footage.",
+        "banner_example": "FREE WEAPON MOST PLAYERS MISS",
+        "title_example": "GTA 6 Hidden Weapon Location You Don't Want To Miss",
+        "queries": [
+          "GTA 6 hidden weapon location",
+          "GTA 6 secret weapon",
+          "GTA 6 free weapons location",
+          "GTA 6 unique weapon location",
+          "GTA 6 weapon locations guide"
+        ],
+        "title_terms": [
+          "weapon",
+          "weapons",
+          "gun",
+          "location",
+          "hidden",
+          "secret",
+          "unique"
+        ],
+        "blocked_title_terms": [
+          "ragdoll",
+          "trainer",
+          "menyoo",
+          "script hook",
+          "cheat",
+          "mod menu",
+          "compilation",
+          "funny moments",
+          "funniest",
+          "fails",
+          "montage",
+          "best moments",
+          "wtf",
+          "glitch",
+          "exploit",
+          "dlc",
+          "double money",
+          "weekly update",
+          "podium"
+        ],
+        "series": "GTA 6 Weapons",
+        "keywords": "GTA 6 hidden weapons, weapon locations",
+        "hashtags": [
+          "#GTA6Weapons",
+          "#GTA6Tips"
+        ]
+      },
+      {
+        "id": "fastest_money",
+        "name": "GTA 6 fastest money",
+        "kind": "gameplay",
+        "calm_ok": true,
+        "allow_narrated": true,
+        "continuous": true,
+        "streams": false,
+        "providers": [
+          "local",
+          "extra_urls",
+          "youtube",
+          "dailymotion"
+        ],
+        "brief": "The fastest way to make money in GTA 6 that this footage shows: what to do, where, how long it takes and what it pays (amounts only if the cash number is on screen or said). Never glitches, exploits or story spoilers. Only call it a money method if the footage shows the money arriving. Our narrator replaces any voice in the footage: if someone in the video explains something, you can use what they say (their voice is muted), but only facts the picture backs up. Never invent numbers, prices, locations or names - say them only if they are on screen or said in the footage.",
+        "banner_example": "FASTEST MONEY IN GTA 6",
+        "title_example": "GTA 6 Fastest Money Right Now",
+        "queries": [
+          "GTA 6 fastest money",
+          "GTA 6 best way to make money",
+          "GTA 6 money guide",
+          "GTA 6 fast money method",
+          "GTA 6 how to get rich"
+        ],
+        "title_terms": [
+          "money",
+          "cash",
+          "fastest",
+          "rich",
+          "earn",
+          "payout",
+          "make money"
+        ],
+        "blocked_title_terms": [
+          "ragdoll",
+          "trainer",
+          "menyoo",
+          "script hook",
+          "cheat",
+          "mod menu",
+          "compilation",
+          "funny moments",
+          "funniest",
+          "fails",
+          "montage",
+          "best moments",
+          "wtf",
+          "glitch",
+          "exploit",
+          "dlc",
+          "double money",
+          "weekly update",
+          "podium"
+        ],
+        "series": "GTA 6 Fastest Money",
+        "keywords": "GTA 6 fastest money, how to make money fast",
+        "hashtags": [
+          "#GTA6Money",
+          "#GTA6Tips"
+        ],
+        "must_show": "the player actually EARNING money: the cash / money counter on the HUD going up, a payout / sale / reward screen, or picking up cash. Stealing, crashing or destroying things without getting paid on screen does NOT count",
+        "must_show_short": "money being earned on screen",
+        "evidence_terms": [
+          "$",
+          "cash",
+          "money",
+          "dollar",
+          "paid",
+          "payout",
+          "earn",
+          "sold",
+          "sale",
+          "reward",
+          "counter",
+          "wallet",
+          "bank"
+        ],
+        "tutorial": true
+      },
+      {
+        "id": "didnt_know",
+        "name": "Things you didn't know in GTA 6",
+        "kind": "gameplay",
+        "calm_ok": true,
+        "allow_narrated": true,
+        "continuous": true,
+        "streams": false,
+        "providers": [
+          "local",
+          "extra_urls",
+          "youtube",
+          "dailymotion"
+        ],
+        "brief": "A GTA 6 mechanic or detail most players don't know, shown in this footage (e.g. disarming instead of killing, police using camera footage, cars with electronic locks, calling your partner): what it is, how to use it, why it matters. Our narrator replaces any voice in the footage: if someone in the video explains something, you can use what they say (their voice is muted), but only facts the picture backs up. Never invent numbers, prices, locations or names - say them only if they are on screen or said in the footage.",
+        "banner_example": "YOU DIDN'T KNOW GTA 6 DOES THIS",
+        "title_example": "GTA 6: Things You Didn't Know You Could Do",
+        "queries": [
+          "GTA 6 things you didn't know",
+          "GTA 6 things you didn't know you could do",
+          "GTA 6 hidden mechanics",
+          "GTA 6 details you missed"
+        ],
+        "title_terms": [
+          "didn't know",
+          "did not know",
+          "you can",
+          "mechanics",
+          "details",
+          "hidden"
+        ],
+        "blocked_title_terms": [
+          "ragdoll",
+          "trainer",
+          "menyoo",
+          "script hook",
+          "cheat",
+          "mod menu",
+          "compilation",
+          "funny moments",
+          "funniest",
+          "fails",
+          "montage",
+          "best moments",
+          "wtf",
+          "glitch",
+          "exploit",
+          "dlc",
+          "double money",
+          "weekly update",
+          "podium"
+        ],
+        "series": "GTA 6 Did You Know",
+        "keywords": "GTA 6 things you didn't know, hidden mechanics",
+        "hashtags": [
+          "#GTA6Tips",
+          "#GTA6"
+        ]
+      },
+      {
+        "id": "map_secrets",
+        "name": "GTA 6 map secrets",
+        "kind": "gameplay",
+        "calm_ok": true,
+        "allow_narrated": true,
+        "continuous": true,
+        "streams": false,
+        "providers": [
+          "local",
+          "extra_urls",
+          "youtube",
+          "dailymotion"
+        ],
+        "brief": "A secret or hidden place on the GTA 6 map that this footage shows (hidden areas, interiors, viewpoints, unusual spots in Leonida): what it is, where it is and what you can do there. Never story spoilers. Our narrator replaces any voice in the footage: if someone in the video explains something, you can use what they say (their voice is muted), but only facts the picture backs up. Never invent numbers, prices, locations or names - say them only if they are on screen or said in the footage.",
+        "banner_example": "SECRET PLACE ON THE GTA 6 MAP",
+        "title_example": "GTA 6 Secret Location Most Players Never Find",
+        "queries": [
+          "GTA 6 secret locations",
+          "GTA 6 map secrets",
+          "GTA 6 hidden places",
+          "GTA 6 secret area",
+          "GTA 6 places you missed"
+        ],
+        "title_terms": [
+          "secret",
+          "location",
+          "locations",
+          "hidden",
+          "map",
+          "place",
+          "area"
+        ],
+        "blocked_title_terms": [
+          "ragdoll",
+          "trainer",
+          "menyoo",
+          "script hook",
+          "cheat",
+          "mod menu",
+          "compilation",
+          "funny moments",
+          "funniest",
+          "fails",
+          "montage",
+          "best moments",
+          "wtf",
+          "glitch",
+          "exploit",
+          "dlc",
+          "double money",
+          "weekly update",
+          "podium"
+        ],
+        "series": "GTA 6 Map Secrets",
+        "keywords": "GTA 6 secret locations, map secrets",
+        "hashtags": [
+          "#GTA6Secrets",
+          "#GTA6Map"
+        ]
+      },
+      {
+        "id": "top5_funny",
+        "name": "Top 5 funniest moments",
+        "kind": "gameplay",
+        "countdown": 5,
+        "brief": "The 5 funniest moments in the footage: fails, ragdolls, NPC reactions, chaos, dumb luck. Funny and a bit of roasting, every item ends on a punchline.",
+        "banner_example": "TOP 5 FUNNIEST GTA 6 MOMENTS",
+        "title_example": "Top 5 FUNNIEST Moments In GTA 6",
+        "queries": [
+          "GTA 6 funny moments",
+          "GTA 6 funniest moments",
+          "GTA 6 fails",
+          "GTA 6 funny fails",
+          "GTA 6 NPC reactions",
+          "GTA 6 ragdoll physics",
+          "GTA 6 best moments"
+        ],
+        "title_terms": [
+          "funny",
+          "funniest",
+          "fail",
+          "fails",
+          "ragdoll",
+          "npc",
+          "moments"
+        ],
+        "series": "GTA 6 Funniest Moments",
+        "keywords": "GTA 6 funny moments, fails",
+        "hashtags": [
+          "#GTA6Funny",
+          "#GTA6Fails"
+        ],
+        "slot_only": true,
+        "_retired_note": "Out of the rotation (owner 2026-11-25): the channel makes informative videos - money, cars, easter eggs, tips, robberies, weapons, police, map secrets. Crash / funny / compilation formats made 'bro' narration over footage with nothing to explain."
+      },
+      {
+        "id": "car_chases",
+        "name": "Fast car chases",
+        "kind": "gameplay",
+        "brief": "High-speed car and police chases: near misses, crashes, cops boxing you in, wanted stars, the escape. Fast and tense, react like you're in the passenger seat and point out what the cops do and how the driver gets away.",
+        "banner_example": "THIS GTA 6 CHASE IS INSANE",
+        "title_example": "This GTA 6 Police Chase Went CRAZY",
+        "queries": [
+          "GTA 6 police chase",
+          "GTA 6 car chase",
+          "GTA 6 high speed chase",
+          "GTA 6 cop chase",
+          "GTA 6 wanted level chase",
+          "GTA 6 5 star wanted level",
+          "GTA 6 getaway"
+        ],
+        "title_terms": [
+          "chase",
+          "pursuit",
+          "police",
+          "cops",
+          "wanted",
+          "getaway",
+          "escape"
+        ],
+        "series": "GTA 6 Car Chases",
+        "keywords": "GTA 6 police chase, car chase",
+        "hashtags": [
+          "#GTA6PoliceChase",
+          "#GTA6Cars"
+        ],
+        "slot_only": true,
+        "_retired_note": "Out of the rotation (owner 2026-11-25): the channel makes informative videos - money, cars, easter eggs, tips, robberies, weapons, police, map secrets. Crash / funny / compilation formats made 'bro' narration over footage with nothing to explain."
+      },
+      {
+        "id": "top5_things_to_do",
+        "calm_ok": true,
+        "name": "Top 5 things to do in GTA 6",
+        "kind": "gameplay",
+        "countdown": 5,
+        "brief": "5 fun things a player can actually do in the open world (activities, vehicles, side stuff, shops, wildlife, mechanics), told in 'you' form so viewers want to try them. Compare with GTA 5 when the difference is obvious on screen.",
+        "banner_example": "5 THINGS TO DO IN GTA 6",
+        "title_example": "5 Things You NEED To Try In GTA 6",
+        "queries": [
+          "GTA 6 things to do",
+          "GTA 6 things you can do",
+          "GTA 6 crazy things you can do",
+          "GTA 6 free roam gameplay",
+          "GTA 6 open world gameplay",
+          "GTA 6 activities",
+          "GTA 6 side activities"
+        ],
+        "title_terms": [
+          "things to do",
+          "things you can do",
+          "free roam",
+          "open world",
+          "activities"
+        ],
+        "series": "GTA 6 Things To Do",
+        "keywords": "GTA 6 things to do, free roam",
+        "hashtags": [
+          "#GTA6Tips",
+          "#GTA6Gameplay"
+        ],
+        "slot_only": true,
+        "_retired_note": "Out of the rotation (owner 2026-11-25): the channel makes informative videos - money, cars, easter eggs, tips, robberies, weapons, police, map secrets. Crash / funny / compilation formats made 'bro' narration over footage with nothing to explain."
+      },
+      {
+        "id": "secrets",
+        "calm_ok": true,
+        "name": "Secrets and hidden details",
+        "kind": "gameplay",
+        "brief": "Hidden details, easter eggs and secret mechanics in the WORLD that most players miss ('you probably walked past this'). Never story secrets or plot. Only claim what you can actually see.",
+        "banner_example": "GTA 6 SECRETS YOU MISSED",
+        "title_example": "GTA 6 Secrets You Probably MISSED",
+        "queries": [
+          "GTA 6 secrets no commentary",
+          "GTA 6 hidden details no commentary",
+          "GTA 6 easter eggs no commentary",
+          "GTA 6 small details gameplay no commentary",
+          "GTA 6 free roam details 4K no commentary",
+          "GTA 6 easter egg gameplay"
+        ],
+        "title_terms": [
+          "secret",
+          "secrets",
+          "hidden",
+          "easter egg",
+          "easter eggs",
+          "details",
+          "missed",
+          "no commentary"
+        ],
+        "series": "GTA 6 Secrets",
+        "keywords": "GTA 6 secrets, hidden details, easter eggs",
+        "hashtags": [
+          "#GTA6Secrets",
+          "#GTA6EasterEggs"
+        ],
+        "slot_only": true,
+        "_retired_note": "Out of the rotation (owner 2026-11-25): the channel makes informative videos - money, cars, easter eggs, tips, robberies, weapons, police, map secrets. Crash / funny / compilation formats made 'bro' narration over footage with nothing to explain."
+      },
+      {
+        "id": "stunts_crashes",
+        "name": "Crazy stunts and crashes",
+        "kind": "gameplay",
+        "brief": "The wildest stunts, jumps and crashes: big air, bikes, flips, brutal physics. Hype the build-up, then react to the landing or the crash.",
+        "banner_example": "GTA 6 CRASH PHYSICS ARE BRUTAL",
+        "title_example": "GTA 6 Crash Physics Are INSANE",
+        "queries": [
+          "GTA 6 stunts",
+          "GTA 6 crazy stunts",
+          "GTA 6 car crashes",
+          "GTA 6 crash physics",
+          "GTA 6 jumps",
+          "GTA 6 bike stunts"
+        ],
+        "title_terms": [
+          "stunt",
+          "stunts",
+          "crash",
+          "crashes",
+          "jump",
+          "jumps",
+          "physics"
+        ],
+        "series": "GTA 6 Stunts",
+        "keywords": "GTA 6 stunts, crashes, physics",
+        "hashtags": [
+          "#GTA6Stunts",
+          "#GTA6Physics"
+        ],
+        "slot_only": true,
+        "_retired_note": "Out of the rotation (owner 2026-11-25): the channel makes informative videos - money, cars, easter eggs, tips, robberies, weapons, police, map secrets. Crash / funny / compilation formats made 'bro' narration over footage with nothing to explain."
+      },
+      {
+        "id": "stream_reactions",
+        "slot_only": true,
+        "_slot_only_note": "Owner 2026-11-24: narrated videos only in the rotation, so every scheduled video can go to Instagram (raw streamer clips stay off it - 'not original' flag of 2026-11-20). Still made by format=stream_reactions on a manual run, and streamer clips remain the fallback when a narrated video fails.",
+        "name": "Funniest streamer reactions",
+        "kind": "stream",
+        "brief": "A streamer's funniest or wildest reaction to something that happens in GTA 6. Set up what's about to happen, then let the reaction land.",
+        "banner_example": "HE WAS NOT READY FOR THIS",
+        "title_example": "Streamer Was NOT Ready For This GTA 6 Moment",
+        "queries": [
+          "GTA 6 stream highlights",
+          "GTA 6 funniest stream moments",
+          "GTA 6 streamer funny moments",
+          "GTA 6 stream rage",
+          "GTA 6 twitch clips",
+          "GTA 6 stream fails"
+        ],
+        "title_terms": [
+          "funny",
+          "funniest",
+          "rage",
+          "fails",
+          "highlights"
+        ],
+        "series": "GTA 6 Streamer Moments",
+        "keywords": "GTA 6 streamer funny reactions",
+        "hashtags": [
+          "#GTA6Stream",
+          "#GTA6Funny"
+        ],
+        "_retired_note": "Out of the rotation (owner 2026-11-25): the channel makes informative videos - money, cars, easter eggs, tips, robberies, weapons, police, map secrets. Crash / funny / compilation formats made 'bro' narration over footage with nothing to explain."
       },
       {
         "id": "trending",
@@ -1117,7 +1763,9 @@
         "hashtags": [
           "#GTA6Tips",
           "#GTA6Gameplay"
-        ]
+        ],
+        "slot_only": true,
+        "_retired_note": "Out of the rotation (owner 2026-11-25): the channel makes informative videos - money, cars, easter eggs, tips, robberies, weapons, police, map secrets. Crash / funny / compilation formats made 'bro' narration over footage with nothing to explain."
       }
     ]
   },
@@ -1143,8 +1791,8 @@
     "max_closing_words": 14
   },
   "fallback": {
-    "_note": "A video slot that posted nothing posts the most viral famous-streamer clip instead (owner 2026-11-21). The run only starts it while less than max_elapsed_min have passed (job timeout 120 min).",
-    "stream_clip_on_fail": true,
+    "_note": "A video slot that posted nothing used to post the most viral famous-streamer clip instead (owner 2026-11-21). OFF since 2026-11-25: the owner took funny / streamer clips out.",
+    "stream_clip_on_fail": false,
     "max_elapsed_min": 80,
     "min_left_min": 8
   },
@@ -1326,7 +1974,6 @@
     "replays": 3,
     "intro_sting": true,
     "music_volume": 0.07,
-    "_approval_note": "Long videos are never auto-published: after QA passes they wait for the owner (download from Artifacts, then upload by hand or run the workflow with slot approve_long).",
     "download_workers": 4,
     "rotation": [
       "moments"

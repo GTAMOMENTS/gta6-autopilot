@@ -51,6 +51,17 @@ on:
         default: auto
         options:
           - auto
+          - money_tips
+          - police_wanted
+          - easter_eggs
+          - beginner_tips
+          - best_cars
+          - robberies
+          - what_happens_if
+          - hidden_weapons
+          - fastest_money
+          - didnt_know
+          - map_secrets
           - top5_funny
           - car_chases
           - top5_things_to_do

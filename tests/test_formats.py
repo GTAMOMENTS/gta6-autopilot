@@ -49,7 +49,8 @@ MONEY_SLOT = {"time": "01:40", "type": "money_clip", "format": "money_tips", "pl
 
 def test_video_b_is_normal_rotation_now(cfg, slots):
     assert "format" not in slots["video_b"]
-    assert formats.current_format(cfg, slots["video_b"])["id"] != "money_tips", "slot_only format never in rotation"
+    ids = [x["id"] for x in formats._rotation(cfg)]
+    assert formats.current_format(cfg, slots["video_b"])["id"] in ids, "Video B takes the next format of the rotation"
 
 
 def test_money_slot_always_money_tips_and_topics_rotate(cfg, slots):
@@ -100,14 +101,25 @@ def test_format_env_overrides_everything(cfg, slots, monkeypatch):
 
 # --------------------------------------------------------------------------- Video A rotation
 
-def test_rotation_is_narrated_only_and_has_trending(cfg):
-    """Owner 2026-11-24: two videos a day on every platform - raw streamer clips can't go to Instagram ('not
-    original' flag), so the rotation makes narrated videos only. The formats still exist for manual runs."""
+def test_rotation_is_the_informative_channel(cfg):
+    """Owner 2026-11-25: "quality is bad, video is nonsense, just bro" - the channel makes informative Shorts
+    (money, police, easter eggs, tips, cars, robberies, what happens if, weapons, fastest money, things you didn't
+    know, map secrets). Crash / funny / streamer / generic formats are out of the rotation but still exist."""
     ids = [x["id"] for x in formats._rotation(cfg)]
-    assert "money_tips" not in ids and "stream_reactions" not in ids
-    assert "trending" in ids
+    assert ids == ["money_tips", "police_wanted", "easter_eggs", "beginner_tips", "best_cars", "robberies",
+                   "what_happens_if", "hidden_weapons", "fastest_money", "didnt_know", "map_secrets"]
+    for old in ("top5_funny", "car_chases", "stunts_crashes", "trending", "top5_things_to_do", "secrets",
+                "stream_reactions"):
+        assert old not in ids and formats.format_by_id(old, cfg), f"{old}: out of the rotation, still callable"
     assert formats.format_by_id("MONEY_TIPS", cfg)["id"] == "money_tips", "lookup ignores case"
-    assert formats.format_by_id("stream_reactions", cfg)["kind"] == "stream"
+    for f in formats._rotation(cfg):
+        assert f["kind"] == "gameplay" and f["streams"] is False and f["allow_narrated"] and f["continuous"]
+        assert "x_accounts" not in f["providers"] and "twitch" not in f["providers"]
+        blocked = f["blocked_title_terms"]
+        for word in ("ragdoll", "trainer", "cheat", "compilation", "funny moments", "glitch"):
+            assert word in blocked, f"{f['id']} must block '{word}'"
+        title = "gta 6 - grand theft auto vi gameplay (gta vi)"
+        assert not [t for t in blocked if t in title], "a block word must never match a real GTA 6 title"
 
 
 def test_every_video_slot_posts_everywhere_and_long_publishes_itself(cfg, slots):
@@ -169,6 +181,7 @@ def test_stream_reactions_becomes_trending_when_streams_quiet(cfg, slots):
 
 
 def test_no_trend_data_skips_trending(cfg, slots):
+    formats.format_by_id("trending", cfg)["slot_only"] = False  # out of the rotation since 2026-11-25; still works
     save_trends([], [])
     set_next("trending", cfg)
     a = formats.current_format(cfg, slots["vertical_clip"])

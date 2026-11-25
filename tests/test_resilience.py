@@ -219,11 +219,15 @@ def test_a_single_item_answer_from_gemini_is_used(monkeypatch):
     assert seen == [1], "with two clips one item can't be the whole answer - the backups are asked"
 
 
-def test_titles_that_promise_talking_or_missions_rank_last():
+def test_guides_rank_up_and_crash_funny_titles_get_no_boost():
+    """Owner 2026-11-25: informative channel. Guides with a YouTuber talking are fine (those formats mute the voice);
+    crash / funny / ragdoll words add nothing; story missions (spoilers) rank down."""
     import source_fetcher as sf
     f = sf.TitleFilter(common.load_config())
     plain = f.bonus("GTA 6 free roam gameplay no commentary")
-    assert f.bonus("20+ GTA 6 Hidden Tricks & Secrets I Wish I Knew Earlier") < 0 < plain
+    assert f.bonus("GTA 6 money guide - how to make money fast") > 0
+    assert f.bonus("20+ GTA 6 Hidden Tricks & Secrets I Wish I Knew Earlier") > 0
+    assert f.bonus("GTA 6 crazy ragdoll physics funniest fails") <= 0
     assert f.bonus("GTA 6: Full Military Base Heist (No Commentary)") < plain
 
 
@@ -250,3 +254,30 @@ def test_calm_shots_are_dropped_from_a_tour():
 def test_the_editor_is_told_no_walking_shots():
     import gemini_writer
     assert "NEVER a shot of someone just walking" in gemini_writer.TOUR_PROMPT
+
+
+def test_informative_formats_search_only_gameplay_videos(cfg, monkeypatch):
+    """No X crash clips, Twitch clips or streamer videos for the informative formats - only YouTube / Dailymotion
+    gameplay; "wanted level explained" is allowed for the police guide ("explained" is blocked elsewhere)."""
+    import formats
+    import source_fetcher as sf
+    calls = []
+    monkeypatch.setattr(sf, "discover_x_accounts", lambda *a, **k: calls.append("x") or [])
+    monkeypatch.setattr(sf, "discover_twitch", lambda *a, **k: calls.append("twitch") or [])
+    monkeypatch.setattr(sf, "discover_dailymotion", lambda c, q, tf: calls.append("dailymotion") or [])
+    monkeypatch.setattr(sf, "discover_local", lambda: [])
+    monkeypatch.setattr(sf, "discover_extra_urls", lambda c: [])
+    seen = {}
+
+    def yt(c, queries, tf, kind="gameplay"):
+        calls.append(f"youtube:{kind}")
+        seen["tf"] = tf
+        return []
+    monkeypatch.setattr(sf, "discover_youtube", yt)
+    cfg["sources"]["providers"] = ["local", "extra_urls", "x_accounts", "twitch", "dailymotion", "youtube"]
+    sf.discover(cfg, {"sources": {}, "items": []}, fmt=formats.format_by_id("police_wanted", cfg))
+    assert sorted(calls) == ["dailymotion", "youtube:gameplay"], calls
+    assert seen["tf"].check("GTA 6 wanted level explained - how to lose the cops")[0]
+    calls.clear()
+    sf.discover(cfg, {"sources": {}, "items": []}, fmt=formats.format_by_id("easter_eggs", cfg))
+    assert not seen["tf"].check("GTA 6 easter eggs explained")[0], "other formats keep 'explained' blocked"

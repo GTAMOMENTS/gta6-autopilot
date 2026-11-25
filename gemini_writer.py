@@ -356,20 +356,21 @@ TASKS
    - scene_summary: one sentence on exactly what happens in the part you pick.
 2. EDIT - pick the single best continuous part, {min_len} to {max_len} seconds long:
    - clip_start / clip_end in seconds of THIS footage ({duration} s long).
-   - NO STORY SPOILERS: never pick a story cutscene or plot moment; pick exciting or funny gameplay.
+   - NO STORY SPOILERS: never pick a story cutscene or plot moment; pick the part that shows the format's topic
+     most clearly.
    - Start 1-2 seconds BEFORE the action kicks in, so the first seconds already hook. End right after the
      payoff (crash, escape, punchline, reveal). Skip dialogue-only, walking and loading parts.
    - Motion/loudness analysis says the most intense parts are around: {hints}. Use it as a hint only.
    - payoff_t: the second of THIS footage where the single biggest moment happens (the crash, the jump
      landing, the punchline). The video opens with a 1-second flash of it, and it gets a zoom + sound effect.
 3. WRITE THE NARRATION SCRIPT for the part you picked. A voice actor reads it over the clip, so it must be a
-   GREAT script like the top GTA Shorts channels (millions of views): a likeable 25-year-old gamer talking
-   straight to the viewer, casual and confident, a bit funny, genuinely hyped - NOT an announcer, NOT a
-   documentary narrator, NOT a list of random reactions. It flows like one story:
-     HOOK (first 2 s, creates curiosity: "This guy really thought the beach was a road.") ->
-     CONTEXT (what's going on, what he's trying to do) -> BUILD-UP (tension: cops closing in, the ramp
-     coming up) -> PAYOFF (react to the crash / escape / punchline right when it happens) ->
-     a cool detail or a GTA 5 comparison you can SEE on screen -> ENDING question that makes people comment.
+   GREAT script like the top GTA tips & guides Shorts channels (millions of views): a clear, confident guide
+   who knows the game, talking straight to the viewer - NOT an announcer, NOT a comedian, NOT a list of random
+   reactions. It flows like one explanation:
+     HOOK (first 2 s, the useful promise: "This is the fastest way to lose the cops in GTA 6.") ->
+     CONTEXT (what you are seeing) -> HOW IT WORKS (what to do, step by step, at the moment it happens) ->
+     PAYOFF (the result: what you get / what happens) -> a useful detail or a GTA 5 comparison you can SEE on
+     screen -> ENDING question that makes people comment.
    content_type (one of):
      "explainer" = a secret, easter egg, hidden detail or new mechanic that needs context
      "action"    = chase, shootout, crash, stunt, heist, chaos
@@ -381,14 +382,15 @@ TASKS
    - Line 1 at t=clip_start is the HOOK (max 12 words). The last line, about 4 seconds before clip_end, is
      the question. Put each line's t where the thing it talks about happens on screen. Leave enough time for
      each line: the next t must be at least (words in this line / 2.7) seconds later.
-   - Use spoken English: contractions, "bro", "nah", "watch this part", "I'm dead serious", rhetorical
-     questions, a joke now and then. Exclamation marks where he'd really get loud.
+   - VOICE: a clear, confident guide who knows the game - spoken English with contractions and short
+     sentences, friendly, never slang like "bro" / "nah", never roasting or mocking the player. Each line tells
+     the viewer something useful: what is happening, how it works, where it is, what you get, what to avoid.
    - banner: max 6 words, ALL CAPS, makes people NEED to see what happens. No emojis.
    - Every line must be about something SPECIFIC in this clip. BANNED filler: "Rockstar cooked", "this game
      is insane", "the detail is unreal", "look at that", "wait for it", "next level" - unless tied to a
      concrete thing on screen. Never just describe the obvious ("He drives the truck to the beach") - add
-     the feeling, the joke or the why ("He took a pickup to the beach like the cops wouldn't notice. They
-     noticed."). No emojis, hashtags or stage directions. Say "GTA 6", never "GTA VI", at most twice.
+     the useful part: how, where or why ("Stolen cars get reported fast - change cars before the cops see
+     you."). No emojis, hashtags or stage directions. Say "GTA 6", never "GTA VI", at most twice.
      Never invent facts - if unsure what something means, react to it instead of explaining it.
    PACKAGING - people find Shorts by SEARCHING: search words first, and promise only what this clip shows.
    {seo_note}
@@ -444,11 +446,10 @@ TASKS
 2. CHOOSE THE ANGLE (like the top GTA shorts with millions of views). If THIS VIDEO'S FORMAT is given above,
    follow it; otherwise pick the angle below that fits this footage best.
    NO STORY SPOILERS: never pick story cutscenes or plot moments, never mention plot, characters' fates or
-   mission outcomes. Prefer exciting and funny free-roam moments.
+   mission outcomes. Prefer free-roam gameplay that shows the format's topic clearly.
      "top_moments" - "Top 5 craziest / funniest moments in GTA 6. Number five..." (3 to 5 numbered items)
      "listicle" - "Here's 5 crazy things you can do in GTA 6 that you could never do in GTA 5. Number one..."
                   (3 to 5 numbered items, each shown with 1-2 shots)
-     "funny_moments" - a fast run of the funniest fails, NPC reactions and chaos, with jokes
      "how_it_works" - one mechanic explained step by step in "you" form, like a guide:
                   "If you rob a store in GTA 6 the way you did in GTA 5, the police can be waiting outside..."
      "first_look" - a personal tour of the coolest things in the footage: "Let me show you what it's really like."
@@ -457,21 +458,21 @@ TASKS
    - "line" = what the narrator says while that shot plays. The shot lasts exactly as long as its line,
      so each line is 1-3 short spoken sentences (8 to 30 words). All lines together: 160-220 words
      (about 60-80 seconds). The narrator talks the whole time - but EVERY sentence must tell the viewer
-     something useful, new or funny. Never filler.
+     something useful or new. Never filler, never jokes with no information.
    - Every shot shows something DIFFERENT (a mechanic, vehicle, animal, fight, shop, NPC reaction, funny
      detail). Never two shots of the same thing. The first shot is the most eye-catching one.
    - Every shot shows something HAPPENING (a crash, chase, fight, stunt, funny NPC reaction, a feature being
      used). NEVER a shot of someone just walking, standing, roaming around or driving calmly - the narrator
      would have nothing to talk about. If the footage has fewer than 5 such moments, say so with a low hype_score.
-   - VOICE: a real, likeable gamer talking to his viewers - casual, confident, a little funny ("I'm dead
-     serious", "trust me", "see this?", "that's literally Bonnie and Clyde"). Compare with GTA 5 when the
-     difference is obvious on screen. Read on-screen prompts, menus and HUD text to explain mechanics
-     correctly. NEVER announcer lines like "Watch this X!" and never empty hype like "Rockstar cooked"
-     without saying WHY.
-   - Line 1 is the hook that states the angle (e.g. the listicle promise, or "GTA 6 is finally out and it's
-     insane. Let me show you what it's really like.").
+   - VOICE: a clear, confident guide who knows the game - friendly spoken English, one useful fact per line
+     (how it works, where it is, what you get, what to avoid). Never slang like "bro", never roasting or
+     joking at the player's expense. Compare with GTA 5 when the difference is obvious on screen. Read
+     on-screen prompts, menus and HUD text to explain mechanics correctly. NEVER announcer lines like "Watch
+     this X!" and never empty hype like "Rockstar cooked" without saying WHY.
+   - Line 1 is the hook that states the useful promise this footage pays off (e.g. "This is the fastest way to
+     lose a five-star wanted level in GTA 6.").
    - Around the middle, a retention line ("But wait till you see what happens when you carry a gun.").
-   - The last line ends with a light joke or a question that makes people comment.
+   - The last line is a short question that makes people comment.
    - Only claim what you can actually see or hear. If you're not sure how something works, say what you see
      ("looks like...") instead of inventing facts. Say "GTA 6", never "GTA VI". No emojis, hashtags,
      stage directions or "[Number one]" brackets.
@@ -696,9 +697,9 @@ def finalize_commentary(copy: dict, start: float, end: float) -> list[dict]:
 RESCUE_PROMPT = """Write the voiceover for a {length:.0f}-second GTA 6 short.
 What happens: {summary}
 Banner on screen: {banner}. Type: {ctype}.
-You are a likeable 25-year-old gamer narrating this clip to your viewers like a top GTA Shorts channel:
-casual, confident, a bit funny, genuinely hyped. {amount} It flows like one story: hook -> what's going on ->
-build-up -> react to the payoff -> ending question.
+You are a clear, confident guide who knows the game, narrating this clip like a top GTA tips Shorts channel:
+friendly spoken English, one useful fact per line, never slang like "bro". {amount} It flows like one explanation:
+hook (the useful promise) -> what you are seeing -> how it works -> the result -> ending question.
 Line 1 at t=0 is a hook (max 12 words) that creates curiosity about what's about to happen.
 The last line, about 4 seconds before the end, is a short question or call to action.
 Every line must be about something specific in this clip - no generic filler like "Rockstar cooked".
@@ -967,13 +968,13 @@ def _clean_copy(d: dict, clip_dur: float = 48) -> dict:
 # --------------------------------------------------------------------------- fallback copy
 
 _HOOKS = [
-    "Bro, GTA 6 is actually insane!", "Okay, this is NOT normal!", "Wait for it...",
+    "GTA 6 is full of details like this.", "Okay, this is NOT normal!", "Wait for it...",
     "Rockstar did NOT hold back!", "Nobody was ready for this!", "This is GTA 6?! No way!",
     "Watch this. Just watch.", "Vice City is wild, man!",
 ]
 _REACTIONS = [
     "NO WAY!", "Look at that!", "Oh my god, the physics!", "He's not stopping!", "Rockstar cooked!",
-    "That's crazy!", "Bro, the detail on this!", "This looks like a movie!", "Did you see that?!",
+    "That's crazy!", "Look at the detail on this!", "This looks like a movie!", "Did you see that?!",
     "Okay, that was smooth!", "This game is unreal!", "Chaos. Pure chaos!",
 ]
 _OUTROS = [
@@ -1095,7 +1096,7 @@ Return ONLY JSON: {{"text": "..."}}"""
 
 FINAL_PROMPT = """GAME FACTS (newer than your training data - trust them): {facts}
 
-You are the head writer of a top GTA 6 YouTube Shorts / TikTok channel (millions of views).
+You are the head writer of a top GTA 6 tips & guides YouTube Shorts / TikTok channel (millions of views).
 WATCH THE WHOLE VIDEO ABOVE FIRST, with the sound, from the first to the last second. Then write the narration for
 the WHOLE video.
 
@@ -1104,25 +1105,26 @@ Format: {fmt}
 Banner on screen: "{banner}" | Title: "{title}"
 Notes from the editor (may be wrong - trust what you watched): {summary}
 {dialogue}
-Write it like the best GTA Shorts creators:
-- ONE story that makes sense from start to finish: hook -> what is going on -> build-up -> the payoff -> a reaction
-  -> a question. Every line follows from the line before; someone who only HEARS the narration understands what
-  happened and why it is worth watching
+Write it like the best GTA guide creators:
+- ONE clear explanation from start to finish: hook (the useful promise) -> what you are seeing -> how it works /
+  what to do -> the payoff (what you get, the result) -> a question. Every line follows from the line before;
+  someone who only HEARS the narration learns something they can use in their own game
 - the first line is a hook that THIS video really pays off. Never promise anything the video doesn't show (no "how
   to steal a car" if no car gets stolen). If the video doesn't show the format's topic, write about what it DOES
   show (honesty beats the topic) and give a new banner and title that this video delivers
 - every line talks about what is happening at ITS moment in the video (you watched it - use the real timeline)
-- ENTERTAINING like the top creators - this is what makes people watch to the end and share:
-  * comedy: set-up -> punchline; roast the character's terrible decisions; give bystanders / NPCs an inner voice;
-    exaggerate; deadpan understatement; a call-back to an earlier line; at least one laugh every two lines
-  * the biggest laugh or the craziest beat lands right before the closing question
-  * hype / drama for chases and stunts: build tension, then react to the payoff like you can't believe it
-  * NEVER a dry list of what is on screen: "running across the road toward a pickup truck" is a bad line;
-    "He had one job: park the scooter. He chose war." / "The tourists paid for a relaxing vacation. They got
-    Jason." / "Crime reported? Officer, he's just exploring the dock... at forty miles an hour." are good lines
-    (examples of the style - never copy them)
-  * short, punchy, spoken English - like talking to a friend, not reading a description
-- talk about Jason / Lucia / "he" / "she" / "this guy" - never pretend to be the player ("I tried...", "my car")
+- USEFUL like the top guide creators - this is what makes people watch to the end, save and share:
+  * every line gives ONE concrete fact or tip about what is on screen at its moment: how it works, where it is,
+    what you get, what it costs, what to avoid, how it differs from GTA 5
+  * the most useful or surprising fact lands right before the closing question
+  * NEVER a dry list of what is on screen ("running across the road toward a pickup truck" is a bad line) and
+    NEVER jokes, roasts or hype with no information ("He chose war", "absolute chaos", "bro" - all bad).
+    Good lines: "Rob the register first - the safe in the back only opens after the alarm is off." / "Those
+    icons under your stars show what the cops know: your clothes, your car, even camera footage." / "Change
+    your outfit and the police lose your description." (examples of the style - never copy them)
+  * clear, confident, friendly spoken English - like a friend who knows the game explaining it, never slang
+    like "bro" or "nah"
+- talk to the viewer ("you") or about Jason / Lucia - never pretend to be the player ("I tried...", "my car")
 - {numbering}
 - vary the words (don't repeat the same noun in every line); say "GTA 6" at most once
 - {amount}
@@ -1137,8 +1139,9 @@ ONE_SHAPE = """Return ONLY JSON: {{"story": "one sentence: what really happens i
 "text": str}}], "banner": "4-7 word banner this video delivers (or the current one)", "title": "YouTube title this
 video delivers, with GTA 6 in it (or the current one)"}}"""
 
-MANY_SHAPE = """Write {n} DIFFERENT complete scripts for this video, each with its own angle (1: roast / comedy,
-2: hype / disbelief, 3: deadpan / understatement) - each must be good enough to post on its own.
+MANY_SHAPE = """Write {n} DIFFERENT complete scripts for this video, each with its own angle (1: step-by-step guide,
+2: the surprising fact first, 3: the mistake most players make -> how to do it right) - each must be good enough to
+post on its own.
 Return ONLY JSON: {{"story": "one sentence: what really happens in this video", "scripts": [{{"angle": str,
 "lines": [{{"t": seconds, "text": str}}], "banner": "4-7 word banner this video delivers", "title": "YouTube title
 this video delivers, with GTA 6 in it"}}]}}"""

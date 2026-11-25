@@ -563,6 +563,18 @@ def unsafe_title_penalty(title: str) -> float:
     return 0.0
 
 
+def _format_filter(cfg: dict, fmt: dict | None) -> TitleFilter:
+    """The normal filter; a format's allowed_title_terms lift those global blocked words for it (the police guide
+    needs "wanted level explained" videos - "explained" is blocked for news / analysis talk)."""
+    allowed = {t.lower() for t in (fmt or {}).get("allowed_title_terms", [])}
+    if not allowed:
+        return TitleFilter(cfg)
+    c2 = json.loads(json.dumps(cfg))
+    c2["sources"]["blocked_title_terms"] = [t for t in cfg.get("sources", {}).get("blocked_title_terms", [])
+                                            if t.lower() not in allowed]
+    return TitleFilter(c2)
+
+
 def _stream_filter(cfg: dict) -> TitleFilter:
     """Like the normal filter, but streams/reactions are allowed (that's the point)."""
     s = cfg.get("sources", {})
@@ -585,10 +597,12 @@ def discover(cfg: dict, manifest: dict, kind: str | None = None, fmt: dict | Non
     if env("SOURCE_PROVIDERS").strip():  # manual test runs: only these providers
         providers = [p.strip() for p in env("SOURCE_PROVIDERS").split(",") if p.strip()]
         log.info("[sources] providers limited to %s for this run", providers)
+    if (fmt or {}).get("providers"):  # informative formats: YouTube / Dailymotion gameplay only (no X / Twitch clips)
+        providers = [p for p in providers if p in fmt["providers"]]
     kind = (fmt or {}).get("kind") or kind or pick_kind(cfg)
     log.info("[sources] content type this run: %s%s", kind.upper(),
              f" | format: {fmt['name']}" if fmt else "")
-    tf, stf = TitleFilter(cfg), _stream_filter(cfg)
+    tf, stf = _format_filter(cfg, fmt), _stream_filter(cfg)
     n = int(s.get("queries_per_run", 4))
     g_all, s_all = s.get("search_queries", ["GTA 6 gameplay"]), s.get("stream_search_queries", [])
     if fmt and fmt.get("queries"):
@@ -602,6 +616,8 @@ def discover(cfg: dict, manifest: dict, kind: str | None = None, fmt: dict | Non
     prefer_min = int(s.get("tour", {}).get("whole_video_min_sec", 150)) if (fmt or {}).get("countdown") else 0
     g_queries = random.sample(g_all, k=min(len(g_all), n))
     s_queries = random.sample(s_all, k=min(len(s_all), max(2, n // 2)))
+    if (fmt or {}).get("streams") is False:  # no streamer clips as a backup either (owner 2026-11-25)
+        s_queries = []
 
     gameplay: list[Candidate] = []
     stream: list[Candidate] = []
@@ -614,7 +630,7 @@ def discover(cfg: dict, manifest: dict, kind: str | None = None, fmt: dict | Non
             gameplay += discover_x_accounts(cfg, tf)
         except Exception as exc:  # noqa: BLE001 - a broken X page must never stop the run
             log.warning("[sources] X accounts failed: %.200s", exc)
-    if "twitch" in providers:
+    if "twitch" in providers and (fmt or {}).get("streams") is not False:
         stream += discover_twitch(cfg, stf)
     if "dailymotion" in providers:
         gameplay += discover_dailymotion(cfg, g_queries, tf)

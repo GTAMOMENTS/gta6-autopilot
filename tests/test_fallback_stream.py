@@ -14,6 +14,8 @@ import trends
 
 @pytest.fixture
 def run_main(monkeypatch, cfg):
+    # the owner switched the fallback off on 2026-11-25 (no streamer clips); the switch itself must still work
+    cfg["fallback"]["stream_clip_on_fail"] = True
     monkeypatch.setattr(music, "ensure_tracks", lambda: 0)
     monkeypatch.setattr(trends, "refresh", lambda: None)
     monkeypatch.setattr(analytics, "refresh_stats", lambda: None)
@@ -35,6 +37,11 @@ def run_main(monkeypatch, cfg):
         monkeypatch.setattr(sys, "argv", ["autopilot.py", "--slot", "vertical_clip"])
         return autopilot.main()
     return go, seen
+
+
+def test_the_fallback_is_off_in_config():
+    import common
+    assert common.load_config()["fallback"]["stream_clip_on_fail"] is False, "owner 2026-11-25: no streamer clips"
 
 
 def test_failed_video_posts_a_stream_clip(run_main):

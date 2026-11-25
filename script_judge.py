@@ -5,7 +5,8 @@ starts with how to steal a car yet it never steals it, unfunny, not compelling -
 picture and the edit, never the story. This judge asks only about the script:
   - does it make sense from start to finish (one story, each line follows the last)?
   - does the video deliver what the hook / banner / title promise?
-  - is it entertaining (funny / hyped / useful) - or a dry list of what is on screen?
+  - is it useful (a concrete fact / tip in every line) - or a dry list of what is on screen, or jokes / hype
+    with no information?
   - plus certain checks with no AI: broken numbering, fake first person ("I tried..."), the same word in every line,
     no closing question.
 A different AI from the writer judges (text models first: no Gemini quota, and no writer judging its own work).
@@ -26,7 +27,8 @@ just like have been were will would could should these those here only also very
 going gonna watch look gets okay right after before every some more most much make makes made guy guys dude""".split())
 NAMES = {"gta", "jason", "lucia", "leonida"}
 
-PROMPT = """You are the strict head of content of a GTA 6 YouTube Shorts / TikTok channel with millions of views.
+PROMPT = """You are the strict head of content of a GTA 6 tips & guides YouTube Shorts / TikTok channel with millions
+of views.
 Judge this narration script AS A VIEWER WHO HEARS IT. GAME FACTS: {facts}
 
 Format: {fmt}
@@ -47,8 +49,9 @@ Score it 1-10 (7 = good enough for a channel with millions of views; real top cr
   character's chaos counts as one story)?
 - does the video deliver what the first line / banner / title promise? (promising "how to steal a car" when no car
   gets stolen = 2 at most)
-- is it entertaining - funny, surprising, hyped, or genuinely useful - or a dry list of what is on screen / filler?
-  (a list of descriptions = 3 at most)
+- is it USEFUL - does every line give the viewer a concrete fact or tip about what is on screen (how it works, where,
+  what you get, what to avoid)? (a list of descriptions = 3 at most; jokes, roasts or hype with no information -
+  "bro", "absolute chaos", "he chose war" - = 4 at most)
 - natural English, no repeated words in every line, no fake first person ("I tried"), numbering correct (if any)
 
 CALIBRATION (score like this):
@@ -58,11 +61,13 @@ CALIBRATION (score like this):
 - 3/10 (hook never delivered, broken numbering, captions of frames): "You will not believe how easy it is to steal a
   cop car in GTA 6. / Number two: Opening the car trunk to check stored gear. / Number seven: Running across the sunlit
   road toward a parked pickup truck. / Would you risk your cash to save a stolen ride?"
-- 8/10 (real creator: every line a joke or a reaction, about what happens, builds to a payoff): "This man walked up
-  to the bike like he was the main character. / He was not. Ten out of ten style, zero out of ten landing. / Then he
-  picks a fight with an SUV. The SUV did not lose. / Supercar versus palm tree... the tree remains undefeated. / Could
-  you survive five minutes in Vice City without becoming a cartoon?"
-Return ONLY JSON: {{"score": number, "makes_sense": bool, "promise_kept": bool, "entertaining": bool,
+- 4/10 (jokes and hype, nothing the viewer learns): "Bro really thought he could jump that sedan. / Physics had other
+  plans. / This GTA 6 bridge chase is absolute non-stop destruction! / Would you try this?"
+- 8/10 (real guide creator: one useful fact per line, about what happens on screen, builds to a payoff): "This is the
+  fastest way to lose a wanted level in GTA 6. / See the icons under your stars? That's what the cops know - your car
+  and your clothes. / So ditch the car first, out of the cameras' view. / Then change your outfit, and the police lose
+  your description. / Two stars gone in under a minute. / What's the highest wanted level you've escaped?"
+Return ONLY JSON: {{"score": number, "makes_sense": bool, "promise_kept": bool, "useful": bool,
 "problems": [str], "best_fix": str}}"""
 
 
@@ -134,6 +139,9 @@ def static_problems(lines: list[str], numbered_ok: bool = False, countdown: int 
                 out.append(f"broken numbering {nums}: a countdown must say every number from {n} down to 1 once")
             elif nums != sorted(nums, reverse=True):
                 out.append(f"numbering out of order {nums}: count DOWN to number one")
+    slang = [t for t in texts if re.search(r"\b(bro|bruh|nah)\b", t, re.I)]
+    if slang:  # owner 2026-11-25: "video is nonsense, just bro" - the narrator is a clear guide
+        out.append(f'slang ("{slang[0][:50]}"): the narrator is a clear guide - no "bro" / "nah"')
     fp = [t for t in texts if re.search(r"\b(I|I'm|I've|I'll|I'd|my)\b", re.sub(r"(?i)\boh my\b", "", t))]
     if fp:
         out.append(f'fake first person ("{fp[0][:50]}"): the narrator talks ABOUT Jason / Lucia / the player')

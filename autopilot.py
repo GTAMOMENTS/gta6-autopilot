@@ -202,7 +202,7 @@ def run_video_slot(slot: dict, dry_run: bool, fmt: dict | None = None) -> tuple[
                        tails: list | None = None) -> list[dict] | None:
         """Owner: "the writing shall occur after the AI watched the whole video, then write a good script for the
         whole video - not frame by frame". 1) the AI watches the WHOLE video and writes ONE script; 2) a different AI
-        judges the script like a viewer (makes sense? promise kept? entertaining?); 3) the lines are checked against
+        judges the script like a viewer (makes sense? promise kept? useful?); 3) the lines are checked against
         the picture. A failure goes back to the writer (whole video + the reasons) for a NEW script. None = no
         script good enough -> next clip, before any voice / render is spent.
         items: the current lines [{"t", "text"}]; slots=True keeps their times (tours: the edit is fixed).

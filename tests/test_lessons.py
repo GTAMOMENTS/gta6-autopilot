@@ -25,16 +25,16 @@ def test_no_history_no_hints():
 
 def test_failing_format_is_rested(cfg):
     for _ in range(6):
-        lessons.record("short", "secrets", False, BAD)
-    assert lessons.should_rest("secrets")
-    assert not lessons.should_rest("car_chases")
+        lessons.record("short", "easter_eggs", False, BAD)
+    assert lessons.should_rest("easter_eggs")
+    assert not lessons.should_rest("best_cars")
     cfg["formats"]["enabled"] = True
     ids = [f["id"] for f in formats._rotation(cfg)]
-    state = {"next": ids.index("secrets"), "history": []}
+    state = {"next": ids.index("easter_eggs"), "history": []}
     formats.save_json(formats.ROTATION_FILE, state)
     import analytics
     analytics.format_scores = lambda: {}
-    assert formats.current_format(cfg, {"type": "vertical_clip"})["id"] != "secrets"
+    assert formats.current_format(cfg, {"type": "vertical_clip"})["id"] != "easter_eggs"
 
 
 def test_stats_line_counts_first_pass_and_repairs():
